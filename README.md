@@ -1,6 +1,6 @@
-# agent-coordinator
+# agent-swarm
 
-`agent-coordinator` is a tiny local message bus for AI agents running in
+`agent-swarm` is a tiny local message bus for AI agents running in
 separate tmux panes. Its command-line interface and message protocol are
 named `agent-msg`.
 
@@ -42,7 +42,7 @@ how to avoid mistaking another agent's message for the user.
 ## Why This Exists
 
 Multiple coding agents are useful, but they usually cannot talk to each
-other directly. `agent-coordinator` fills that gap with a local, inspectable
+other directly. `agent-swarm` fills that gap with a local, inspectable
 protocol:
 
 - A long-running server tracks registered agents and recent messages.
@@ -59,7 +59,7 @@ operator keeps full visibility.
 
 ## How It Fits
 
-`agent-coordinator` is not trying to be a project manager, task graph, workspace
+`agent-swarm` is not trying to be a project manager, task graph, workspace
 orchestrator, or mailbox product. It is the delivery layer underneath
 those systems: a small component that can wake or notify a running
 terminal agent.
@@ -83,8 +83,8 @@ See [docs/landscape.md](./docs/landscape.md) for the longer comparison.
 Requirements: Python 3.12+, `uv`, and `tmux`.
 
 ```bash
-git clone git@github.com:karansag/agent-coordinator.git
-cd agent-coordinator
+git clone git@github.com:karansag/agent-swarm.git
+cd agent-swarm
 uv tool install --editable .
 ```
 
@@ -307,8 +307,8 @@ mkdir -p ~/.codex/skills && cp -r skills/codex/agent-msg-register ~/.codex/skill
 Once installed, just tell the agent to register itself (e.g. "register
 yourself with agent-msg") instead of running the CLI by hand.
 
-The helpers assume the repo lives at `~/agent-coordinator`. If you cloned it
-somewhere else, set `AGENT_MSG_PROJECT=/path/to/agent-coordinator` in the
+The helpers assume the repo lives at `~/agent-swarm`. If you cloned it
+somewhere else, set `AGENT_MSG_PROJECT=/path/to/agent-swarm` in the
 agent's environment first.
 
 The bundled helpers register the agent with the right delivery flavor
