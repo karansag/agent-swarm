@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENT_MSG_PROJECT="${AGENT_MSG_PROJECT:-${HOME}/agent-msg}"
+AGENT_MSG_PROJECT="${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}"
 model="${CLAUDE_MODEL:-claude-code}"
 
 if [[ "${1:-}" == "--whoami" ]]; then

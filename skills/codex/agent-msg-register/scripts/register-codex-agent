@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENT_MSG_PROJECT="${AGENT_MSG_PROJECT:-${HOME}/agent-msg}"
+AGENT_MSG_PROJECT="${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}"
 model="${CODEX_MODEL:-gpt-5-codex}"
 default_instructions="Codex agent; send normal agent-msg messages. No /queue prefix is needed."
 has_instructions=0
