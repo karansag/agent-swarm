@@ -122,6 +122,44 @@ def register(
     conn.commit()
 
 
+def name_taken_by_other(
+    conn: sqlite3.Connection, user_id: str, agent_id: str | None, tmux_pane: str
+) -> bool:
+    """True when `user_id` belongs to an agent other than this one.
+
+    Identity is the agent_id when we have one, else the pane, matching how
+    `register` resolves an existing handle.
+    """
+    _ensure_columns(conn)
+    row = conn.execute(
+        "SELECT agent_id, tmux_pane FROM recipients WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if row is None:
+        return False
+    if agent_id and row["agent_id"]:
+        return row["agent_id"] != agent_id
+    return row["tmux_pane"] != tmux_pane
+
+
+def rename_recipient(conn: sqlite3.Connection, old_id: str, new_id: str) -> None:
+    """Move a handle, carrying its message history, tasks and team role along.
+
+    The handle is a bare string in four tables rather than a foreign key, so
+    every reference is rewritten in one transaction.
+    """
+    _ensure_columns(conn)
+    with conn:
+        conn.execute(
+            "UPDATE recipients SET user_id=? WHERE user_id=?", (new_id, old_id)
+        )
+        conn.execute("UPDATE messages SET sender=? WHERE sender=?", (new_id, old_id))
+        conn.execute(
+            "UPDATE messages SET recipient=? WHERE recipient=?", (new_id, old_id)
+        )
+        conn.execute("UPDATE tasks SET assignee=? WHERE assignee=?", (new_id, old_id))
+        conn.execute("UPDATE teams SET queen=? WHERE queen=?", (new_id, old_id))
+
+
 def _ensure_columns(conn: sqlite3.Connection) -> None:
     """Add new optional columns to pre-existing DBs."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(recipients)")}

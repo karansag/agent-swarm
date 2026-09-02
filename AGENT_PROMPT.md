@@ -199,9 +199,14 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 
 - `GET  /health` — sanity check.
 - `POST /register` — body:
-  `{tmux_pane, agent_id?, model?, flavor?, instructions?, message_prefix?, submit_key?}`.
-  Response includes the assigned `user_id` and a `protocol_brief`
-  string.
+  `{tmux_pane, agent_id?, requested_user?, model?, flavor?, instructions?,
+  message_prefix?, submit_key?}`.
+  Response includes the `user_id` and a `protocol_brief` string.
+  `requested_user` asks for a specific handle: it is granted when free,
+  400 when malformed or reserved, and 409 when another agent holds it.
+  Omit it to get one from the name pool (`assigned: true` says the server
+  chose). An already-registered agent that requests a different handle is
+  renamed, and the response reports `renamed_from`.
 - `GET  /recipients` — list registered agents.
 - `POST /send` — body: `{tmux_pane, recipient, content, context?}`.
   Returns `{ok, message_id, delivered_to_pane, delivery_error}`.

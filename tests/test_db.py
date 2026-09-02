@@ -102,3 +102,30 @@ def test_connect_adds_worktree_to_existing_tasks_table(tmp_path):
     migrated = db.connect(path)
     cols = {row[1] for row in migrated.execute("PRAGMA table_info(tasks)")}
     assert "worktree" in cols
+
+
+def test_rename_recipient_moves_handle_and_references(tmp_path):
+    conn = db.connect(tmp_path / "t.sqlite")
+    db.register(conn, "dormouse", "0:0.0", agent_id="a1")
+    db.register(conn, "stoat", "0:1.0", agent_id="a2")
+    db.record_message(conn, "dormouse", "stoat", None, "out", True, None)
+    db.record_message(conn, "stoat", "dormouse", None, "in", True, None)
+    task_id = db.create_task(conn, "t", assignee="dormouse")["id"]
+
+    db.rename_recipient(conn, "dormouse", "jax")
+
+    assert db.get_recipient(conn, "dormouse") is None
+    assert db.get_recipient(conn, "jax")["agent_id"] == "a1"
+    senders = {m["sender"] for m in db.fetch_messages(conn)}
+    recipients = {m["recipient"] for m in db.fetch_messages(conn)}
+    assert "jax" in senders and "dormouse" not in senders
+    assert "jax" in recipients and "dormouse" not in recipients
+    assert db.get_task(conn, task_id)["assignee"] == "jax"
+
+
+def test_name_taken_by_other_distinguishes_self_from_peer(tmp_path):
+    conn = db.connect(tmp_path / "t.sqlite")
+    db.register(conn, "jax", "0:0.0", agent_id="a1")
+    assert db.name_taken_by_other(conn, "jax", "a1", "0:0.0") is False
+    assert db.name_taken_by_other(conn, "jax", "a2", "0:1.0") is True
+    assert db.name_taken_by_other(conn, "unused", "a2", "0:1.0") is False

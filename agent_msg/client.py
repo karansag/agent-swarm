@@ -1,6 +1,7 @@
 """Tiny CLI client. Usage:
 
-    agent-msg register [--pane Y] [--flavor NAME] [--instructions TXT] [--message-prefix TXT]
+    agent-msg register [--pane Y] [--name HANDLE] [--flavor NAME] [--instructions TXT]
+                       [--message-prefix TXT]
     agent-msg send --to Y [--context CTX] --message MSG
     agent-msg messages [--user X] [--limit N]
     agent-msg recipients
@@ -48,6 +49,8 @@ def cmd_register(args: argparse.Namespace) -> int:
         )
         return 2
     payload: dict = {"tmux_pane": pane}
+    if args.name:
+        payload["requested_user"] = args.name
     if args.agent_id:
         payload["agent_id"] = args.agent_id
     if args.model:
@@ -175,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
 
     reg = sub.add_parser("register")
     reg.add_argument("--pane")
+    reg.add_argument(
+        "--name",
+        help="preferred handle; granted when free, 409 when another agent holds it "
+        "(default: server picks from the name pool)",
+    )
     reg.add_argument(
         "--agent-id",
         help="stable session identifier (e.g. conversation UUID); used as real identity",

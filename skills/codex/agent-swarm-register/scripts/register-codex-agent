@@ -18,7 +18,7 @@ extra_args=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --agent-id|--pane|--instructions|--message-prefix|--submit-key|--model)
+    --agent-id|--pane|--name|--instructions|--message-prefix|--submit-key|--model)
       if [[ $# -lt 2 ]]; then
         echo "error: $1 requires a value" >&2
         exit 2
@@ -37,8 +37,8 @@ while [[ $# -gt 0 ]]; do
       echo "error: this helper always registers Codex agents with --flavor codex" >&2
       exit 2
       ;;
-    --user|--name|--handle)
-      echo "error: agent names are assigned by the server; do not pass $1" >&2
+    --user|--handle)
+      echo "error: use --name to request a handle" >&2
       exit 2
       ;;
     *)
@@ -52,7 +52,7 @@ if [[ "$has_instructions" -eq 0 ]]; then
   extra_args+=(--instructions "$default_instructions")
 fi
 
-args=(register --model "$model" --flavor codex "${extra_args[@]}")
+args=(register --model "$model" --flavor codex ${extra_args[@]+"${extra_args[@]}"})
 
 if command -v agent-msg >/dev/null 2>&1; then
   exec agent-msg "${args[@]}"

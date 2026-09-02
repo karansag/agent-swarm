@@ -44,6 +44,12 @@ class RegisterReq(BaseModel):
         description="Stable session identifier (e.g. Claude conversation UUID). "
         "This is the agent's 'real' identity across model changes.",
     )
+    requested_user: str | None = Field(
+        default=None,
+        description="Preferred handle. Granted when it is free and well-formed; "
+        "a handle held by another agent is a 409 rather than a silent "
+        "reassignment. Omit to let the server pick from the name pool.",
+    )
     model: str | None = Field(
         default=None,
         description="Model label for telemetry only (e.g. 'claude-opus-4-7'). "
@@ -321,14 +327,49 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     @app.post("/register")
     def register(req: RegisterReq):
-        user_id = None
+        existing_id = None
         if req.agent_id:
-            user_id = db.lookup_user_by_agent_id(conn, req.agent_id)
-        if user_id is None:
-            user_id = db.lookup_user_by_pane(conn, req.tmux_pane)
-        if user_id is None:
+            existing_id = db.lookup_user_by_agent_id(conn, req.agent_id)
+        if existing_id is None:
+            existing_id = db.lookup_user_by_pane(conn, req.tmux_pane)
+
+        requested = None
+        if req.requested_user is not None:
+            try:
+                requested = names.normalize_requested(req.requested_user)
+            except names.InvalidName as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": str(e), "requested_user": req.requested_user},
+                ) from e
+            if db.name_taken_by_other(conn, requested, req.agent_id, req.tmux_pane):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "name already taken by another agent",
+                        "requested_user": requested,
+                    },
+                )
+
+        renamed_from = None
+        if requested is not None:
+            # Honor the request, moving an already-registered agent's history
+            # over when it is asking for a different handle than it holds.
+            if existing_id is not None and existing_id != requested:
+                db.rename_recipient(conn, existing_id, requested)
+                renamed_from = existing_id
+            user_id = requested
+        elif existing_id is not None:
+            user_id = existing_id
+        else:
             user_id = names.pick_unused(conn)
-        flavor = req.flavor or tmux.infer_flavor(req.model)
+        # A re-register that omits both model and flavor must not downgrade a
+        # known harness to 'generic': the write COALESCEs, but only over NULL,
+        # so fall back to what is already stored before defaulting.
+        current = db.get_recipient(conn, user_id)
+        flavor = req.flavor or (tmux.infer_flavor(req.model) if req.model else None)
+        if flavor is None:
+            flavor = (current["flavor"] if current else None) or tmux.infer_flavor(None)
         submit_key = req.submit_key or tmux.submit_key_for_flavor(flavor)
         db.register(
             conn,
@@ -358,7 +399,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             "submit_key": (
                 registered["submit_key"] if registered and registered["submit_key"] else tmux.DEFAULT_SUBMIT_KEY
             ),
-            "assigned": True,
+            "assigned": requested is None,
+            "requested_user": requested,
+            "renamed_from": renamed_from,
             "protocol_brief": _protocol_brief(user_id, peers),
         }
 

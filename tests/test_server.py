@@ -808,3 +808,120 @@ def test_reassigning_task_notifies_new_assignee(client):
     # status-only updates don't re-notify
     client.patch(f"/tasks/{tid}", json={"status": "picked_up"})
     assert len(client._calls) == n_calls + 1
+
+
+def test_register_grants_a_free_requested_name(client):
+    r = client.post(
+        "/register",
+        json={
+            "tmux_pane": "0:0.0",
+            "agent_id": "agent-jax",
+            "model": "claude-opus-4-7",
+            "requested_user": "jax",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user_id"] == "jax"
+    assert body["requested_user"] == "jax"
+    assert body["renamed_from"] is None
+    # `assigned` means "the server chose this handle", not "a handle was given".
+    assert body["assigned"] is False
+    assert body["status_title"] == "agent-msg: jax (claude)"
+
+
+def test_register_normalizes_requested_name(client):
+    body = client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "requested_user": "  JAX  "},
+    ).json()
+    assert body["user_id"] == "jax"
+
+
+def test_register_rejects_malformed_requested_name(client):
+    for bad in ("has space", "-leading", "Ünicode", "", "x" * 33):
+        r = client.post(
+            "/register", json={"tmux_pane": "0:0.0", "requested_user": bad}
+        )
+        assert r.status_code == 400, bad
+
+
+def test_register_rejects_reserved_requested_name(client):
+    r = client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "owner"})
+    assert r.status_code == 400
+    assert "reserved" in r.json()["detail"]["error"]
+
+
+def test_register_conflicts_when_another_agent_holds_the_name(client):
+    client.post(
+        "/register", json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"}
+    )
+    r = client.post(
+        "/register",
+        json={"tmux_pane": "0:1.0", "agent_id": "a2", "requested_user": "jax"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["requested_user"] == "jax"
+
+
+def test_register_is_idempotent_for_the_same_agent_and_name(client):
+    first = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"}
+    ).json()
+    second = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"}
+    ).json()
+    assert first["user_id"] == second["user_id"] == "jax"
+    assert second["renamed_from"] is None
+
+
+def test_requesting_a_name_renames_an_existing_agent(client):
+    first = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "agent_id": "a1"}
+    ).json()
+    assert first["assigned"] is True
+    second = client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"},
+    ).json()
+    assert second["user_id"] == "jax"
+    assert second["renamed_from"] == first["user_id"]
+    handles = [r["user_id"] for r in client.get("/recipients").json()["recipients"]]
+    assert "jax" in handles
+    assert first["user_id"] not in handles
+
+
+def test_rename_carries_message_history(client):
+    old = client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "a1"}).json()
+    client.post("/register", json={"tmux_pane": "0:1.0", "agent_id": "a2"})
+    peer = [
+        r["user_id"]
+        for r in client.get("/recipients").json()["recipients"]
+        if r["user_id"] != old["user_id"]
+    ][0]
+    client.post(
+        "/send",
+        json={"tmux_pane": "0:0.0", "recipient": peer, "content": "before rename"},
+    )
+    client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"},
+    )
+    messages = client.get("/messages").json()["messages"]
+    senders = {m["sender"] for m in messages}
+    assert "jax" in senders
+    assert old["user_id"] not in senders
+
+
+def test_reregister_without_model_keeps_stored_flavor_in_pane_title(client):
+    client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "agent_id": "a1", "model": "claude-opus-4-7"},
+    )
+    body = client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"},
+    ).json()
+    assert body["flavor"] == "claude"
+    assert body["status_title"] == "agent-msg: jax (claude)"
+    assert client._pane_titles[-1] == ("0:0.0", "agent-msg: jax (claude)")

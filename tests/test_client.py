@@ -138,6 +138,7 @@ def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
 
     args = Namespace(
         pane=None,
+        name=None,
         agent_id=None,
         model=None,
         flavor=None,
@@ -202,3 +203,32 @@ def test_cmd_task_create_files_task(monkeypatch, capsys):
         "depends_on": [3, 5],
     }
     assert capsys.readouterr().out == '{"ok": true, "task": {"id": 8}}\n'
+
+
+def test_cmd_register_sends_requested_name(monkeypatch, capsys):
+    captured = {}
+
+    def fake_post(url, json, timeout):
+        captured["json"] = json
+        return SimpleNamespace(text='{"ok": true}', is_success=True)
+
+    monkeypatch.setattr(client, "current_pane", lambda: "session-a:9.0")
+    monkeypatch.setattr(client.httpx, "post", fake_post)
+
+    args = Namespace(
+        pane=None,
+        name="jax",
+        agent_id=None,
+        model=None,
+        flavor=None,
+        instructions=None,
+        message_prefix=None,
+        submit_key=None,
+    )
+
+    assert client.cmd_register(args) == 0
+    assert captured["json"] == {
+        "tmux_pane": "session-a:9.0",
+        "requested_user": "jax",
+    }
+    capsys.readouterr()

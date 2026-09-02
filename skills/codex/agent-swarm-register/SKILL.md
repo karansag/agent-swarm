@@ -32,7 +32,11 @@ If the user provides an explicit stable session id, pass it with `--agent-id`. D
 
 ## Rules
 
-- Do not choose a display name or pass a requested name. The server assigns the name.
+- Do not invent a display name. The server assigns one from its pool by default.
+- If the user asks for a specific handle, pass it with `--name`. A free,
+  well-formed handle (1-32 chars, lowercase letters/digits/hyphens) is granted;
+  one held by another agent fails with 409, and `owner` is reserved. Re-running
+  with a different `--name` renames this agent and carries its history over.
 - The helper supplies `--flavor codex` internally. Do not pass `--flavor`; the helper rejects flavor overrides.
 - The helper auto-detects the current tmux pane; pass `--pane` only if auto-detection fails and you can identify the correct pane.
 - Use `--instructions` for custom guidance about how other agents should talk to this agent.

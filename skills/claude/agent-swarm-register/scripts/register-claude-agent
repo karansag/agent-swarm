@@ -16,7 +16,7 @@ extra_args=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --agent-id|--pane|--instructions|--message-prefix|--submit-key|--model)
+    --agent-id|--pane|--name|--instructions|--message-prefix|--submit-key|--model)
       if [[ $# -lt 2 ]]; then
         echo "error: $1 requires a value" >&2
         exit 2
@@ -32,8 +32,8 @@ while [[ $# -gt 0 ]]; do
       echo "error: this helper always registers Claude agents with --flavor claude" >&2
       exit 2
       ;;
-    --user|--name|--handle)
-      echo "error: agent names are assigned by the server; do not pass $1" >&2
+    --user|--handle)
+      echo "error: use --name to request a handle" >&2
       exit 2
       ;;
     *)

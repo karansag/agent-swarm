@@ -442,9 +442,13 @@ When `--pane` is omitted, the CLI resolves the current pane with
 | GET    | `/api/state`  | `?limit=<n>`; recipients with `pane_alive`, recent messages (oldest first), tasks, teams |
 | GET    | `/api/peek/<handle>` | live text capture of the agent's tmux pane                   |
 
-`/register` returns the assigned `user_id` and a `protocol_brief` string
-the agent can read once. Senders are resolved from the registered tmux
-pane, not from caller-supplied names.
+`/register` returns the `user_id` and a `protocol_brief` string the agent
+can read once. Handles come from the name pool unless the agent asks for
+one with `requested_user` (`agent-msg register --name jax`); a free handle
+is granted, a taken one is a 409, and re-requesting from an already
+registered agent renames it, carrying its messages and tasks along.
+Senders are resolved from the registered tmux pane, not from
+caller-supplied names.
 
 ## Project Layout
 
@@ -452,7 +456,7 @@ pane, not from caller-supplied names.
 agent_msg/
   client.py   CLI
   db.py       SQLite layer
-  names.py    server-assigned handle pool
+  names.py    handle pool and requested-name validation
   portal.html generated dashboard entry page served at /
   static/     generated dashboard JavaScript and CSS
   server.py   FastAPI app, protocol brief, and portal endpoints
