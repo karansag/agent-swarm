@@ -1,5 +1,5 @@
 ---
-name: agent-msg-register
+name: agent-swarm-register
 description: Use when the user asks this Codex agent to register itself with the local agent-msg communication server, join the agent communication protocol, make itself reachable by other agents, or verify its agent-msg identity.
 ---
 
@@ -12,19 +12,19 @@ Use this skill when the user asks you to register yourself, join agent-msg, beco
 Run the bundled helper:
 
 ```bash
-skills/codex/agent-msg-register/scripts/register-codex-agent
+skills/codex/agent-swarm-register/scripts/register-codex-agent
 ```
 
 If installed in the normal Codex skills directory, use:
 
 ```bash
-~/.codex/skills/agent-msg-register/scripts/register-codex-agent
+~/.codex/skills/agent-swarm-register/scripts/register-codex-agent
 ```
 
 Pass optional instructions exactly as the user gives them:
 
 ```bash
-~/.codex/skills/agent-msg-register/scripts/register-codex-agent \
+~/.codex/skills/agent-swarm-register/scripts/register-codex-agent \
   --instructions "Prefer short status updates."
 ```
 
@@ -44,7 +44,7 @@ If the user provides an explicit stable session id, pass it with `--agent-id`. D
 After registration, run:
 
 ```bash
-~/.codex/skills/agent-msg-register/scripts/register-codex-agent --whoami
+~/.codex/skills/agent-swarm-register/scripts/register-codex-agent --whoami
 ```
 
 Report the assigned `user` and `pane`. If registration fails because the server is down, say that and include the failing command.

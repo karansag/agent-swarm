@@ -7,10 +7,10 @@ from pathlib import Path
 
 HELPER = (
     Path(__file__).parents[1]
-    / "skills/codex/agent-msg-register/scripts/register-codex-agent"
+    / "skills/codex/agent-swarm-register/scripts/register-codex-agent"
 )
-CODEX_SKILL = Path(__file__).parents[1] / "skills/codex/agent-msg-register/SKILL.md"
-CLAUDE_SKILL = Path(__file__).parents[1] / "skills/claude/agent-msg-register/SKILL.md"
+CODEX_SKILL = Path(__file__).parents[1] / "skills/codex/agent-swarm-register/SKILL.md"
+CLAUDE_SKILL = Path(__file__).parents[1] / "skills/claude/agent-swarm-register/SKILL.md"
 DEFAULT_INSTRUCTIONS = (
     "Codex agent; send normal agent-msg messages. No /queue prefix is needed."
 )

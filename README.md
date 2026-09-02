@@ -294,14 +294,14 @@ set -g status-right "#{pane_title} | %H:%M"
 
 Installable skill definitions live under `skills/`:
 
-- `skills/codex/agent-msg-register`
-- `skills/claude/agent-msg-register`
+- `skills/codex/agent-swarm-register`
+- `skills/claude/agent-swarm-register`
 
-Copy the relevant skill directory into the corresponding agent home:
+Link the relevant skill directory into the corresponding agent home:
 
 ```bash
-mkdir -p ~/.claude/skills && cp -r skills/claude/agent-msg-register ~/.claude/skills/
-mkdir -p ~/.codex/skills && cp -r skills/codex/agent-msg-register ~/.codex/skills/
+mkdir -p ~/.claude/skills && ln -sfn "$PWD/skills/claude/agent-swarm-register" ~/.claude/skills/agent-swarm-register
+mkdir -p ~/.codex/skills && ln -sfn "$PWD/skills/codex/agent-swarm-register" ~/.codex/skills/agent-swarm-register
 ```
 
 Once installed, just tell the agent to register itself (e.g. "register
@@ -462,8 +462,8 @@ web/
   styles.css  dashboard styles
   src/        authored dashboard JavaScript modules
 skills/
-  codex/agent-msg-register/
-  claude/agent-msg-register/
+  codex/agent-swarm-register/
+  claude/agent-swarm-register/
 tests/
 AGENT_PROMPT.md
 ```

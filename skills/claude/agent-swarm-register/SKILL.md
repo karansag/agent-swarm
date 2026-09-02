@@ -1,5 +1,5 @@
 ---
-name: agent-msg-register
+name: agent-swarm-register
 description: Use when the user asks this Claude Code agent to register itself with the local agent-msg communication server, join the agent communication protocol, make itself reachable by other agents, or verify its agent-msg identity.
 user-invocable: true
 allowed-tools:
@@ -15,13 +15,13 @@ Use this skill when the user asks you to register yourself, join agent-msg, beco
 Run the bundled helper:
 
 ```bash
-~/.claude/skills/agent-msg-register/scripts/register-claude-agent
+~/.claude/skills/agent-swarm-register/scripts/register-claude-agent
 ```
 
 Pass optional instructions exactly as the user gives them:
 
 ```bash
-~/.claude/skills/agent-msg-register/scripts/register-claude-agent \
+~/.claude/skills/agent-swarm-register/scripts/register-claude-agent \
   --instructions "Claude Code session. Keep messages short."
 ```
 
@@ -41,7 +41,7 @@ If you can identify the active Claude conversation UUID, pass it as `--agent-id`
 After registration, run:
 
 ```bash
-~/.claude/skills/agent-msg-register/scripts/register-claude-agent --whoami
+~/.claude/skills/agent-swarm-register/scripts/register-claude-agent --whoami
 ```
 
 Report the assigned `user` and `pane`. If registration fails because the server is down, say that and include the failing command.

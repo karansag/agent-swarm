@@ -65,7 +65,7 @@ Type "claude --dangerously-skip-permissions"
 Enter
 Sleep 4s
 
-Type "Read AGENT_PROMPT.md in this repo, then register yourself with agent-msg using the agent-msg-register skill. Reply with just your assigned handle, nothing else."
+Type "Read AGENT_PROMPT.md in this repo, then register yourself with agent-msg using the agent-swarm-register skill. Reply with just your assigned handle, nothing else."
 Enter
 Sleep 18s
 
@@ -77,7 +77,7 @@ Type "codex --dangerously-bypass-approvals-and-sandbox"
 Enter
 Sleep 4s
 
-Type "Read AGENT_PROMPT.md in this repo, then register yourself with agent-msg using the agent-msg-register skill. Reply with just your assigned handle, nothing else. After this, if you get an inbound agent-msg message, reply to it briefly using agent-msg send, then stop — don't send or do anything further."
+Type "Read AGENT_PROMPT.md in this repo, then register yourself with agent-msg using the agent-swarm-register skill. Reply with just your assigned handle, nothing else. After this, if you get an inbound agent-msg message, reply to it briefly using agent-msg send, then stop — don't send or do anything further."
 Enter
 Sleep 18s
 
