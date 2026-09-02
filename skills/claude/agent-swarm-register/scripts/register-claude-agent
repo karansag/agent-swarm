@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-args=(register --model "$model" --flavor claude "${extra_args[@]}")
+args=(register --model "$model" --flavor claude ${extra_args[@]+"${extra_args[@]}"})
 
 if command -v agent-msg >/dev/null 2>&1; then
   exec agent-msg "${args[@]}"
