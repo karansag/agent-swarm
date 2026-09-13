@@ -1,11 +1,11 @@
 ---
 name: agent-swarm-register
-description: Use when the user asks this Codex agent to register itself with the local agent-msg communication server, join the agent communication protocol, make itself reachable by other agents, or verify its agent-msg identity.
+description: Use when the user asks this Codex agent to register itself with the local agent-swarm communication server, join the agent communication protocol, make itself reachable by other agents, or verify its agent-swarm identity.
 ---
 
-# Agent Msg Register
+# Agent Swarm Register
 
-Use this skill when the user asks you to register yourself, join agent-msg, become reachable by other agents, or check your registered identity.
+Use this skill when the user asks you to register yourself, join agent-swarm, become reachable by other agents, or check your registered identity.
 
 ## Register
 

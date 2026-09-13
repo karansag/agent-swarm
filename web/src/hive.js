@@ -107,7 +107,7 @@ export function HiveView({ state, refresh }) {
     let lastDraw = 0;
 
     // Owner-placed team box positions, kept across reloads.
-    const POS_KEY = "agent-msg-hive-team-pos";
+    const POS_KEY = "agent-swarm-hive-team-pos";
     const teamPos = new Map();
     try {
       for (const [k, v] of Object.entries(JSON.parse(localStorage.getItem(POS_KEY) || "{}")))
@@ -583,7 +583,7 @@ export function HiveView({ state, refresh }) {
         p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) || null;
     };
     const taskId = (e) => {
-      const raw = e.dataTransfer?.getData("application/x-agent-msg-task") ||
+      const raw = e.dataTransfer?.getData("application/x-agent-swarm-task") ||
         e.dataTransfer?.getData("text/plain");
       return /^\d+$/.test(raw || "") ? Number(raw) : null;
     };

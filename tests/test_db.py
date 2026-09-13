@@ -1,7 +1,7 @@
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
-from agent_msg import db
+from agent_swarm import db
 
 
 def test_shared_connection_concurrent_reads_and_writes(tmp_path):

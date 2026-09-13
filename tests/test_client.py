@@ -3,7 +3,7 @@ from __future__ import annotations
 from argparse import Namespace
 from types import SimpleNamespace
 
-from agent_msg import client, tmux
+from agent_swarm import client, tmux
 
 
 def test_current_pane_targets_tmux_pane_env(monkeypatch):
@@ -45,9 +45,9 @@ def test_set_pane_title_uses_tmux_select_pane(monkeypatch):
 
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
 
-    assert tmux.set_pane_title("session-a:9.0", "agent-msg: ibis") == (True, None)
+    assert tmux.set_pane_title("session-a:9.0", "agent-swarm: ibis") == (True, None)
     assert calls == [
-        ["tmux", "select-pane", "-t", "session-a:9.0", "-T", "agent-msg: ibis"]
+        ["tmux", "select-pane", "-t", "session-a:9.0", "-T", "agent-swarm: ibis"]
     ]
 
 
@@ -69,7 +69,7 @@ def _paste_calls(pane, text):
 
 class _AnyBuf(str):
     def __eq__(self, other):
-        return isinstance(other, str) and other.startswith("agent-msg-")
+        return isinstance(other, str) and other.startswith("agent-swarm-")
 
 
 ANY_BUF = _AnyBuf()
@@ -252,3 +252,15 @@ def test_offline_reason_distinguishes_gone_from_shell():
     assert tmux.offline_reason("a:0.0", existing, live) is None
     assert "bare shell" in tmux.offline_reason("a:0.1", existing, live)
     assert "no longer exists" in tmux.offline_reason("z:9.9", existing, live)
+
+
+def test_base_url_accepts_legacy_environment_name(monkeypatch):
+    monkeypatch.delenv("AGENT_SWARM_URL", raising=False)
+    monkeypatch.setenv("AGENT_MSG_URL", "http://legacy.example:9999")
+    assert client.base_url() == "http://legacy.example:9999"
+
+
+def test_base_url_prefers_new_environment_name(monkeypatch):
+    monkeypatch.setenv("AGENT_MSG_URL", "http://legacy.example:9999")
+    monkeypatch.setenv("AGENT_SWARM_URL", "http://new.example:8765")
+    assert client.base_url() == "http://new.example:8765"

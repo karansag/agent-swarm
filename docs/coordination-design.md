@@ -36,7 +36,7 @@ coordinator). The rest of this file is the discussion record.
 ## Where I push back
 
 1. **Keep the server out of git.** README's "How It Fits" positions
-   agent-msg as the delivery layer, not an orchestrator. The tasks
+   agent-swarm as the delivery layer, not an orchestrator. The tasks
    feature already stretched that; server-provisioned worktrees would
    break it. The server should never shell into repos it does not own:
    it adds failure modes (permissions, paths, half-created worktrees)
@@ -67,7 +67,7 @@ coordinator). The rest of this file is the discussion record.
   convention: branch `task/<id>-<slug>`, worktree
   `~/worktrees/<repo-name>/task-<id>`. Worker creates it when picking
   up, records both strings on the task, removes the worktree after
-  integration. Optionally a `agent-msg task-worktree <id>` helper that
+  integration. Optionally a `agent-swarm task-worktree <id>` helper that
   runs the git commands client-side; the server just stores strings.
 - **Advisory claims vs hard locks?** Advisory with expiry and overlap
   warnings (see pushback 3). Claims auto-release when their task
@@ -101,7 +101,7 @@ demands durability.
 1. `repo_runs` table: repo_path, base_commit, integration_branch,
    queen (user_id or null), lease_expires. Owner grants/revokes the
    queen lease from the dashboard or CLI. Lease renewal is a heartbeat
-   (`agent-msg queen-renew`); expiry vacates the role and notifies the
+   (`agent-swarm queen-renew`); expiry vacates the role and notifies the
    owner; durable state is untouched.
 2. Task additions: parent_id, repo_run_id, branch, worktree,
    depends_on (JSON list of task ids), and one new status:
@@ -229,7 +229,7 @@ badger's review, all accepted:
   `task-<id>` (existing rows use `task #N`) before relying on the
   `GET /messages?context=` filter.
 - **Worktree helper**: convention alone is race-prone; ship
-  `agent-msg task-worktree <id>`, which creates the worktree from the
+  `agent-swarm task-worktree <id>`, which creates the worktree from the
   repo-run's recorded base commit and atomically PATCHes branch and
   worktree onto the task. Still entirely client-side git.
 - **Integration**: rebase task branch onto integration branch, run
@@ -237,7 +237,7 @@ badger's review, all accepted:
   Failure notifies the worker and the queen; owner is paged only when
   a task is blocked after retry.
 - **Lease renewal**: implicit renewal on every authenticated
-  coordinator action, plus a cheap heartbeat (`agent-msg queen-renew`)
+  coordinator action, plus a cheap heartbeat (`agent-swarm queen-renew`)
   for quiet stretches. No explicit-only renewal: forgetting to renew
   would make expiry the common case instead of a death detector. The
   owner can demote at any time regardless of lease state.

@@ -12,16 +12,16 @@ HELPER = (
 CODEX_SKILL = Path(__file__).parents[1] / "skills/codex/agent-swarm-register/SKILL.md"
 CLAUDE_SKILL = Path(__file__).parents[1] / "skills/claude/agent-swarm-register/SKILL.md"
 DEFAULT_INSTRUCTIONS = (
-    "Codex agent; send normal agent-msg messages. No /queue prefix is needed."
+    "Codex agent; send normal agent-swarm messages. No /queue prefix is needed."
 )
 
 
 def run_helper(tmp_path: Path, *args: str) -> list[str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    agent_msg = fake_bin / "agent-msg"
-    agent_msg.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n')
-    agent_msg.chmod(0o755)
+    agent_swarm = fake_bin / "agent-swarm"
+    agent_swarm.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n')
+    agent_swarm.chmod(0o755)
     env = os.environ | {"PATH": f"{fake_bin}:{os.environ['PATH']}"}
     result = subprocess.run(
         [str(HELPER), *args],
@@ -78,9 +78,9 @@ CLAUDE_HELPER = (
 def run_claude_helper(tmp_path: Path, *args: str) -> list[str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    agent_msg = fake_bin / "agent-msg"
-    agent_msg.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n')
-    agent_msg.chmod(0o755)
+    agent_swarm = fake_bin / "agent-swarm"
+    agent_swarm.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n')
+    agent_swarm.chmod(0o755)
     env = os.environ | {"PATH": f"{fake_bin}:{os.environ['PATH']}"}
     result = subprocess.run(
         [str(CLAUDE_HELPER), *args],

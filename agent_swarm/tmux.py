@@ -46,7 +46,12 @@ FLAVOR_SUBMIT_DELAYS = {
     "codex": 0.2,
 }
 
-SUBMIT_VERIFY_DELAY = float(os.environ.get("AGENT_MSG_SUBMIT_VERIFY_DELAY", "1.5"))
+SUBMIT_VERIFY_DELAY = float(
+    os.environ.get(
+        "AGENT_SWARM_SUBMIT_VERIFY_DELAY",
+        os.environ.get("AGENT_MSG_SUBMIT_VERIFY_DELAY", "1.5"),
+    )
+)
 
 
 def _has_label_token(label: str, token: str) -> bool:
@@ -89,8 +94,8 @@ def submit_delay_for_flavor(flavor: str | None) -> float:
 def status_title(user_id: str, flavor: str | None = None) -> str:
     """Return the short label shown in tmux pane titles."""
     if flavor:
-        return f"agent-msg: {user_id} ({flavor})"
-    return f"agent-msg: {user_id}"
+        return f"agent-swarm: {user_id} ({flavor})"
+    return f"agent-swarm: {user_id}"
 
 
 def set_pane_title(pane: str, title: str) -> tuple[bool, str | None]:
@@ -177,7 +182,7 @@ def deliver(
     following submit key is unambiguous. Returns (ok, error_message_or_None).
     """
     injected = f"{message_prefix or ''}{text}"
-    buf = f"agent-msg-{os.getpid()}-{time.monotonic_ns()}"
+    buf = f"agent-swarm-{os.getpid()}-{time.monotonic_ns()}"
     try:
         subprocess.run(
             ["tmux", "load-buffer", "-b", buf, "-"],

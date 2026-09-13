@@ -19,13 +19,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import activity, db, names, tmux
 
-log = logging.getLogger("agent_msg.monitor")
+log = logging.getLogger("agent_swarm.monitor")
 
 # Default activity shown when the monitor is off or hasn't observed an agent
 # yet. The dashboard must tolerate this shape.
 UNKNOWN_ACTIVITY = {"status": "unknown", "detail": None, "since": None}
 
-DB_PATH = Path(os.environ.get("AGENT_MSG_DB", "~/.agent-msg/db.sqlite")).expanduser()
+DB_PATH = Path(
+    os.environ.get(
+        "AGENT_SWARM_DB",
+        os.environ.get("AGENT_MSG_DB", "~/.agent-swarm/db.sqlite"),
+    )
+).expanduser()
 PORTAL_PATH = Path(__file__).parent / "portal.html"
 PORTAL_STATIC_PATH = Path(__file__).parent / "static"
 
@@ -182,7 +187,7 @@ def _queen_prompt(team: dict, objective: str) -> str:
         "queen-status, that you coordinate this team for this objective and that "
         "their task coordination should route through you.\n\n"
         "Decompose the objective into concrete tasks; create and assign them to "
-        "teammates with agent-msg task-create and agent-msg task-update, and "
+        "teammates with agent-swarm task-create and agent-swarm task-update, and "
         "record ordering with --depends-on <ids> so the board shows the "
         "dependency graph. Tasks "
         "the owner assigns to the team are delivered to you: parcel them out by "
@@ -243,7 +248,7 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
         f"supply a context tag. Reply to the sender through the agent-swarm API "
         f"so the response reaches their inbox.\n"
         f"\n"
-        f"To reply or initiate, POST to /send (or use the `agent-msg send` "
+        f"To reply or initiate, POST to /send (or use the `agent-swarm send` "
         f"CLI). Currently registered peers:\n"
         f"{peer_lines}\n"
         f"\n"
@@ -258,10 +263,10 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
         f"\n"
         f"The owner can assign you tasks. They arrive as messages tagged "
         f"'task #N'. When you start one, run "
-        f"`agent-msg task-update N --status picked_up`; when you finish, "
-        f"run `agent-msg task-update N --status done`. "
-        f"List tasks anytime: `agent-msg tasks`. You can file work for the "
-        f"shared board with `agent-msg task-create \"title\"` (optionally "
+        f"`agent-swarm task-update N --status picked_up`; when you finish, "
+        f"run `agent-swarm task-update N --status done`. "
+        f"List tasks anytime: `agent-swarm tasks`. You can file work for the "
+        f"shared board with `agent-swarm task-create \"title\"` (optionally "
         f"add `--description`, `--assignee`, or `--depends-on 3,5` to record "
         f"ordering; dependencies show as a graph on the dashboard).\n"
         f"\n"
@@ -275,10 +280,20 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     conn = db.connect(db_path)
 
     # Per-agent activity state, mutated by the monitor loop and read by
-    # /api/state. Keyed by user_id; see agent_msg.activity.step for the shape.
+    # /api/state. Keyed by user_id; see agent_swarm.activity.step for the shape.
     registry: dict[str, dict] = {}
-    interval = float(os.environ.get("AGENT_MSG_MONITOR_INTERVAL", "5.0"))
-    grace = float(os.environ.get("AGENT_MSG_ATTENTION_GRACE", "60.0"))
+    interval = float(
+        os.environ.get(
+            "AGENT_SWARM_MONITOR_INTERVAL",
+            os.environ.get("AGENT_MSG_MONITOR_INTERVAL", "5.0"),
+        )
+    )
+    grace = float(
+        os.environ.get(
+            "AGENT_SWARM_ATTENTION_GRACE",
+            os.environ.get("AGENT_MSG_ATTENTION_GRACE", "60.0"),
+        )
+    )
 
     async def _monitor_tick():
         recipients = db.list_recipients(conn)
@@ -329,7 +344,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
-    app = FastAPI(title="agent-msg", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="agent-swarm", version="0.1.0", lifespan=lifespan)
     app.mount(
         "/static",
         StaticFiles(directory=PORTAL_STATIC_PATH),
@@ -599,9 +614,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     def _notify_assignment(task: dict):
         hint = (
             f"Before editing, use branch task/{task['id']} in a dedicated git worktree. "
-            f"Record it when you start: agent-msg task-update {task['id']} "
+            f"Record it when you start: agent-swarm task-update {task['id']} "
             f"--worktree /absolute/path --status picked_up. "
-            f"When finished: agent-msg task-update {task['id']} --status done."
+            f"When finished: agent-swarm task-update {task['id']} --status done."
         )
         content = f"You are assigned task #{task['id']}: {task['title']}."
         if task.get("description"):
@@ -622,7 +637,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             content = (
                 f"Task #{task['id']} is assigned to your team '{team['name']}': "
                 f"{task['title']}.{detail} As queen, parcel it out: split it into "
-                f"subtasks or hand it to a teammate with agent-msg task-update "
+                f"subtasks or hand it to a teammate with agent-swarm task-update "
                 f"{task['id']} --assignee <member>, then monitor progress."
             )
             targets = [team["queen"]]
@@ -630,7 +645,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             content = (
                 f"Task #{task['id']} is assigned to your team '{team['name']}' "
                 f"(no queen yet): {task['title']}.{detail} Coordinate with your "
-                f"teammates; whoever takes it should run agent-msg task-update "
+                f"teammates; whoever takes it should run agent-swarm task-update "
                 f"{task['id']} --assignee <yourself>."
             )
             targets = team["members"]
@@ -913,9 +928,13 @@ app = create_app()
 
 
 def _run() -> None:
-    """Console-script entry: `agent-msg-server` starts uvicorn on 127.0.0.1:8765."""
+    """Console-script entry: `agent-swarm-server` starts uvicorn on 127.0.0.1:8765."""
     import uvicorn
 
-    port = int(os.environ.get("AGENT_MSG_PORT", "8765"))
-    host = os.environ.get("AGENT_MSG_HOST", "127.0.0.1")
-    uvicorn.run("agent_msg.server:app", host=host, port=port, reload=False)
+    port = int(
+        os.environ.get("AGENT_SWARM_PORT", os.environ.get("AGENT_MSG_PORT", "8765"))
+    )
+    host = os.environ.get(
+        "AGENT_SWARM_HOST", os.environ.get("AGENT_MSG_HOST", "127.0.0.1")
+    )
+    uvicorn.run("agent_swarm.server:app", host=host, port=port, reload=False)

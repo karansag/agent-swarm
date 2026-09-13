@@ -12,7 +12,7 @@ v1 matching this spec, then iterate with Karan.
 
 ## Where it lives
 
-- File: `agent_msg/portal.html` only. No server changes, no new
+- File: `agent_swarm/portal.html` only. No server changes, no new
   endpoints. All data comes from the existing 2s `/api/state` poll the
   Preact app already does.
 - New Preact component `HiveView`, rendered by `Overview` above
@@ -115,8 +115,8 @@ v1 matching this spec, then iterate with Karan.
 
 ## Verification (follow docs/roadmap.md conventions)
 
-1. Scratch server + tmux: `AGENT_MSG_DB=/tmp/hive-viz.sqlite
-   AGENT_MSG_PORT=8799`, register 3 agents from tmux panes (see git
+1. Scratch server + tmux: `AGENT_SWARM_DB=/tmp/hive-viz.sqlite
+   AGENT_SWARM_PORT=8799`, register 3 agents from tmux panes (see git
    history for the established pattern; use fake model labels freely).
 2. Create tasks in each status; have one agent `task-update` to
    picked_up over the CLI. Send agent→agent and owner→agent messages.
@@ -135,7 +135,7 @@ v1 matching this spec, then iterate with Karan.
 
 ## Explicitly out of scope for v1
 
-- `agent-msg status` self-report command (separate feature; would add
+- `agent-swarm status` self-report command (separate feature; would add
   a status line under bee names later).
 - Sound, task creation from the canvas. (Drag assignment shipped after v1:
   comb cells and kanban cards can both be dragged onto a live bee.)

@@ -1,13 +1,13 @@
 # agent-swarm
 
 `agent-swarm` is a tiny local message bus for AI agents running in
-separate tmux panes. Its command-line interface and message protocol are
-named `agent-msg`.
+separate tmux panes. Its package, command-line interface, and service are
+named `agent-swarm`.
 
 It gives agents a practical way to coordinate without a shared browser,
 cloud service, polling loop, or custom client integration. Messages are
-stored in SQLite and delivered by typing into the recipient's tmux pane
-with `tmux send-keys`, so the message lands exactly where the agent is
+stored in SQLite and delivered through the recipient's tmux pane with a
+bracketed paste, so the message lands exactly where the agent is
 already listening: its prompt.
 
 ![Live agent dashboard showing harnesses, teams, activity, and assigned work](demo/dashboard.gif)
@@ -24,14 +24,14 @@ Clicking an agent focuses it: a live capture of its tmux pane, a
 composer for sending it instructions directly, and a separate thread
 for each peer it has talked to.
 
-![Claude and Codex registering with agent-msg and exchanging a message over the bus](demo/conversation.gif)
+![Claude and Codex registering with agent-swarm and exchanging a message over the bus](demo/conversation.gif)
 
 Underneath the dashboard, delivery is plain tmux. Here Claude Code
 (top) and Codex (bottom) each register, then exchange messages live:
 one asks the other what model it's running, gets the reply injected
 straight into its prompt, and sends back an acknowledgment. The
-dashboard is where you watch and steer; `tmux send-keys` is how every
-message actually reaches an agent. See
+dashboard is where you watch and steer; tmux is how every message actually
+reaches an agent. See
 [demo/README.md](./demo/README.md) for how these demos were recorded,
 including the VHS tape used to generate them.
 
@@ -88,25 +88,25 @@ cd agent-swarm
 uv tool install --editable .
 ```
 
-This puts `agent-msg` and `agent-msg-server` on your PATH (via `uv`'s tool
+This puts `agent-swarm` and `agent-swarm-server` on your PATH (via `uv`'s tool
 shims, usually `~/.local/bin`) while still running from your editable
 source checkout. If you instead use `uv pip install -e .`, the
-`agent-msg` CLI only resolves inside that project's venv — either run it
-as `uv run agent-msg ...`, or put `.venv/bin` on PATH yourself.
+`agent-swarm` CLI only resolves inside that project's venv — either run it
+as `uv run agent-swarm ...`, or put `.venv/bin` on PATH yourself.
 
 Start the server:
 
 ```bash
-agent-msg-server
+agent-swarm-server
 ```
 
 (If you installed with `uv pip install -e .` instead, use
-`uv run agent-msg-server`.)
+`uv run agent-swarm-server`.)
 
 In each agent's tmux pane, register that agent — by hand:
 
 ```bash
-agent-msg register \
+agent-swarm register \
   --agent-id "<stable-session-id>" \
   --model "<model-label>" \
   --flavor "<codex|claude|hermes|pi|generic>"
@@ -115,19 +115,19 @@ agent-msg register \
 Then send a message:
 
 ```bash
-agent-msg send --to <handle> --context "handoff" --message "Can you check the failing test?"
+agent-swarm send --to <handle> --context "handoff" --message "Can you check the failing test?"
 ```
 
 Or, if the agent is Claude Code or Codex, install the bundled skill
 (see [Agent Skills](#agent-skills) below) and just ask the agent to
-"register yourself with agent-msg" — it runs the same commands for you.
+"register yourself with agent-swarm" — it runs the same commands for you.
 
 Useful status commands:
 
 ```bash
-agent-msg whoami
-agent-msg recipients
-agent-msg messages --limit 20
+agent-swarm whoami
+agent-swarm recipients
+agent-swarm messages --limit 20
 ```
 
 ## Agent Dashboard
@@ -203,15 +203,15 @@ hive marker. "Needs attention" means the pane looks like it is waiting on
 a prompt (for example a permission dialog); the monitor never answers it,
 it only surfaces the reason and, once the prompt outlasts a grace period,
 posts a single message to the owner's dashboard thread. Interval and
-grace are set by `AGENT_MSG_MONITOR_INTERVAL` (default 5s) and
-`AGENT_MSG_ATTENTION_GRACE` (default 60s).
+grace are set by `AGENT_SWARM_MONITOR_INTERVAL` (default 5s) and
+`AGENT_SWARM_ATTENTION_GRACE` (default 60s).
 
-Agents reply to the human with `agent-msg send --to owner`; those
+Agents reply to the human with `agent-swarm send --to owner`; those
 messages appear only on the dashboard.
 
 The portal is built from the JavaScript modules and stylesheet under `web/`
-with Vite and local Preact/HTM packages. The generated `agent_msg/portal.html`
-and `agent_msg/static/` assets are committed and included in the Python
+with Vite and local Preact/HTM packages. The generated `agent_swarm/portal.html`
+and `agent_swarm/static/` assets are committed and included in the Python
 package, so production needs only the normal Python runtime and makes no
 external browser requests. The app polls `/api/state` and
 `/api/peek/<handle>`.
@@ -235,13 +235,13 @@ them from the dashboard (or `POST /tasks`); agents update them over the
 CLI:
 
 ```bash
-agent-msg tasks                      # list all tasks
-agent-msg tasks --status open        # filter by status
-agent-msg task-create "investigate flaky build" --description "CI failed twice"
-agent-msg task-create "review the fix" --assignee stoat
-agent-msg task-create "ship it" --depends-on 3,5   # dependency graph, shown on the board
-agent-msg task-update 3 --worktree /abs/path/to/repo-task-3 --status picked_up
-agent-msg task-update 3 --status done
+agent-swarm tasks                      # list all tasks
+agent-swarm tasks --status open        # filter by status
+agent-swarm task-create "investigate flaky build" --description "CI failed twice"
+agent-swarm task-create "review the fix" --assignee stoat
+agent-swarm task-create "ship it" --depends-on 3,5   # dependency graph, shown on the board
+agent-swarm task-update 3 --worktree /abs/path/to/repo-task-3 --status picked_up
+agent-swarm task-update 3 --status done
 ```
 
 Statuses are `open`, `picked_up`, and `done`. Assigning or reassigning
@@ -260,22 +260,24 @@ the server formats it like this:
 [agent-msg from <sender> · <context>] <content>
 ```
 
-Then it runs `tmux send-keys -l <text>` against the recipient's pane,
-followed by the configured submit key. Codex/Pi default to `Enter`;
-Claude/Hermes default to `C-m`.
+Then it loads the text into a temporary tmux buffer, delivers it as a
+bracketed paste, and sends the configured submit key. Codex/Pi default to
+`Enter`; Claude/Hermes default to `C-m`.
 
-After submission, the server briefly checks the tmux cursor row. If the exact
-input and cursor are still unchanged in the composer, it retries the submit
-key once without injecting the message again. Configure the check delay with
-`AGENT_MSG_SUBMIT_VERIFY_DELAY` (default 1.5 seconds).
+After submission, the server briefly checks the tmux cursor row. If that row
+still contains composer text, it retries the submit key once without injecting
+the message again. Configure the check delay with
+`AGENT_SWARM_SUBMIT_VERIFY_DELAY` (default 1.5 seconds).
 
 Because delivery happens through the prompt, any agent using this system
 must treat lines starting with `[agent-msg from ` as inter-agent traffic,
 not user input. [AGENT_PROMPT.md](./AGENT_PROMPT.md) is written for that
-case.
+case. The legacy `agent-msg` marker is intentionally retained for one release
+so already-running agents continue to recognize inbound traffic during the
+project rename.
 
-On registration, `agent-msg` also sets the tmux pane title to the
-server-assigned handle, for example `agent-msg: ibis (codex)`. This does
+On registration, `agent-swarm` also sets the tmux pane title to the
+server-assigned handle, for example `agent-swarm: ibis (codex)`. This does
 not rename the agent conversation or tmux window. To show pane titles in
 tmux pane borders, add something like this to `~/.tmux.conf`:
 
@@ -305,10 +307,10 @@ mkdir -p ~/.codex/skills && ln -sfn "$PWD/skills/codex/agent-swarm-register" ~/.
 ```
 
 Once installed, just tell the agent to register itself (e.g. "register
-yourself with agent-msg") instead of running the CLI by hand.
+yourself with agent-swarm") instead of running the CLI by hand.
 
 The helpers assume the repo lives at `~/agent-swarm`. If you cloned it
-somewhere else, set `AGENT_MSG_PROJECT=/path/to/agent-swarm` in the
+somewhere else, set `AGENT_SWARM_PROJECT=/path/to/agent-swarm` in the
 agent's environment first.
 
 The bundled helpers register the agent with the right delivery flavor
@@ -317,7 +319,7 @@ internally. For example, `register-codex-agent` supplies
 
 ## Agent Interfaces
 
-Today, `agent-msg` has a small `flavor` concept for Codex, Claude,
+Today, `agent-swarm` has a small `flavor` concept for Codex, Claude,
 Hermes, Pi, and generic terminal delivery. That should become a real
 adapter interface:
 
@@ -337,10 +339,10 @@ common agents and a config-defined interface path for custom tools. See
 The fastest useful demo is a terminal recording:
 
 1. Open a tmux window with two panes.
-2. Start `uv run agent-msg-server` in one pane or a background shell.
+2. Start `uv run agent-swarm-server` in one pane or a background shell.
 3. Register pane A and pane B with distinct `--agent-id` values.
-4. Run `agent-msg recipients` so viewers see the assigned handles.
-5. Send `agent-msg send --to <handle> --context demo --message "hello"`.
+4. Run `agent-swarm recipients` so viewers see the assigned handles.
+5. Send `agent-swarm send --to <handle> --context demo --message "hello"`.
 6. Show the receiving pane wake up with the injected message.
 
 Good tools:
@@ -357,56 +359,60 @@ CLI command, and the receiver gets a new prompt turn automatically.
 The server defaults are local-only:
 
 ```text
-AGENT_MSG_HOST=127.0.0.1
-AGENT_MSG_PORT=8765
-AGENT_MSG_DB=~/.agent-msg/db.sqlite
+AGENT_SWARM_HOST=127.0.0.1
+AGENT_SWARM_PORT=8765
+AGENT_SWARM_DB=~/.agent-swarm/db.sqlite
 ```
+
+For one compatibility release, the `agent-msg` and `agent-msg-server` command
+aliases and legacy `AGENT_MSG_*` environment variables remain accepted. New
+configuration should use the `agent-swarm` names above.
 
 Health check:
 
 ```bash
 curl http://127.0.0.1:8765/health
-# {"ok":true,"db":"/home/<you>/.agent-msg/db.sqlite"}
+# {"ok":true,"db":"/home/<you>/.agent-swarm/db.sqlite"}
 ```
 
 Run detached:
 
 ```bash
-setsid -f uv run agent-msg-server > /tmp/agent-msg.log 2>&1
+setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
 ```
 
 Stop or restart:
 
 ```bash
 fuser -k 8765/tcp
-setsid -f uv run agent-msg-server > /tmp/agent-msg.log 2>&1
+setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
 ```
 
 Reset local state:
 
 ```bash
 fuser -k 8765/tcp
-rm -f ~/.agent-msg/db.sqlite
-setsid -f uv run agent-msg-server > /tmp/agent-msg.log 2>&1
+rm -f ~/.agent-swarm/db.sqlite
+setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
 ```
 
 ## CLI Reference
 
 ```bash
-agent-msg register \
+agent-swarm register \
   --agent-id <stable-session-id> \
   --model <label> \
   --flavor <codex|claude|hermes|pi|generic>
 
-agent-msg send --to <handle> --message "..."
-agent-msg send --to <handle> --context <tag> --message "..."
-agent-msg send --to owner --message "..."   # reply to the human operator
-agent-msg messages --user <handle> --limit 20
-agent-msg recipients
-agent-msg whoami
-agent-msg tasks [--status open|picked_up|done]
-agent-msg task-create <title> [--description <text>] [--assignee <handle>]
-agent-msg task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
+agent-swarm send --to <handle> --message "..."
+agent-swarm send --to <handle> --context <tag> --message "..."
+agent-swarm send --to owner --message "..."   # reply to the human operator
+agent-swarm messages --user <handle> --limit 20
+agent-swarm recipients
+agent-swarm whoami
+agent-swarm tasks [--status open|picked_up|done]
+agent-swarm task-create <title> [--description <text>] [--assignee <handle>]
+agent-swarm task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
 ```
 
 Optional registration fields:
@@ -444,7 +450,7 @@ When `--pane` is omitted, the CLI resolves the current pane with
 
 `/register` returns the `user_id` and a `protocol_brief` string the agent
 can read once. Handles come from the name pool unless the agent asks for
-one with `requested_user` (`agent-msg register --name jax`); a free handle
+one with `requested_user` (`agent-swarm register --name jax`); a free handle
 is granted, a taken one is a 409, and re-requesting from an already
 registered agent renames it, carrying its messages and tasks along.
 Senders are resolved from the registered tmux pane, not from
@@ -453,7 +459,7 @@ caller-supplied names.
 ## Project Layout
 
 ```text
-agent_msg/
+agent_swarm/
   client.py   CLI
   db.py       SQLite layer
   names.py    handle pool and requested-name validation
@@ -491,7 +497,7 @@ npm run build
 
 ## Security Model
 
-`agent-msg` is designed for a trusted local machine. It binds to
+`agent-swarm` is designed for a trusted local machine. It binds to
 `127.0.0.1` by default and assumes callers are allowed to inject text into
 the registered tmux panes. Do not expose the server on an untrusted
 network without adding authentication and thinking through the tmux
@@ -506,7 +512,7 @@ injection risk.
 - **Message appears but does not submit**: register with the correct
   flavor or set `--submit-key` explicitly.
 - **Server will not start**: clear the port with `fuser -k 8765/tcp`, or
-  set `AGENT_MSG_PORT` to another port.
-- **`agent-msg` command not found**: run `uv tool install --editable .`
-  from the repo root, or use `uv run agent-msg ...` if you installed
+  set `AGENT_SWARM_PORT` to another port.
+- **`agent-swarm` command not found**: run `uv tool install --editable .`
+  from the repo root, or use `uv run agent-swarm ...` if you installed
   with `uv pip install -e .` instead.

@@ -90,7 +90,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
   };
   const dragStart = (e) => {
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("application/x-agent-msg-agent", r.user_id);
+    e.dataTransfer.setData("application/x-agent-swarm-agent", r.user_id);
     e.dataTransfer.setData("text/plain", r.user_id);
   };
   return html`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
@@ -230,7 +230,7 @@ function SpawnControl({ refresh }) {
 }
 
 const ACTIVITY_RANK = { working: 0, needs_attention: 1, idle: 2, unknown: 3 };
-const AGENT_DRAG_TYPE = "application/x-agent-msg-agent";
+const AGENT_DRAG_TYPE = "application/x-agent-swarm-agent";
 
 function sortByActivity(agents) {
   return agents
@@ -327,7 +327,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
       ${teams.length > 0 && html`<div class="hint">no team · drop here to unteam</div>`}
       ${running.length === 0
         ? html`<div class="empty" style="padding:20px">No agents running.<br /><br />
-            <code>agent-msg register</code></div>`
+            <code>agent-swarm register</code></div>`
         : unteamed.map(chip)}
     </div>
     ${stopped.length > 0 && html`<details class="stopped">
@@ -353,7 +353,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
   const dragStart = (e) => {
     if (!draggable) return;
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("application/x-agent-msg-task", String(t.id));
+    e.dataTransfer.setData("application/x-agent-swarm-task", String(t.id));
     e.dataTransfer.setData("text/plain", String(t.id));
     setDragging(true);
   };
@@ -496,7 +496,7 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
   const composerRef = useRef(null);
-  const draftKey = `agent-msg:draft:${recipient}:${draftId}`;
+  const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
   useEffect(() => {
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -804,7 +804,7 @@ function App() {
 
   const header = html`<header class="top">
     <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>agent dashboard</h1>
-    <span class="sub">agent-msg</span>
+    <span class="sub">agent-swarm</span>
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>

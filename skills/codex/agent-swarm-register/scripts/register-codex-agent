@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENT_MSG_PROJECT="${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}"
+AGENT_SWARM_PROJECT="${AGENT_SWARM_PROJECT:-${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}}"
 model="${CODEX_MODEL:-gpt-5-codex}"
-default_instructions="Codex agent; send normal agent-msg messages. No /queue prefix is needed."
+default_instructions="Codex agent; send normal agent-swarm messages. No /queue prefix is needed."
 has_instructions=0
 
 if [[ "${1:-}" == "--whoami" ]]; then
   shift
-  if command -v agent-msg >/dev/null 2>&1; then
-    exec agent-msg whoami "$@"
+  if command -v agent-swarm >/dev/null 2>&1; then
+    exec agent-swarm whoami "$@"
   fi
-  exec uv run --project "$AGENT_MSG_PROJECT" agent-msg whoami "$@"
+  exec uv run --project "$AGENT_SWARM_PROJECT" agent-swarm whoami "$@"
 fi
 
 extra_args=()
@@ -54,8 +54,8 @@ fi
 
 args=(register --model "$model" --flavor codex ${extra_args[@]+"${extra_args[@]}"})
 
-if command -v agent-msg >/dev/null 2>&1; then
-  exec agent-msg "${args[@]}"
+if command -v agent-swarm >/dev/null 2>&1; then
+  exec agent-swarm "${args[@]}"
 fi
 
-exec uv run --project "$AGENT_MSG_PROJECT" agent-msg "${args[@]}"
+exec uv run --project "$AGENT_SWARM_PROJECT" agent-swarm "${args[@]}"

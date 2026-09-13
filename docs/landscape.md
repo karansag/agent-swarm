@@ -11,7 +11,7 @@ The agent-coordination space is splitting into layers:
 4. Terminal/process control
 5. Conflict detection and handoff state
 
-`agent-msg` is strongest at layer 3, with a little bit of layer 4. That
+`agent-swarm` is strongest at layer 3, with a little bit of layer 4. That
 is a useful niche if the project stays small and becomes easy to embed
 inside larger systems.
 
@@ -33,13 +33,13 @@ Where Beads is strong:
 - Agent-readable CLI output
 - Long-running project memory
 
-Where `agent-msg` fits:
+Where `agent-swarm` fits:
 
 - Beads can say "who should work on what."
-- `agent-msg` can say "deliver this note to that live agent now."
+- `agent-swarm` can say "deliver this note to that live agent now."
 
 The clean integration is a Beads hook or plugin that sends an
-`agent-msg` notification when work is assigned, unblocked, blocked, or
+`agent-swarm` notification when work is assigned, unblocked, blocked, or
 completed.
 
 ### Gas Town
@@ -57,10 +57,10 @@ Where Gas Town is strong:
 - Persistent work state
 - Scaling a whole team of agents
 
-Where `agent-msg` fits:
+Where `agent-swarm` fits:
 
 - Gas Town is the control plane.
-- `agent-msg` can be a local delivery backend for terminal-based agents.
+- `agent-swarm` can be a local delivery backend for terminal-based agents.
 
 The integration should not try to replace Gas Town. It should expose a
 small adapter: "given a recipient identity and message, wake the matching
@@ -81,13 +81,13 @@ Where hcom is strong:
 - Cross-tool support
 - Rich operator workflow
 
-Where `agent-msg` fits:
+Where `agent-swarm` fits:
 
-- `agent-msg` is much smaller and easier to embed.
+- `agent-swarm` is much smaller and easier to embed.
 - It can stay focused on registration, addressing, history, and prompt
   delivery.
 
-hcom is closer to a complete product. `agent-msg` should be the thing a
+hcom is closer to a complete product. `agent-swarm` should be the thing a
 complete product can call.
 
 ### MCP Agent Mail
@@ -105,12 +105,12 @@ Where MCP Agent Mail is strong:
 - Advisory file reservations
 - Multi-codebase coordination
 
-Where `agent-msg` fits:
+Where `agent-swarm` fits:
 
-- `agent-msg` is push delivery into live terminal prompts.
+- `agent-swarm` is push delivery into live terminal prompts.
 - MCP Agent Mail is closer to durable mailbox semantics.
 
-These can compose: an MCP server could use `agent-msg` as a wake/delivery
+These can compose: an MCP server could use `agent-swarm` as a wake/delivery
 mechanism for agents that are currently alive in tmux.
 
 ### Swarm Protocol
@@ -127,10 +127,10 @@ Where Swarm Protocol is strong:
 - Team-scale coordination model
 - MCP integration
 
-Where `agent-msg` fits:
+Where `agent-swarm` fits:
 
 - Swarm Protocol tells agents what state changed.
-- `agent-msg` can notify a live agent that it should look now.
+- `agent-swarm` can notify a live agent that it should look now.
 
 Again, the right shape is a small delivery adapter.
 
@@ -148,14 +148,14 @@ Where Guild is strong:
 - Task coordination
 - Search over project context
 
-Where `agent-msg` fits:
+Where `agent-swarm` fits:
 
 - Guild is context and task state.
-- `agent-msg` is live contact between running sessions.
+- `agent-swarm` is live contact between running sessions.
 
 ## Recommended Positioning
 
-`agent-msg` should describe itself as:
+`agent-swarm` should describe itself as:
 
 > A tiny local delivery layer for terminal-based coding agents.
 
@@ -179,7 +179,7 @@ orchestrator / task system / MCP server
     |
     | send(recipient, context, message)
     v
-agent-msg core
+agent-swarm core
     |
     | resolve recipient -> live endpoint
     v
@@ -190,7 +190,7 @@ agent interface
 running agent
 ```
 
-This keeps `agent-msg` useful even when users already have Beads, Gas
+This keeps `agent-swarm` useful even when users already have Beads, Gas
 Town, hcom, or an MCP-based workflow.
 
 ## Interface Boundary

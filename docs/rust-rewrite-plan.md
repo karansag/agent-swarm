@@ -1,6 +1,6 @@
 # Rust Rewrite Plan
 
-The Rust version should make `agent-msg` a small, typed coordination
+The Rust version should make `agent-swarm` a small, typed coordination
 component with first-class agent interfaces.
 
 The goal is not to build another full orchestrator. The goal is a
@@ -25,18 +25,18 @@ call over HTTP/MCP.
 - No required cloud relay.
 - No remote multi-user auth in v1.
 
-Those belong in layers above `agent-msg`.
+Those belong in layers above `agent-swarm`.
 
 ## Crate Layout
 
 ```text
 crates/
-  agent-msg-core/       domain types, registry, routing, protocol
-  agent-msg-store/      SQLite persistence
-  agent-msg-transport/  tmux, process/PTY, HTTP/MCP delivery traits
-  agent-msg-server/     Axum HTTP server
-  agent-msg-cli/        CLI binary
-  agent-msg-interfaces/
+  agent-swarm-core/       domain types, registry, routing, protocol
+  agent-swarm-store/      SQLite persistence
+  agent-swarm-transport/  tmux, process/PTY, HTTP/MCP delivery traits
+  agent-swarm-server/     Axum HTTP server
+  agent-swarm-cli/        CLI binary
+  agent-swarm-interfaces/
     codex/
     claude/
     hermes/
@@ -216,26 +216,26 @@ If both `interface` and `flavor` are present, `interface` wins.
 ## CLI Shape
 
 ```bash
-agent-msg serve
-agent-msg register --interface codex --agent-id ...
-agent-msg send --to <handle> --context <tag> --message "..."
-agent-msg recipients
-agent-msg messages
-agent-msg interfaces
-agent-msg interface show codex
+agent-swarm serve
+agent-swarm register --interface codex --agent-id ...
+agent-swarm send --to <handle> --context <tag> --message "..."
+agent-swarm recipients
+agent-swarm messages
+agent-swarm interfaces
+agent-swarm interface show codex
 ```
 
 Helper scripts can become thin wrappers:
 
 ```bash
-agent-msg register --interface codex --model "${CODEX_MODEL:-gpt-5-codex}"
+agent-swarm register --interface codex --model "${CODEX_MODEL:-gpt-5-codex}"
 ```
 
 Eventually, the Rust binary can generate or install the helper files:
 
 ```bash
-agent-msg setup codex
-agent-msg setup claude
+agent-swarm setup codex
+agent-swarm setup claude
 ```
 
 ## Store Schema
@@ -302,18 +302,18 @@ story simple.
 
 - Replace console scripts with the Rust binary.
 - Keep Python package around only if needed for compatibility.
-- Add `agent-msg setup codex|claude`.
+- Add `agent-swarm setup codex|claude`.
 - Update skills to call the Rust binary.
 
 ### Phase 5: Plugin Interfaces
 
 - Add config-defined interfaces.
-- Add `agent-msg interfaces` commands.
+- Add `agent-swarm interfaces` commands.
 - Consider WASM plugins only after config interfaces prove insufficient.
 
 ## Risks
 
-- Overbuilding: if `agent-msg` starts doing task tracking, it competes
+- Overbuilding: if `agent-swarm` starts doing task tracking, it competes
   with Beads/Gas Town instead of composing with them.
 - Plugin complexity: native dynamic Rust plugins are not worth it for
   v1.
@@ -324,7 +324,7 @@ story simple.
 
 ## Recommended First Rust Milestone
 
-Build a single `agent-msg` binary that supports:
+Build a single `agent-swarm` binary that supports:
 
 - `serve`
 - `register`

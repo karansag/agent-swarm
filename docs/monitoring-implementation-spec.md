@@ -11,7 +11,7 @@ scope by owner decision: any automatic acceptance of permission
 prompts (`prompt_policy`, allowlists, keystroke injection). Do not
 build it.
 
-## New module: agent_msg/activity.py
+## New module: agent_swarm/activity.py
 
 Pure functions plus one registry-updating step function, so tests never
 need the loop or tmux.
@@ -47,15 +47,15 @@ need the loop or tmux.
     one Notification(user_id, detail) and set `notified`. Reset
     `notified` when the agent leaves `needs_attention`.
 
-## Server changes (agent_msg/server.py)
+## Server changes (agent_swarm/server.py)
 
 - `create_app(db_path=DB_PATH, monitor: bool = True)`. The console
   entry keeps monitor on; tests construct with `monitor=False` except
   the dedicated step() tests, which don't need an app at all.
 - When monitor is on, a FastAPI startup handler launches
   `asyncio.create_task(_monitor_loop(...))`; shutdown cancels it.
-  Interval from `AGENT_MSG_MONITOR_INTERVAL` (default 5.0 seconds),
-  grace from `AGENT_MSG_ATTENTION_GRACE` (default 60.0).
+  Interval from `AGENT_SWARM_MONITOR_INTERVAL` (default 5.0 seconds),
+  grace from `AGENT_SWARM_ATTENTION_GRACE` (default 60.0).
 - `_monitor_loop`: each tick, gather recipients and `tmux.list_panes()`
   once, then capture each live pane via
   `asyncio.to_thread(tmux.capture_pane, pane)` (subprocess calls must
@@ -70,7 +70,7 @@ need the loop or tmux.
   since}`. When the monitor is off or has no data yet, status is
   `"unknown"` with detail null (the dashboard must tolerate this).
 
-## Dashboard changes (agent_msg/portal.html)
+## Dashboard changes (agent_swarm/portal.html)
 
 Follow the portal editing rules in docs/roadmap.md (Preact, keyed,
 no wholesale rewrite; insert with targeted edits).
@@ -115,8 +115,8 @@ no wholesale rewrite; insert with targeted edits).
 
 ## Verification (scratch, never production)
 
-1. `AGENT_MSG_DB=/tmp/mon.sqlite AGENT_MSG_PORT=8799
-   AGENT_MSG_ATTENTION_GRACE=15 uv run agent-msg-server`
+1. `AGENT_SWARM_DB=/tmp/mon.sqlite AGENT_SWARM_PORT=8799
+   AGENT_SWARM_ATTENTION_GRACE=15 uv run agent-swarm-server`
 2. Three panes in a scratch tmux session, all registered:
    - `while true; do date; sleep 1; done` → must read working
    - plain idle shell → must read idle

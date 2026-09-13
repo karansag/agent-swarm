@@ -1,5 +1,5 @@
 {
-  "name": "agent-msg-dashboard",
+  "name": "agent-swarm-dashboard",
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,5 +1,5 @@
 [project]
-name = "agent-msg"
+name = "agent-swarm"
 version = "0.1.0"
 description = "Tiny agent-to-agent message bus (SQLite + tmux delivery)"
 requires-python = ">=3.12"
@@ -24,15 +24,17 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["agent_msg*"]
+include = ["agent_swarm*"]
 exclude = ["skills*", "tests*", "docs*"]
 
 [tool.setuptools.package-data]
-agent_msg = ["portal.html", "static/*.css", "static/*.js"]
+agent_swarm = ["portal.html", "static/*.css", "static/*.js"]
 
 [project.scripts]
-agent-msg = "agent_msg.client:main"
-agent-msg-server = "agent_msg.server:_run"
+agent-swarm = "agent_swarm.client:main"
+agent-swarm-server = "agent_swarm.server:_run"
+agent-msg = "agent_swarm.client:main"
+agent-msg-server = "agent_swarm.server:_run"
 
 [dependency-groups]
 dev = [

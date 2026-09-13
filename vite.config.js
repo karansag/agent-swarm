@@ -9,7 +9,7 @@ export default defineConfig({
   base: "/",
   build: {
     target: "es2022",
-    outDir: resolve(import.meta.dirname, "agent_msg"),
+    outDir: resolve(import.meta.dirname, "agent_swarm"),
     emptyOutDir: false,
     minify: false,
     rollupOptions: {

@@ -1,7 +1,7 @@
 # Recording the README demo
 
 `conversation.tape` drives a real Claude Code instance and a real Codex
-instance in two stacked tmux panes: both register with agent-msg, then
+instance in two stacked tmux panes: both register with agent-swarm, then
 exchange a couple of messages live. The setup (booting the server,
 splitting tmux, launching and registering both agents) is hidden; the
 recording opens right as Claude sends the first message.

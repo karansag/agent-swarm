@@ -1,6 +1,6 @@
 """Pure tests for the harness spawn command builder."""
 
-from agent_msg import tmux
+from agent_swarm import tmux
 
 
 AUTO_CLAUDE = "claude --permission-mode bypassPermissions"

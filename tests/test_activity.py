@@ -1,7 +1,7 @@
 """Pure step() tests with fabricated observations; no loop, no tmux."""
 
-from agent_msg import activity
-from agent_msg.activity import Observation
+from agent_swarm import activity
+from agent_swarm.activity import Observation
 
 INTERVAL = 5.0
 GRACE = 15.0

@@ -1,18 +1,18 @@
 """Tiny CLI client. Usage:
 
-    agent-msg register [--pane Y] [--name HANDLE] [--flavor NAME] [--instructions TXT]
-                       [--message-prefix TXT]
-    agent-msg send --to Y [--context CTX] --message MSG
-    agent-msg messages [--user X] [--limit N]
-    agent-msg recipients
-    agent-msg whoami       # prints detected tmux pane + registered handle
-    agent-msg tasks [--status open|picked_up|done]
-    agent-msg task-create TITLE [--description TEXT] [--assignee HANDLE] [--depends-on 3,5]
-    agent-msg task-update ID --status open|picked_up|done [--assignee X] [--worktree PATH] [--depends-on 3,5]
+    agent-swarm register [--pane Y] [--name HANDLE] [--flavor NAME] [--instructions TXT]
+                         [--message-prefix TXT]
+    agent-swarm send --to Y [--context CTX] --message MSG
+    agent-swarm messages [--user X] [--limit N]
+    agent-swarm recipients
+    agent-swarm whoami       # prints detected tmux pane + registered handle
+    agent-swarm tasks [--status open|picked_up|done]
+    agent-swarm task-create TITLE [--description TEXT] [--assignee HANDLE] [--depends-on 3,5]
+    agent-swarm task-update ID --status open|picked_up|done [--assignee X] [--worktree PATH] [--depends-on 3,5]
 
 Defaults:
     --pane            current shell's tmux pane (via `TMUX_PANE`-targeted `tmux display-message`)
-    server URL        $AGENT_MSG_URL (else http://127.0.0.1:8765)
+    server URL        $AGENT_SWARM_URL (else http://127.0.0.1:8765)
 """
 
 from __future__ import annotations
@@ -28,7 +28,10 @@ from .tmux import current_pane
 
 
 def base_url() -> str:
-    return os.environ.get("AGENT_MSG_URL", "http://127.0.0.1:8765")
+    return os.environ.get(
+        "AGENT_SWARM_URL",
+        os.environ.get("AGENT_MSG_URL", "http://127.0.0.1:8765"),
+    )
 
 
 def registered_user(pane: str) -> str | None:
@@ -79,7 +82,7 @@ def cmd_send(args: argparse.Namespace) -> int:
     sender = registered_user(pane)
     if not sender:
         print(
-            "error: current tmux pane is not registered; run `agent-msg register` first",
+            "error: current tmux pane is not registered; run `agent-swarm register` first",
             file=sys.stderr,
         )
         return 2
@@ -183,7 +186,7 @@ def cmd_whoami(_: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="agent-msg")
+    p = argparse.ArgumentParser(prog="agent-swarm")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     reg = sub.add_parser("register")

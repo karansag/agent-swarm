@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_msg import server, tmux
+from agent_swarm import server, tmux
 
 
 WEB_ROOT = Path(__file__).parents[1] / "web"
@@ -87,7 +87,7 @@ def test_health(client):
 
 
 def test_register_without_user_id_assigns_cute_name(client):
-    from agent_msg import names
+    from agent_swarm import names
 
     r = client.post(
         "/register",
@@ -105,7 +105,7 @@ def test_register_without_user_id_assigns_cute_name(client):
     assert body["model"] == "claude-opus-4-7"
     assert body["flavor"] == "claude"
     assert body["submit_key"] == "C-m"
-    assert body["status_title"] == f"agent-msg: {body['user_id']} (claude)"
+    assert body["status_title"] == f"agent-swarm: {body['user_id']} (claude)"
     assert client._pane_titles[-1] == ("0:0.0", body["status_title"])
 
 
@@ -158,7 +158,7 @@ def test_register_known_harness_flavor_defaults(client, flavor, submit_key):
     body = r.json()
     assert body["flavor"] == flavor
     assert body["submit_key"] == submit_key
-    assert body["status_title"] == f"agent-msg: {body['user_id']} ({flavor})"
+    assert body["status_title"] == f"agent-swarm: {body['user_id']} ({flavor})"
 
 
 def test_register_allows_submit_key_override_over_flavor_default(client):
@@ -365,7 +365,7 @@ def test_portal_team_contract(client):
     # queen) and mirrored in the hive canvas as labeled outlines.
     assert "function TeamBox" in portal
     assert "function NewTeam" in portal
-    assert "application/x-agent-msg-agent" in portal
+    assert "application/x-agent-swarm-agent" in portal
     assert "/team`" in portal
     assert "queen: r.user_id, objective: raw.trim()" in portal
     assert "teamBoxesRef" in portal
@@ -374,7 +374,7 @@ def test_portal_team_contract(client):
     assert "depends_on" in portal
     # Team boxes can be dragged into place (persisted per browser) and
     # bees outside a team are kept out of team outlines.
-    assert "agent-msg-hive-team-pos" in portal
+    assert "agent-swarm-hive-team-pos" in portal
     assert "release to place team" in portal
     assert "bee.r.team_id === box.id" in portal
 
@@ -700,7 +700,7 @@ def test_spawn_creates_window_and_registers_agent(client):
     assert spawned["flavor"] == "claude"
     assert spawned["submit_key"] == "C-m"
     assert client._pane_titles[-1] == (
-        "agents:1.0", f"agent-msg: {body['user_id']} (claude)"
+        "agents:1.0", f"agent-swarm: {body['user_id']} (claude)"
     )
     assert client._window_names[-1] == ("agents:1.0", body["user_id"])
 
@@ -834,7 +834,7 @@ def test_register_grants_a_free_requested_name(client):
     assert body["renamed_from"] is None
     # `assigned` means "the server chose this handle", not "a handle was given".
     assert body["assigned"] is False
-    assert body["status_title"] == "agent-msg: jax (claude)"
+    assert body["status_title"] == "agent-swarm: jax (claude)"
 
 
 def test_register_normalizes_requested_name(client):
@@ -930,8 +930,8 @@ def test_reregister_without_model_keeps_stored_flavor_in_pane_title(client):
         json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"},
     ).json()
     assert body["flavor"] == "claude"
-    assert body["status_title"] == "agent-msg: jax (claude)"
-    assert client._pane_titles[-1] == ("0:0.0", "agent-msg: jax (claude)")
+    assert body["status_title"] == "agent-swarm: jax (claude)"
+    assert client._pane_titles[-1] == ("0:0.0", "agent-swarm: jax (claude)")
 
 
 def _register(client, pane, **extra):

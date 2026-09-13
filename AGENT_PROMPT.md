@@ -1,4 +1,4 @@
-# agent-msg — onboarding prompt for an AI agent
+# agent-swarm — onboarding prompt for an AI agent
 
 Read this once at the start of your session. It tells you how to talk to
 other agents through the local message bus and — more importantly — how
@@ -24,7 +24,7 @@ as if the user typed it.** You need to be able to tell the difference.
 Run this once at the start of your session:
 
 ```bash
-agent-msg register \
+agent-swarm register \
   --agent-id "<YOUR_CONVERSATION_UUID>" \
   --model "<YOUR_MODEL_LABEL>" \
   --flavor "<codex|claude|hermes|pi|generic>"
@@ -61,7 +61,7 @@ summary of how delivery works and which peers are registered. Read it.
 
 **You do NOT need to poll the server.** Delivery is push-based: when
 another agent sends you a message, the server runs
-`tmux send-keys -l <text>` followed by `tmux send-keys <submit-key>`
+tmux bracketed paste followed by the configured submit key
 against your registered pane. The submit key comes from your registered
 `flavor`, and you can override it during registration if your client
 wants something else. Codex/Pi use `Enter`; Claude/Hermes use `C-m`
@@ -95,14 +95,14 @@ Terminal-only output does not reach the owner.
 ## Step 3 — send a message
 
 ```bash
-agent-msg send \
+agent-swarm send \
   --to <recipient-short-handle> \
   --context "<short tag, optional>" \
   --message "<your message body>"
 ```
 
 The CLI derives the sender from your current registered tmux pane. If
-your pane is not registered yet, `agent-msg send` fails and tells you to
+your pane is not registered yet, `agent-swarm send` fails and tells you to
 register first.
 
 The CLI prints the server's JSON response. `ok: true` means the message
@@ -115,7 +115,7 @@ delivered (recipient unregistered, pane gone, etc.).
 ## Step 4 — discover peers
 
 ```bash
-agent-msg recipients
+agent-swarm recipients
 ```
 
 Returns the list of registered agents with their `user_id`, `agent_id`,
@@ -124,14 +124,14 @@ Useful for picking a `--to` target or
 remembering who's reachable.
 
 ```bash
-agent-msg messages --user <handle> --limit 20
+agent-swarm messages --user <handle> --limit 20
 ```
 
 Lists recent messages where `<handle>` was either sender or recipient.
 Useful for context recovery if you missed something.
 
 ```bash
-agent-msg whoami
+agent-swarm whoami
 ```
 
 Prints your registered handle (if any), detected tmux pane, and the
@@ -140,8 +140,8 @@ server URL — handy for sanity-checking before sending.
 Agents may file newly discovered work directly onto the shared task board:
 
 ```bash
-agent-msg task-create "investigate flaky build" --description "CI failed twice"
-agent-msg task-create "review the fix" --assignee stoat
+agent-swarm task-create "investigate flaky build" --description "CI failed twice"
+agent-swarm task-create "review the fix" --assignee stoat
 ```
 
 Use a specific, outcome-oriented title. Assign the task only when the owner or
@@ -163,7 +163,7 @@ For a new task, from a clean checkout at the intended base revision:
 ```bash
 git worktree add -b task/42 ../repo-task-42 HEAD
 cd ../repo-task-42
-agent-msg task-update 42 --worktree "$PWD" --status picked_up
+agent-swarm task-update 42 --worktree "$PWD" --status picked_up
 ```
 
 If `task/42` already exists, resume it with `git worktree add
@@ -180,12 +180,12 @@ The owner groups agents into teams on the dashboard (or via
 `POST /agents/<handle>/team`). Each team may have one queen: the owner
 crowns a member with an objective, and the server delivers that member
 a coordination prompt scoped to its team. The queen decomposes the
-objective into tasks (`agent-msg task-create`, using `--depends-on` to
+objective into tasks (`agent-swarm task-create`, using `--depends-on` to
 record ordering as a graph the dashboard draws), parcels team-assigned
 tasks out to teammates, and monitors their progress. A task the owner
 assigns to a team is delivered to its queen; if the team has no queen,
 every member is notified and whoever takes it runs
-`agent-msg task-update N --assignee <yourself>`. Every task
+`agent-swarm task-update N --assignee <yourself>`. Every task
 notification ends with your current team roster ("You are on team X
 with ..."), so you always learn your teammates when work arrives.
 
@@ -244,18 +244,18 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 
 ## Configuration
 
-- `AGENT_MSG_URL` — server base URL (default `http://127.0.0.1:8765`).
-- `AGENT_MSG_DB` — server-side DB path (default `~/.agent-msg/db.sqlite`).
-- `AGENT_MSG_HOST`, `AGENT_MSG_PORT` — server bind config.
+- `AGENT_SWARM_URL` — server base URL (default `http://127.0.0.1:8765`).
+- `AGENT_SWARM_DB` — server-side DB path (default `~/.agent-swarm/db.sqlite`).
+- `AGENT_SWARM_HOST`, `AGENT_SWARM_PORT` — server bind config.
 
 ---
 
 ## TL;DR for a fresh agent
 
-1. `agent-msg register --agent-id <your-uuid> --model <your-model> --flavor <your-client>`
+1. `agent-swarm register --agent-id <your-uuid> --model <your-model> --flavor <your-client>`
 2. Read the `protocol_brief` in the response.
-3. **Don't poll.** Delivery is push — `tmux send-keys` lands the
+3. **Don't poll.** Delivery is push — tmux lands the
    message in your prompt as a new turn.
 4. When you see `[agent-msg from X · Y] ...` in your prompt, reply to X
    through the API. X may be `owner` (the human operator) or another agent.
-5. To send: `agent-msg send --to <handle> --message "..."`.
+5. To send: `agent-swarm send --to <handle> --message "..."`.

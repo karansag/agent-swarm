@@ -690,7 +690,7 @@ function HiveView({ state, refresh }) {
 		let frame = 0;
 		let cssWidth = 0;
 		let lastDraw = 0;
-		const POS_KEY = "agent-msg-hive-team-pos";
+		const POS_KEY = "agent-swarm-hive-team-pos";
 		const teamPos = /* @__PURE__ */ new Map();
 		try {
 			for (const [k, v] of Object.entries(JSON.parse(localStorage.getItem(POS_KEY) || "{}"))) if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) teamPos.set(Number(k), {
@@ -1302,7 +1302,7 @@ function HiveView({ state, refresh }) {
 			return teamBoxesRef.current.find((b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) || null;
 		};
 		const taskId = (e) => {
-			const raw = e.dataTransfer?.getData("application/x-agent-msg-task") || e.dataTransfer?.getData("text/plain");
+			const raw = e.dataTransfer?.getData("application/x-agent-swarm-task") || e.dataTransfer?.getData("text/plain");
 			return /^\d+$/.test(raw || "") ? Number(raw) : null;
 		};
 		const clearDrop = () => {
@@ -1665,7 +1665,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	};
 	const dragStart = (e) => {
 		e.dataTransfer.effectAllowed = "move";
-		e.dataTransfer.setData("application/x-agent-msg-agent", r.user_id);
+		e.dataTransfer.setData("application/x-agent-swarm-agent", r.user_id);
 		e.dataTransfer.setData("text/plain", r.user_id);
 	};
 	return m$1`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
@@ -1817,7 +1817,7 @@ var ACTIVITY_RANK = {
 	idle: 2,
 	unknown: 3
 };
-var AGENT_DRAG_TYPE = "application/x-agent-msg-agent";
+var AGENT_DRAG_TYPE = "application/x-agent-swarm-agent";
 function sortByActivity(agents) {
 	return agents.map((r, i) => [r, i]).sort(([a, ai], [b, bi]) => (ACTIVITY_RANK[agentStatus(a)] ?? 3) - (ACTIVITY_RANK[agentStatus(b)] ?? 3) || ai - bi).map(([r]) => r);
 }
@@ -1905,7 +1905,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
         ...${agentDropProps(setOverUnteam, (user) => moveAgentToTeam(user, null, refresh))}>
       ${teams.length > 0 && m$1`<div class="hint">no team · drop here to unteam</div>`}
       ${running.length === 0 ? m$1`<div class="empty" style="padding:20px">No agents running.<br /><br />
-            <code>agent-msg register</code></div>` : unteamed.map(chip)}
+            <code>agent-swarm register</code></div>` : unteamed.map(chip)}
     </div>
     ${stopped.length > 0 && m$1`<details class="stopped">
       <summary>stopped · ${stopped.length}</summary>
@@ -1931,7 +1931,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
 	const dragStart = (e) => {
 		if (!draggable) return;
 		e.dataTransfer.effectAllowed = "move";
-		e.dataTransfer.setData("application/x-agent-msg-task", String(t.id));
+		e.dataTransfer.setData("application/x-agent-swarm-task", String(t.id));
 		e.dataTransfer.setData("text/plain", String(t.id));
 		setDragging(true);
 	};
@@ -2068,7 +2068,7 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 	const [status, setStatus] = d("");
 	const [sending, setSending] = d(false);
 	const composerRef = A(null);
-	const draftKey = `agent-msg:draft:${recipient}:${draftId}`;
+	const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
 	h(() => {
 		try {
 			const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -2374,7 +2374,7 @@ function App() {
     <h1 style="cursor:pointer" onClick=${() => {
 		location.hash = "#/";
 	}}>agent dashboard</h1>
-    <span class="sub">agent-msg</span>
+    <span class="sub">agent-swarm</span>
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>
