@@ -136,42 +136,30 @@ def rename_window(pane: str, name: str) -> tuple[bool, str | None]:
     return True, None
 
 
-def _input_signature(pane: str) -> tuple[int, int, str] | None:
-    """Return cursor position and the visible row under it.
+def _composer_holds_text(pane: str) -> bool:
+    """True when the row under the cursor is more than a bare prompt.
 
-    A message that remains in an interactive agent's composer after submit
-    keeps this signature unchanged. Unsupported panes simply disable the
-    retry rather than failing delivery.
+    After a successful submit the composer collapses to an empty prompt line.
+    When the submit key was swallowed (e.g. Codex still consuming a paste burst)
+    the text — or Codex's "[Pasted Content N chars]" placeholder — is still there.
     """
     try:
         pos = subprocess.run(
-            ["tmux", "display-message", "-p", "-t", pane, "#{cursor_x}\t#{cursor_y}"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=2,
+            ["tmux", "display-message", "-p", "-t", pane, "#{cursor_y}"],
+            capture_output=True, text=True, check=True, timeout=2,
         )
-        x_text, y_text = pos.stdout.strip().split("\t", 1)
-        x, y = int(x_text), int(y_text)
+        y = int(pos.stdout.strip())
         screen = subprocess.run(
             ["tmux", "capture-pane", "-p", "-t", pane],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=3,
+            capture_output=True, text=True, check=True, timeout=3,
         )
     except (ValueError, subprocess.SubprocessError, FileNotFoundError):
-        return None
+        return False
     rows = screen.stdout.splitlines()
     if y < 0 or y >= len(rows):
-        return None
-    return x, y, rows[y].rstrip()
-
-
-def _signature_contains_tail(signature: tuple[int, int, str], injected: str) -> bool:
-    expected = re.sub(r"\s+", " ", injected).strip()[-32:]
-    visible = re.sub(r"\s+", " ", signature[2]).strip()
-    return bool(expected) and visible.endswith(expected)
+        return False
+    row = rows[y].strip()
+    return len(re.sub(r"^[>›❯$%#]+", "", row).strip()) > 0
 
 
 def deliver(
@@ -181,44 +169,35 @@ def deliver(
     submit_key: str = DEFAULT_SUBMIT_KEY,
     flavor: str | None = None,
 ) -> tuple[bool, str | None]:
-    """Inject text into a tmux pane as if typed, then submit it.
+    """Paste text into a tmux pane, then submit it.
 
-    Returns (ok, error_message_or_None).
+    The text goes in as a bracketed paste (tmux only adds the paste markers when
+    the pane's application has enabled them), so TUIs that detect typing bursts
+    as pastes — Codex in particular — receive one atomic paste event and the
+    following submit key is unambiguous. Returns (ok, error_message_or_None).
     """
     injected = f"{message_prefix or ''}{text}"
+    buf = f"agent-msg-{os.getpid()}-{time.monotonic_ns()}"
     try:
-        # send the text literally (-l), then submit it with the configured key.
         subprocess.run(
-            ["tmux", "send-keys", "-t", pane, "-l", injected],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
+            ["tmux", "load-buffer", "-b", buf, "-"],
+            input=injected, capture_output=True, text=True, check=True, timeout=5,
         )
-        delay = max(0.05, submit_delay_for_flavor(flavor))
-        time.sleep(delay)
-        before_submit = _input_signature(pane)
+        subprocess.run(
+            ["tmux", "paste-buffer", "-p", "-d", "-b", buf, "-t", pane],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        time.sleep(max(0.05, submit_delay_for_flavor(flavor)))
         subprocess.run(
             ["tmux", "send-keys", "-t", pane, submit_key],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
+            capture_output=True, text=True, check=True, timeout=5,
         )
         time.sleep(SUBMIT_VERIFY_DELAY)
-        after_submit = _input_signature(pane)
-        if (
-            before_submit is not None
-            and after_submit == before_submit
-            and _signature_contains_tail(after_submit, injected)
-        ):
-            # Retry only the submit key once; re-injecting would duplicate text.
+        if _composer_holds_text(pane):
+            # Retry only the submit key once; re-pasting would duplicate text.
             subprocess.run(
                 ["tmux", "send-keys", "-t", pane, submit_key],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=5,
+                capture_output=True, text=True, check=True, timeout=5,
             )
     except subprocess.CalledProcessError as e:
         return False, e.stderr.strip() or str(e)

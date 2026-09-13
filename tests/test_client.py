@@ -60,68 +60,73 @@ def test_flavor_defaults_cover_pi_and_hermes():
     assert tmux.infer_flavor("github-copilot/gpt-5.5") == "generic"
 
 
-def test_deliver_uses_configured_submit_key(monkeypatch):
-    calls = []
+def _paste_calls(pane, text):
+    return [
+        ["tmux", "load-buffer", "-b", ANY_BUF, "-"],
+        ["tmux", "paste-buffer", "-p", "-d", "-b", ANY_BUF, "-t", pane],
+    ]
 
-    def fake_run(cmd, capture_output, text, check, timeout):
+
+class _AnyBuf(str):
+    def __eq__(self, other):
+        return isinstance(other, str) and other.startswith("agent-msg-")
+
+
+ANY_BUF = _AnyBuf()
+
+
+def _fake_run(calls):
+    def fake_run(cmd, capture_output, text, check, timeout, input=None):
         calls.append(cmd)
         return SimpleNamespace(stdout="")
+    return fake_run
 
-    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
-    monkeypatch.setattr(tmux, "_input_signature", lambda pane: None)
+
+def test_deliver_pastes_then_submits_with_configured_key(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: False)
     monkeypatch.setattr(tmux.time, "sleep", lambda seconds: None)
 
     assert tmux.deliver("session-a:9.0", "hello", submit_key="Enter", flavor="pi") == (
         True,
         None,
     )
-    assert calls == [
-        ["tmux", "send-keys", "-t", "session-a:9.0", "-l", "hello"],
+    assert calls == _paste_calls("session-a:9.0", "hello") + [
         ["tmux", "send-keys", "-t", "session-a:9.0", "Enter"],
     ]
 
 
-def test_deliver_retries_submit_once_when_composer_is_unchanged(monkeypatch):
+def test_deliver_retries_submit_once_when_composer_still_holds_text(monkeypatch):
     calls = []
-    signature = (17, 8, "❯ [agent-msg from manatee] hello")
-
-    def fake_run(cmd, capture_output, text, check, timeout):
-        calls.append(cmd)
-        return SimpleNamespace(stdout="")
-
-    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
-    monkeypatch.setattr(tmux, "_input_signature", lambda pane: signature)
+    monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: True)
     monkeypatch.setattr(tmux.time, "sleep", lambda seconds: None)
 
     assert tmux.deliver(
         "session-a:9.0", "[agent-msg from manatee] hello", submit_key="Enter"
     ) == (True, None)
-    assert calls == [
-        ["tmux", "send-keys", "-t", "session-a:9.0", "-l", "[agent-msg from manatee] hello"],
-        ["tmux", "send-keys", "-t", "session-a:9.0", "Enter"],
-        ["tmux", "send-keys", "-t", "session-a:9.0", "Enter"],
-    ]
+    assert calls.count(["tmux", "send-keys", "-t", "session-a:9.0", "Enter"]) == 2
 
 
-def test_deliver_does_not_retry_after_composer_changes(monkeypatch):
+def test_deliver_does_not_retry_after_composer_clears(monkeypatch):
     calls = []
-    signatures = iter([
-        (17, 8, "❯ [agent-msg from manatee] hello"),
-        (2, 9, "❯"),
-    ])
-
-    def fake_run(cmd, capture_output, text, check, timeout):
-        calls.append(cmd)
-        return SimpleNamespace(stdout="")
-
-    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
-    monkeypatch.setattr(tmux, "_input_signature", lambda pane: next(signatures))
+    monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: False)
     monkeypatch.setattr(tmux.time, "sleep", lambda seconds: None)
 
     assert tmux.deliver(
         "session-a:9.0", "[agent-msg from manatee] hello", submit_key="Enter"
     ) == (True, None)
     assert calls.count(["tmux", "send-keys", "-t", "session-a:9.0", "Enter"]) == 1
+
+
+def test_deliver_reports_tmux_failure(monkeypatch):
+    def failing_run(cmd, capture_output, text, check, timeout, input=None):
+        raise tmux.subprocess.CalledProcessError(1, cmd, stderr="can't find pane")
+
+    monkeypatch.setattr(tmux.subprocess, "run", failing_run)
+    assert tmux.deliver("session-a:9.0", "hello") == (False, "can't find pane")
 
 
 def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
