@@ -73,6 +73,13 @@ class RegisterReq(BaseModel):
     )
 
 
+class PruneReq(BaseModel):
+    include_shells: bool = Field(
+        default=False,
+        description="Also drop registrations whose pane exists but only runs a bare shell.",
+    )
+
+
 class SendReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -209,11 +216,19 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
             tags.append(f"agent={p['agent_id']}")
         if p.get("submit_key"):
             tags.append(f"submit={p['submit_key']}")
+        if p.get("alive") is False:
+            tags.append("OFFLINE")
         suffix = f" ({', '.join(tags)})" if tags else ""
         instructions = f" -- {p['instructions']}" if p.get("instructions") else ""
         return f"  - {p['user_id']}{suffix}{instructions}"
 
     peer_lines = "\n".join(_peer_line(p) for p in peers) or "  (none yet)"
+    offline = [p["user_id"] for p in peers if p.get("alive") is False]
+    offline_note = (
+        "Peers tagged OFFLINE are registered but not running (pane gone or a bare "
+        "shell); sending to them is refused until they restart.\n\n"
+        if offline else ""
+    )
     return (
         f"You are registered as '{user_id}'.\n"
         f"\n"
@@ -232,6 +247,7 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
         f"CLI). Currently registered peers:\n"
         f"{peer_lines}\n"
         f"\n"
+        f"{offline_note}"
         f"List peers anytime: GET /recipients.\n"
         f"\n"
         f"The reserved handle 'owner' is the human operator in charge of "
@@ -266,7 +282,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     async def _monitor_tick():
         recipients = db.list_recipients(conn)
-        live_panes = tmux.list_panes()
+        live_panes = tmux.live_agent_panes()
         observations = []
         for r in recipients:
             pane = r["tmux_pane"]
@@ -386,7 +402,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         status_title = tmux.status_title(user_id, flavor)
         tmux.set_pane_title(req.tmux_pane, status_title)
         registered = db.get_recipient(conn, user_id)
-        peers = [r for r in db.list_recipients(conn) if r["user_id"] != user_id]
+        peers = [r for r in _annotated_recipients() if r["user_id"] != user_id]
         return {
             "ok": True,
             "user_id": user_id,
@@ -406,9 +422,52 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             "protocol_brief": _protocol_brief(user_id, peers),
         }
 
+    def _annotated_recipients() -> list[dict]:
+        existing, live = tmux.list_panes(), tmux.live_agent_panes()
+        rows = db.list_recipients(conn)
+        for r in rows:
+            r["offline_reason"] = tmux.offline_reason(r["tmux_pane"], existing, live)
+            r["alive"] = r["offline_reason"] is None
+        return rows
+
+    def _refuse_if_offline(sender: str, recipient: dict, context, content) -> None:
+        reason = tmux.offline_reason(
+            recipient["tmux_pane"], tmux.list_panes(), tmux.live_agent_panes()
+        )
+        if reason is None:
+            return
+        mid = db.record_message(
+            conn, sender, recipient["user_id"], context, content,
+            delivered=False, delivery_error=reason,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"error": reason, "recipient": recipient["user_id"], "message_id": mid},
+        )
+
     @app.get("/recipients")
     def recipients():
-        return {"recipients": db.list_recipients(conn)}
+        return {"recipients": _annotated_recipients()}
+
+    @app.post("/recipients/prune")
+    def prune_recipients(req: PruneReq):
+        """Drop registrations that can't come back on their own.
+
+        By default only panes that no longer exist are removed: a pane that
+        still exists but runs a bare shell keeps its registration, so an agent
+        restarted in that pane gets the same identity back.
+        """
+        removed, kept_offline = [], []
+        for r in _annotated_recipients():
+            if r["alive"]:
+                continue
+            gone = "no longer exists" in r["offline_reason"]
+            if gone or req.include_shells:
+                db.delete_recipient(conn, r["user_id"])
+                removed.append(r["user_id"])
+            else:
+                kept_offline.append(r["user_id"])
+        return {"ok": True, "removed": removed, "kept_offline": kept_offline}
 
     def _deliver_from_owner(recipient_id: str, content: str, context: str | None):
         """Deliver a message from the human operator to an agent's pane."""
@@ -431,6 +490,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                     "message_id": mid,
                 },
             )
+        _refuse_if_offline(OWNER, recipient, context, content)
         body = tmux.format_message(OWNER, context, content)
         ok, err = tmux.deliver(
             recipient["tmux_pane"],
@@ -488,6 +548,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                     "message_id": mid,
                 },
             )
+        _refuse_if_offline(sender, recipient, req.context, req.content)
         body = tmux.format_message(sender, req.context, req.content)
         ok, err = tmux.deliver(
             recipient["tmux_pane"],
@@ -742,7 +803,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         if recipient is None:
             raise HTTPException(status_code=404, detail={"error": "unknown agent"})
         pane = recipient["tmux_pane"]
-        if pane not in tmux.list_panes():
+        # A pane that is gone, or that only holds a bare shell, has no agent
+        # to stop; leave the shell (and the registration) alone.
+        if pane not in tmux.live_agent_panes():
             return {
                 "ok": True, "user_id": user_id, "tmux_pane": pane,
                 "already_stopped": True,
@@ -811,10 +874,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     @app.get("/api/state")
     def state(limit: int = 300):
-        live_panes = tmux.list_panes()
-        recipients = db.list_recipients(conn)
+        recipients = _annotated_recipients()
         for r in recipients:
-            r["pane_alive"] = r["tmux_pane"] in live_panes
+            r["pane_alive"] = r["alive"]
             row = registry.get(r["user_id"])
             r["activity"] = (
                 {"status": row["status"], "detail": row["detail"], "since": row["since"]}

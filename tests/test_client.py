@@ -237,3 +237,18 @@ def test_cmd_register_sends_requested_name(monkeypatch, capsys):
         "requested_user": "jax",
     }
     capsys.readouterr()
+
+
+def test_live_agent_panes_excludes_bare_shells(monkeypatch):
+    def fake_run(cmd, capture_output, text, check, timeout):
+        return SimpleNamespace(stdout="a:0.0\tclaude\na:0.1\tbash\nb:2.0\tnode\nc:0.0\tzsh\n")
+
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+    assert tmux.live_agent_panes() == {"a:0.0", "b:2.0"}
+
+
+def test_offline_reason_distinguishes_gone_from_shell():
+    existing, live = {"a:0.0", "a:0.1"}, {"a:0.0"}
+    assert tmux.offline_reason("a:0.0", existing, live) is None
+    assert "bare shell" in tmux.offline_reason("a:0.1", existing, live)
+    assert "no longer exists" in tmux.offline_reason("z:9.9", existing, live)

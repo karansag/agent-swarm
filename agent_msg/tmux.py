@@ -485,6 +485,46 @@ def list_panes() -> set[str]:
     return {line for line in out.stdout.splitlines() if line}
 
 
+# A pane whose foreground process is one of these has no agent in it: the
+# harness exited (typically a reboot) and tmux restored, or fell back to, a
+# plain shell. Delivering there would type the message into the shell.
+SHELL_COMMANDS = {"bash", "zsh", "sh", "dash", "fish", "ksh", "tcsh", "csh"}
+
+
+def pane_commands() -> dict[str, str]:
+    """Map every live pane id to its foreground command; {} if tmux is unavailable."""
+    try:
+        out = subprocess.run(
+            ["tmux", "list-panes", "-a", "-F", "#S:#I.#P\t#{pane_current_command}"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return {}
+    result = {}
+    for line in out.stdout.splitlines():
+        pane, _, command = line.partition("\t")
+        if pane:
+            result[pane] = command.strip()
+    return result
+
+
+def live_agent_panes() -> set[str]:
+    """Panes that exist and are running something other than a bare shell."""
+    return {pane for pane, cmd in pane_commands().items() if cmd not in SHELL_COMMANDS}
+
+
+def offline_reason(pane: str, existing: set[str], live: set[str]) -> str | None:
+    """Why a registered pane can't take a message right now, or None if it can."""
+    if pane not in existing:
+        return f"recipient offline: pane {pane} no longer exists"
+    if pane not in live:
+        return f"recipient offline: pane {pane} is a bare shell (agent not running)"
+    return None
+
+
 def kill_pane(pane: str) -> tuple[bool, str | None]:
     """Kill a tmux pane. Returns (ok, error_message_or_None)."""
     try:

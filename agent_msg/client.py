@@ -110,6 +110,16 @@ def cmd_recipients(_: argparse.Namespace) -> int:
     return 0 if r.is_success else 1
 
 
+def cmd_prune(args: argparse.Namespace) -> int:
+    r = httpx.post(
+        f"{base_url()}/recipients/prune",
+        json={"include_shells": args.include_shells},
+        timeout=10,
+    )
+    print(json.dumps(r.json(), indent=2))
+    return 0 if r.is_success else 1
+
+
 def cmd_tasks(args: argparse.Namespace) -> int:
     r = httpx.get(f"{base_url()}/tasks", timeout=5)
     if not r.is_success:
@@ -221,6 +231,14 @@ def main(argv: list[str] | None = None) -> int:
 
     rcp = sub.add_parser("recipients")
     rcp.set_defaults(func=cmd_recipients)
+
+    prune = sub.add_parser(
+        "prune",
+        help="forget registered agents whose tmux pane no longer exists "
+        "(add --include-shells to also forget panes that only run a bare shell)",
+    )
+    prune.add_argument("--include-shells", action="store_true")
+    prune.set_defaults(func=cmd_prune)
 
     tsk = sub.add_parser("tasks")
     tsk.add_argument("--status", choices=["open", "picked_up", "done"])

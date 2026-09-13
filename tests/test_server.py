@@ -49,7 +49,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(tmux, "deliver", fake_deliver)
     monkeypatch.setattr(tmux, "set_pane_title", fake_set_pane_title)
     monkeypatch.setattr(tmux, "rename_window", fake_rename_window)
-    monkeypatch.setattr(tmux, "list_panes", lambda: {"0:0.0", "0:1.0"})
+    # 0:0.0 and 0:1.0 run agents; 0:2.0 exists but holds a bare shell.
+    monkeypatch.setattr(tmux, "list_panes", lambda: {"0:0.0", "0:1.0", "0:2.0"})
+    monkeypatch.setattr(tmux, "live_agent_panes", lambda: {"0:0.0", "0:1.0"})
     monkeypatch.setattr(
         tmux, "capture_pane", lambda pane: (f"screen of {pane}\n$ ", None)
     )
@@ -930,3 +932,63 @@ def test_reregister_without_model_keeps_stored_flavor_in_pane_title(client):
     assert body["flavor"] == "claude"
     assert body["status_title"] == "agent-msg: jax (claude)"
     assert client._pane_titles[-1] == ("0:0.0", "agent-msg: jax (claude)")
+
+
+def _register(client, pane, **extra):
+    return client.post("/register", json={"tmux_pane": pane, **extra}).json()["user_id"]
+
+
+def test_recipients_report_liveness(client):
+    live = _register(client, "0:1.0")
+    shell = _register(client, "0:2.0")
+    gone = _register(client, "9:9.9")
+    rows = {r["user_id"]: r for r in client.get("/recipients").json()["recipients"]}
+    assert rows[live]["alive"] and rows[live]["offline_reason"] is None
+    assert not rows[shell]["alive"] and "bare shell" in rows[shell]["offline_reason"]
+    assert not rows[gone]["alive"] and "no longer exists" in rows[gone]["offline_reason"]
+
+
+def test_send_to_bare_shell_pane_is_refused_and_recorded(client):
+    _register(client, "0:0.0")
+    shell = _register(client, "0:2.0")
+    before = len(client._calls)
+    r = client.post(
+        "/send",
+        json={"tmux_pane": "0:0.0", "recipient": shell, "content": "hello"},
+    )
+    assert r.status_code == 409
+    assert "bare shell" in r.json()["detail"]["error"]
+    assert len(client._calls) == before  # nothing typed into the shell
+    msg = client.get("/messages", params={"limit": 1}).json()["messages"][0]
+    assert msg["recipient"] == shell and not msg["delivered"]
+    assert "bare shell" in msg["delivery_error"]
+
+
+def test_owner_send_to_gone_pane_is_refused(client):
+    gone = _register(client, "9:9.9")
+    r = client.post("/owner/send", json={"recipient": gone, "content": "hi"})
+    assert r.status_code == 409
+    assert "no longer exists" in r.json()["detail"]["error"]
+
+
+def test_register_brief_tags_offline_peers(client):
+    shell = _register(client, "0:2.0")
+    brief = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["protocol_brief"]
+    assert f"- {shell} (" in brief and "OFFLINE" in brief
+    assert "refused until they restart" in brief
+
+
+def test_prune_keeps_shell_panes_unless_asked(client):
+    live = _register(client, "0:1.0")
+    shell = _register(client, "0:2.0")
+    gone = _register(client, "9:9.9")
+
+    r = client.post("/recipients/prune", json={}).json()
+    assert r["removed"] == [gone] and r["kept_offline"] == [shell]
+    ids = {x["user_id"] for x in client.get("/recipients").json()["recipients"]}
+    assert ids == {live, shell}
+
+    r = client.post("/recipients/prune", json={"include_shells": True}).json()
+    assert r["removed"] == [shell] and r["kept_offline"] == []
+    ids = {x["user_id"] for x in client.get("/recipients").json()["recipients"]}
+    assert ids == {live}

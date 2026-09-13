@@ -252,6 +252,13 @@ def list_recipients(conn: sqlite3.Connection) -> list[dict]:
 
 
 @_serialized
+def delete_recipient(conn: sqlite3.Connection, user_id: str) -> bool:
+    cur = conn.execute("DELETE FROM recipients WHERE user_id=?", (user_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+@_serialized
 def update_recipient_model(
     conn: sqlite3.Connection, user_id: str, model: str
 ) -> dict | None:
