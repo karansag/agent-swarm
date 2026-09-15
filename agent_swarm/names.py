@@ -39,18 +39,116 @@ POOL = [
     "newt",
     "civet",
     "gecko",
+    "meerkat",
+    "armadillo",
+    "chinchilla",
+    "jerboa",
+    "vole",
+    "weasel",
+    "polecat",
+    "genet",
+    "coati",
+    "tarsier",
+    "loris",
+    "bushbaby",
+    "wallaby",
+    "bandicoot",
+    "echidna",
+    "platypus",
+    "aardvark",
+    "hyrax",
+    "dugong",
+    "serval",
+    "caracal",
+    "margay",
+    "jackal",
+    "coyote",
+    "vicuna",
+    "alpaca",
+    "okapi",
+    "gerenuk",
+    "dik-dik",
+    "duiker",
+    "peccary",
+    "tenrec",
+    "solenodon",
+    "colugo",
+    "pika",
+    "degu",
+    "agouti",
+    "paca",
+    "vizcacha",
+    "kinkajou",
+    "olingo",
+    "cacomistle",
+    "ringtail",
+    "grison",
+    "tayra",
+    "linsang",
+    "binturong",
+    "fossa",
+    "quoll",
+    "numbat",
+    "bilby",
+    "potoroo",
+    "sifaka",
+    "indri",
+    "galago",
+    "toucan",
+    "hornbill",
+    "kookaburra",
+    "shoveler",
+    "avocet",
+    "curlew",
+    "sandpiper",
+    "plover",
+    "grebe",
+    "cormorant",
+    "gannet",
+    "skua",
+    "tern",
+    "shrike",
+    "chukar",
+    "ptarmigan",
+    "quetzal",
+    "trogon",
+    "hoopoe",
+    "bittern",
+    "gadwall",
+    "smew",
+    "goldeneye",
+    "merganser",
+    "chameleon",
+    "iguana",
+    "skink",
+    "anole",
+    "tuatara",
+    "caecilian",
 ]
 
 
-def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
-    """Return a cute name not yet taken in `recipients`. Falls back to suffixing."""
+def pick_unused(
+    conn: sqlite3.Connection,
+    tag: str | None = None,
+    rng: random.Random | None = None,
+) -> str:
+    """Return a cute name not yet taken in `recipients`. Falls back to suffixing.
+
+    `tag` (typically a short model label like "opus" or "sol") is appended to
+    the animal name so agents sharing the animal pool stay distinguishable,
+    e.g. "ferret-opus". Without a tag, behaves like a plain animal name.
+    """
     r = rng or random.Random()
     taken = {row[0] for row in conn.execute("SELECT user_id FROM recipients")}
-    candidates = [n for n in POOL if n not in taken]
+
+    def with_tag(name: str) -> str:
+        return f"{name}-{tag}" if tag else name
+
+    candidates = [n for n in POOL if with_tag(n) not in taken]
     if candidates:
-        return r.choice(candidates)
-    # Pool exhausted — append a numeric suffix.
-    base = r.choice(POOL)
+        return with_tag(r.choice(candidates))
+    # Pool exhausted (even combined with the tag) — append a numeric suffix.
+    base = with_tag(r.choice(POOL))
     n = 2
     while f"{base}-{n}" in taken:
         n += 1

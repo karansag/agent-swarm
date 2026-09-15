@@ -394,7 +394,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         elif existing_id is not None:
             user_id = existing_id
         else:
-            user_id = names.pick_unused(conn)
+            user_id = names.pick_unused(conn, tmux.model_tag(req.model))
         # A re-register that omits both model and flavor must not downgrade a
         # known harness to 'generic': the write COALESCEs, but only over NULL,
         # so fall back to what is already stored before defaulting.
@@ -793,7 +793,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 status_code=500,
                 detail={"error": "could not create tmux window", "detail": err},
             )
-        user_id = names.pick_unused(conn)
+        user_id = names.pick_unused(conn, tmux.model_tag(model))
         db.register(
             conn,
             user_id,

@@ -122,3 +122,26 @@ def test_live_model_options_describe_direct_picker_and_custom_modes():
     assert opts["claude"]["mode"] == "direct"
     assert opts["codex"]["mode"] == "picker"
     assert opts["hermes"]["mode"] == "custom"
+
+
+def test_model_tag_prefers_specific_model_line_over_family():
+    # "opus" beats the redundant "claude" family name.
+    assert tmux.model_tag("claude-opus-4-7") == "opus"
+    assert tmux.model_tag("claude-sonnet-5") == "sonnet"
+    assert tmux.model_tag("claude-3-5-haiku-20241022") == "haiku"
+
+
+def test_model_tag_recognizes_codex_live_model_codenames():
+    assert tmux.model_tag("gpt-5.6-sol") == "sol"
+    assert tmux.model_tag("gpt-5.6-terra") == "terra"
+    assert tmux.model_tag("gpt-5.6-luna") == "luna"
+
+
+def test_model_tag_falls_back_to_first_word_for_unknown_models():
+    assert tmux.model_tag("claude-x") == "claude"
+    assert tmux.model_tag("totally-made-up") == "totally"
+
+
+def test_model_tag_handles_missing_model():
+    assert tmux.model_tag(None) is None
+    assert tmux.model_tag("") is None

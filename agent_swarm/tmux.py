@@ -77,6 +77,33 @@ def infer_flavor(model: str | None) -> str:
     return DEFAULT_FLAVOR
 
 
+# Specific model-line keywords take priority over generic family names so
+# e.g. "claude-opus-4-7" tags as "opus" rather than the redundant "claude".
+_MODEL_TAG_KEYWORDS = [
+    "opus", "sonnet", "haiku",  # claude lines
+    "sol", "terra", "luna",  # codex live-model codenames
+    "gemini", "hermes", "pi",
+]
+
+
+def model_tag(model: str | None) -> str | None:
+    """Short recognizable tag for a model label, e.g. "claude-opus-4-7" -> "opus".
+
+    Used to make agent-swarm's auto-assigned names more distinguishable
+    (e.g. "ferret-opus") when several agents draw from the same animal pool.
+    """
+    if not model:
+        return None
+    label = model.lower()
+    for kw in _MODEL_TAG_KEYWORDS:
+        if _has_label_token(label, kw):
+            return kw
+    # Unknown model family: fall back to its first alphabetic run, e.g.
+    # "claude-x" -> "claude", "gpt-4" -> "gpt".
+    match = re.search(r"[a-z]+", label)
+    return match.group(0) if match else None
+
+
 def submit_key_for_flavor(flavor: str | None) -> str:
     """Return the default submit key for a delivery flavor."""
     if not flavor:
