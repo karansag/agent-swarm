@@ -1,6 +1,28 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 from agent_msg import db
+
+
+def test_shared_connection_concurrent_reads_and_writes(tmp_path):
+    conn = db.connect(tmp_path / "concurrent.sqlite")
+
+    def work(i):
+        user = f"worker-{i}"
+        db.register(conn, user, f"pane-{i}")
+        db.rename_recipient(conn, user, f"renamed-{i}")
+        db.record_message(conn, user, "owner", None, str(i), True, None)
+        assert db.list_recipients(conn)
+        assert db.fetch_messages(conn, "owner", 100)
+
+    try:
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            list(pool.map(work, range(100)))
+        assert len(db.list_recipients(conn)) == 100
+        assert len(db.fetch_messages(conn, "owner", 200)) == 100
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
 
 
 def test_register_and_lookup(tmp_path):

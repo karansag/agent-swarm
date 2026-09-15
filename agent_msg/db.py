@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from functools import wraps
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -63,6 +65,22 @@ TASK_STATUSES = ("open", "picked_up", "done")
 _UNSET = object()
 
 
+# The server shares a connection between FastAPI worker threads and the
+# activity monitor. SQLite multi-thread builds require callers to serialize
+# access to a connection, including cursor iteration and whole transactions.
+# Reentrancy allows database helpers to call one another under the same lock.
+_connection_lock = threading.RLock()
+
+
+def _serialized(func):
+    @wraps(func)
+    def locked(*args, **kwargs):
+        with _connection_lock:
+            return func(*args, **kwargs)
+    return locked
+
+
+@_serialized
 def connect(path: str | Path) -> sqlite3.Connection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +91,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+@_serialized
 def register(
     conn: sqlite3.Connection,
     user_id: str,
@@ -122,6 +141,7 @@ def register(
     conn.commit()
 
 
+@_serialized
 def name_taken_by_other(
     conn: sqlite3.Connection, user_id: str, agent_id: str | None, tmux_pane: str
 ) -> bool:
@@ -141,6 +161,7 @@ def name_taken_by_other(
     return row["tmux_pane"] != tmux_pane
 
 
+@_serialized
 def rename_recipient(conn: sqlite3.Connection, old_id: str, new_id: str) -> None:
     """Move a handle, carrying its message history, tasks and team role along.
 
@@ -160,6 +181,7 @@ def rename_recipient(conn: sqlite3.Connection, old_id: str, new_id: str) -> None
         conn.execute("UPDATE teams SET queen=? WHERE queen=?", (new_id, old_id))
 
 
+@_serialized
 def _ensure_columns(conn: sqlite3.Connection) -> None:
     """Add new optional columns to pre-existing DBs."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(recipients)")}
@@ -183,6 +205,7 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+@_serialized
 def lookup_pane(conn: sqlite3.Connection, user_id: str) -> str | None:
     row = conn.execute(
         "SELECT tmux_pane FROM recipients WHERE user_id=?", (user_id,)
@@ -190,6 +213,7 @@ def lookup_pane(conn: sqlite3.Connection, user_id: str) -> str | None:
     return row["tmux_pane"] if row else None
 
 
+@_serialized
 def lookup_user_by_pane(conn: sqlite3.Connection, tmux_pane: str) -> str | None:
     row = conn.execute(
         "SELECT user_id FROM recipients WHERE tmux_pane=?", (tmux_pane,)
@@ -197,6 +221,7 @@ def lookup_user_by_pane(conn: sqlite3.Connection, tmux_pane: str) -> str | None:
     return row["user_id"] if row else None
 
 
+@_serialized
 def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | None:
     _ensure_columns(conn)
     row = conn.execute(
@@ -205,6 +230,7 @@ def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | No
     return row["user_id"] if row else None
 
 
+@_serialized
 def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
     _ensure_columns(conn)
     row = conn.execute(
@@ -215,6 +241,7 @@ def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+@_serialized
 def list_recipients(conn: sqlite3.Connection) -> list[dict]:
     _ensure_columns(conn)
     rows = conn.execute(
@@ -224,6 +251,7 @@ def list_recipients(conn: sqlite3.Connection) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+@_serialized
 def update_recipient_model(
     conn: sqlite3.Connection, user_id: str, model: str
 ) -> dict | None:
@@ -233,6 +261,7 @@ def update_recipient_model(
     return get_recipient(conn, user_id)
 
 
+@_serialized
 def create_task(
     conn: sqlite3.Connection,
     title: str,
@@ -252,6 +281,7 @@ def create_task(
     return get_task(conn, int(cur.lastrowid))
 
 
+@_serialized
 def get_task(conn: sqlite3.Connection, task_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
     if row is None:
@@ -267,6 +297,7 @@ def get_task(conn: sqlite3.Connection, task_id: int) -> dict | None:
     return task
 
 
+@_serialized
 def list_tasks(conn: sqlite3.Connection) -> list[dict]:
     deps: dict[int, list[int]] = {}
     for r in conn.execute("SELECT task_id, depends_on FROM task_deps ORDER BY depends_on"):
@@ -280,6 +311,7 @@ def list_tasks(conn: sqlite3.Connection) -> list[dict]:
     return tasks
 
 
+@_serialized
 def set_task_deps(
     conn: sqlite3.Connection, task_id: int, depends_on: list[int]
 ) -> None:
@@ -311,6 +343,7 @@ def set_task_deps(
     conn.commit()
 
 
+@_serialized
 def update_task(
     conn: sqlite3.Connection,
     task_id: int,
@@ -353,6 +386,7 @@ def update_task(
     return get_task(conn, task_id)
 
 
+@_serialized
 def create_team(conn: sqlite3.Connection, name: str) -> dict:
     cur = conn.execute(
         "INSERT INTO teams(name, queen, created_at) VALUES(?,?,?)",
@@ -362,6 +396,7 @@ def create_team(conn: sqlite3.Connection, name: str) -> dict:
     return get_team(conn, int(cur.lastrowid))
 
 
+@_serialized
 def get_team(conn: sqlite3.Connection, team_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM teams WHERE id=?", (team_id,)).fetchone()
     if row is None:
@@ -377,11 +412,13 @@ def get_team(conn: sqlite3.Connection, team_id: int) -> dict | None:
     return team
 
 
+@_serialized
 def list_teams(conn: sqlite3.Connection) -> list[dict]:
     ids = [row["id"] for row in conn.execute("SELECT id FROM teams ORDER BY id")]
     return [get_team(conn, team_id) for team_id in ids]
 
 
+@_serialized
 def update_team(
     conn: sqlite3.Connection,
     team_id: int,
@@ -405,6 +442,7 @@ def update_team(
     return get_team(conn, team_id)
 
 
+@_serialized
 def delete_team(conn: sqlite3.Connection, team_id: int) -> bool:
     if get_team(conn, team_id) is None:
         return False
@@ -415,6 +453,7 @@ def delete_team(conn: sqlite3.Connection, team_id: int) -> bool:
     return True
 
 
+@_serialized
 def set_agent_team(
     conn: sqlite3.Connection, user_id: str, team_id: int | None
 ) -> dict | None:
@@ -437,6 +476,7 @@ def set_agent_team(
     return get_recipient(conn, user_id)
 
 
+@_serialized
 def record_message(
     conn: sqlite3.Connection,
     sender: str,
@@ -463,6 +503,7 @@ def record_message(
     return int(cur.lastrowid)
 
 
+@_serialized
 def fetch_messages(
     conn: sqlite3.Connection,
     user_id: str | None = None,

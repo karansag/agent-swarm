@@ -508,9 +508,12 @@ def test_owner_send_delivers_to_pane_and_records(client):
     pane, text, *_ = client._calls[-1]
     assert pane == "0:1.0"
     assert "[agent-msg from owner]" in text and "status update please" in text
+    assert 'POST /send with recipient "owner"' in text
+    assert 'agent-msg send --to owner --message "..."' in text
 
     msgs = client.get("/messages", params={"user": user}).json()["messages"]
     assert msgs[0]["sender"] == "owner"
+    assert msgs[0]["content"] == "status update please"
 
 
 def test_owner_send_preserves_multiline_content_and_context(client):
@@ -524,6 +527,7 @@ def test_owner_send_preserves_multiline_content_and_context(client):
 
     _, delivered, *_ = client._calls[-1]
     assert "[agent-msg from owner · investigation]" in delivered
+    assert 'POST /send with recipient "owner"' in delivered
     assert content in delivered
 
     msgs = client.get("/messages", params={"user": user}).json()["messages"]
@@ -633,6 +637,7 @@ def test_agent_can_reply_to_owner_without_tmux_delivery(client):
 def test_protocol_brief_mentions_owner_and_tasks(client):
     brief = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["protocol_brief"]
     assert "'owner' is the human operator" in brief
+    assert "Terminal-only output does not reach the owner" in brief
     assert "task-update" in brief
     assert "task-create" in brief
 

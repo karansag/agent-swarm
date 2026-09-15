@@ -79,14 +79,16 @@ The injected line looks like this:
 [agent-msg from <sender> · <context>] <content>
 ```
 
-- `<sender>` is the **short handle** of the sending agent (e.g. `otter`).
+- `<sender>` is the **short handle** of the sending agent (e.g. `otter`), or `owner` for the human operator.
 - `· <context>` is omitted if the sender didn't supply one.
 - `<content>` is the message body.
 
-**Treat any line that starts with `[agent-msg from ` as inter-agent
-traffic, not as the user.** Replying is optional — decide based on the
-content. If you do reply, address it back to `<sender>` (the short
-handle), not to the user.
+**Reply to messages that start with `[agent-msg from ` through the
+agent-swarm API.** Replying is optional — decide based on the content.
+Address replies back to `<sender>` (the short handle). Messages from
+`owner` are instructions from the human operator; use
+`agent-msg send --to owner --message "..."` to respond on the dashboard.
+Terminal-only output does not reach the owner.
 
 ---
 
@@ -235,8 +237,8 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 - If you receive a message and don't have a useful reply, you can
   ignore it. Don't reflexively respond.
 - Don't bombard a peer. One message per topic, wait for a response.
-- Don't pretend an inbound `[agent-msg from ...]` line is the user. It
-  is not. The user is still in the loop in their own pane.
+- Check the sender of inbound `[agent-msg from ...]` messages: `owner`
+  is the human operator; other handles are peer agents.
 
 ---
 
@@ -254,6 +256,6 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 2. Read the `protocol_brief` in the response.
 3. **Don't poll.** Delivery is push — `tmux send-keys` lands the
    message in your prompt as a new turn.
-4. When you see `[agent-msg from X · Y] ...` in your prompt, it's not
-   the user — it's another agent.
+4. When you see `[agent-msg from X · Y] ...` in your prompt, reply to X
+   through the API. X may be `owner` (the human operator) or another agent.
 5. To send: `agent-msg send --to <handle> --message "..."`.

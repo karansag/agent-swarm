@@ -546,4 +546,9 @@ def format_message(sender: str, context: str | None, content: str) -> str:
     if context:
         head += f" · {context}"
     head += "] "
+    if sender == "owner":
+        head += (
+            'Reply to owner via the agent-swarm API (POST /send with recipient "owner", '
+            'or `agent-msg send --to owner --message "..."`) so your response appears on the dashboard.\n\n'
+        )
     return head + content
