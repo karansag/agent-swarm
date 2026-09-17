@@ -144,19 +144,6 @@ class SpawnReq(BaseModel):
     )
 
 
-class AgentModelReq(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    model: str | None = Field(
-        default=None,
-        description="Model to select in a live harness.",
-    )
-    effort: str | None = Field(
-        default=None,
-        description="Codex reasoning effort (low, medium, high, xhigh, max, or ultra).",
-    )
-
-
 class TeamCreateReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -741,63 +728,6 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     @app.get("/api/spawn-options")
     def spawn_options():
         return {"harnesses": tmux.spawn_options()}
-
-    @app.get("/api/live-model-options")
-    def live_model_options():
-        return {"harnesses": tmux.live_model_options()}
-
-    @app.post("/agents/{user_id}/model")
-    def agents_model(user_id: str, req: AgentModelReq):
-        """Send the harness's own in-session model command to a live pane."""
-        recipient = db.get_recipient(conn, user_id)
-        if recipient is None:
-            raise HTTPException(status_code=404, detail={"error": "unknown agent"})
-        flavor = recipient.get("flavor")
-        if flavor == "codex" and (req.model is not None or req.effort is not None):
-            if req.model is None or req.effort is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail={"error": "Codex model and reasoning effort are both required"},
-                )
-            command = "/model"
-            codex_selection = True
-        else:
-            if req.effort is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail={"error": "reasoning effort is supported only by Codex"},
-                )
-            command = tmux.live_model_command(flavor, req.model)
-            codex_selection = False
-        if command is None:
-            raise HTTPException(
-                status_code=422,
-                detail={"error": "model switching is unsupported for this harness or model"},
-            )
-        if recipient["tmux_pane"] not in tmux.list_panes():
-            raise HTTPException(status_code=409, detail={"error": "agent pane is stopped"})
-        if codex_selection:
-            ok, err = tmux.select_codex_model(
-                recipient["tmux_pane"], req.model, req.effort,
-                submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
-            )
-        else:
-            ok, err = tmux.deliver(
-                recipient["tmux_pane"],
-                command,
-                submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
-                flavor=flavor,
-            )
-        if not ok:
-            raise HTTPException(status_code=502, detail={"error": "model command delivery failed", "detail": err})
-        # The direct Codex flow drives both picker pages; a bare /model still
-        # opens the picker for a human and leaves telemetry unchanged.
-        if req.model is not None:
-            db.update_recipient_model(conn, user_id, req.model)
-        return {
-            "ok": True, "user_id": user_id, "command": command,
-            "model": req.model, "effort": req.effort,
-        }
 
     @app.post("/agents/spawn")
     def agents_spawn(req: SpawnReq):

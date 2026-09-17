@@ -117,66 +117,6 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 
 const DEFAULT_MODEL = "default";
 
-function LiveModelControl({ recipient, refresh }) {
-  const [harnesses, setHarnesses] = useState([]);
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const flavor = (recipient.flavor || "generic").toLowerCase();
-
-  useEffect(() => {
-    let live = true;
-    fetch("/api/live-model-options")
-      .then(r => r.json())
-      .then(d => { if (live && d.harnesses) setHarnesses(d.harnesses); })
-      .catch(() => {});
-    return () => { live = false; };
-  }, []);
-
-  const harness = harnesses.find(h => h.flavor === flavor);
-  const models = harness?.models || [];
-  const efforts = harness?.efforts || [];
-  const mode = harness?.mode;
-  useEffect(() => {
-    if ((mode === "direct" || mode === "picker") && models.length && !models.includes(model)) setModel(models[0]);
-  }, [mode, models.join(",")]);
-  useEffect(() => {
-    const defaults = harness?.default_efforts || {};
-    if (mode === "picker" && efforts.length && !efforts.includes(effort)) setEffort(defaults[model] || efforts[0]);
-  }, [mode, model, effort, efforts.join(","), JSON.stringify(harness?.default_efforts || {})]);
-  if (!recipient.pane_alive || !mode) return null;
-
-  const change = async (e) => {
-    e.preventDefault();
-    const selected = mode === "picker" && !model ? null : model;
-    if (!selected || (mode === "picker" && !effort)) return;
-    setBusy(true);
-    setErr("");
-    const r = await fetch(`/agents/${encodeURIComponent(recipient.user_id)}/model`, {
-      method: "POST", headers: JSONH, body: JSON.stringify({ model: selected, effort: mode === "picker" ? effort : null }),
-    });
-    if (!r.ok) setErr("model change failed");
-    setBusy(false);
-    if (r.ok) refresh();
-  };
-
-  if (mode === "picker") return html`<form class="live-model" onSubmit=${change}>
-    <span>model</span><select value=${model} onChange=${e => setModel(e.target.value)}>${models.map(m => html`<option key=${m} value=${m}>${m}</option>`)}</select>
-    <span>effort</span><select value=${effort} onChange=${e => setEffort(e.target.value)}>${efforts.map(e => html`<option key=${e} value=${e}>${e === "xhigh" ? "extra high" : e}</option>`)}</select>
-    <button class="mini" disabled=${busy || !model || !effort}>${busy ? "changing…" : "change Codex"}</button>
-    <span class="hint">uses Codex’s native picker</span>${err && html`<span class="err">${err}</span>`}
-  </form>`;
-  return html`<form class="live-model" onSubmit=${change}>
-    <span>model</span>
-    ${mode === "custom"
-      ? html`<input type="text" value=${model} placeholder="provider:model" onInput=${e => setModel(e.target.value)} />`
-      : html`<select value=${model} onChange=${e => setModel(e.target.value)}>${models.map(m => html`<option key=${m} value=${m}>${m}</option>`)}</select>`}
-    <button class="mini" disabled=${busy || !model}>${busy ? "changing…" : "change"}</button>
-    ${err && html`<span class="err">${err}</span>`}
-  </form>`;
-}
-
 function SpawnControl({ refresh }) {
   const [harnesses, setHarnesses] = useState([]);
   const [flavor, setFlavor] = useState("claude");
@@ -699,7 +639,6 @@ function FocusView({ user, state, refresh, freshIds }) {
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? html` <span class="attn">${detail}</span>` : ""}
         </div>
         ${r.instructions && html`<div class="inst">"${r.instructions}"</div>`}
-        <${LiveModelControl} recipient=${r} refresh=${refresh} />
       </div>
     </div>
     <${Scope} user=${user} refresh=${refresh} />

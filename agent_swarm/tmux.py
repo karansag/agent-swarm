@@ -83,7 +83,7 @@ def infer_flavor(model: str | None) -> str:
 # rather than the redundant "claude".
 _MODEL_LINE_KEYWORDS = [
     "opus", "sonnet", "haiku", "fable",  # claude lines
-    "sol", "terra", "luna",  # codex live-model codenames
+    "sol", "terra", "luna",  # codex model codenames
     "gemini",
 ]
 
@@ -351,27 +351,6 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
 
 SPAWNABLE_FLAVORS = tuple(HARNESS_SPAWN)
 
-# Live model switching is deliberately separate from launch flags.  Most
-# harnesses accept ``/model <name>`` in an active conversation; Codex opens a
-# picker with ``/model`` and does not accept a model name argument.
-LIVE_MODEL_SWITCH_MODE = {
-    "claude": "direct",
-    "codex": "picker",
-    "pi": "direct",
-    "hermes": "custom",
-}
-_MODEL_REFERENCE = re.compile(r"[A-Za-z0-9_.:/~-]+")
-
-# Values emitted by Codex v0.144.5's native /model picker.  The displayed
-# “Extra high” label maps to the config/runtime value ``xhigh``.
-CODEX_LIVE_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
-CODEX_REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")
-CODEX_DEFAULT_REASONING_EFFORT = {
-    "gpt-5.6-sol": "low",
-    "gpt-5.6-terra": "medium",
-    "gpt-5.6-luna": "medium",
-}
-
 
 def spawn_options() -> list[dict]:
     """The harness/model menu the dashboard offers, as plain data."""
@@ -379,104 +358,6 @@ def spawn_options() -> list[dict]:
         {"flavor": flavor, "models": spec.models}
         for flavor, spec in HARNESS_SPAWN.items()
     ]
-
-
-def live_model_options() -> list[dict]:
-    """Return dashboard options for model switching in running harnesses."""
-    options = []
-    for flavor, spec in HARNESS_SPAWN.items():
-        item = {
-            "flavor": flavor,
-            "models": spec.models,
-            "mode": LIVE_MODEL_SWITCH_MODE[flavor],
-        }
-        if flavor == "codex":
-            item.update(
-                models=list(CODEX_LIVE_MODELS),
-                efforts=list(CODEX_REASONING_EFFORTS),
-                default_efforts=CODEX_DEFAULT_REASONING_EFFORT,
-            )
-        options.append(item)
-    return options
-
-
-def live_model_command(flavor: str | None, model: str | None) -> str | None:
-    """Build a safe in-session model command for a registered harness.
-
-    Codex's TUI exposes a picker only, so it intentionally accepts no model
-    argument.  Hermes resolves configured provider/model references itself;
-    its references are restricted to a single command-safe token.
-    """
-    flavor = (flavor or "").lower()
-    spec = HARNESS_SPAWN.get(flavor)
-    mode = LIVE_MODEL_SWITCH_MODE.get(flavor)
-    if spec is None or mode is None:
-        return None
-    if mode == "picker":
-        return "/model" if model is None else None
-    if mode == "custom":
-        if model and _MODEL_REFERENCE.fullmatch(model):
-            return f"/model {model}"
-        return None
-    if model in spec.models:
-        return f"/model {model}"
-    return None
-
-
-def _send_keys(pane: str, *keys: str) -> tuple[bool, str | None]:
-    """Send non-literal tmux keys to an already-open interactive control."""
-    try:
-        subprocess.run(
-            ["tmux", "send-keys", "-t", pane, *keys],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        )
-    except subprocess.CalledProcessError as e:
-        return False, e.stderr.strip() or str(e)
-    except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return False, str(e)
-    return True, None
-
-
-def select_codex_model(
-    pane: str, model: str, effort: str, submit_key: str = "Enter"
-) -> tuple[bool, str | None]:
-    """Drive Codex's native /model picker to a known model and effort.
-
-    Codex does not support ``/model <model>``: that string becomes a normal
-    prompt.  Its picker has a stable, ordered model page followed by an effort
-    page. Home makes selection independent of the currently active model.
-    """
-    if model not in CODEX_LIVE_MODELS or effort not in CODEX_REASONING_EFFORTS:
-        return False, "unsupported Codex model or reasoning effort"
-    ok, err = deliver(pane, "/model", submit_key=submit_key, flavor="codex")
-    if not ok:
-        return False, err
-    # deliver() waits for Codex's submit verification; allow its picker to
-    # render before navigating it.
-    time.sleep(0.2)
-    ok, err = _send_keys(
-        pane, "Home", *("Down" for _ in range(CODEX_LIVE_MODELS.index(model))), "Enter"
-    )
-    if not ok:
-        return False, err
-    # Codex renders the next picker asynchronously.  Keep this separate from
-    # the keystroke sequence: otherwise an immediate Down can land before the
-    # advanced menu exists and its default (Max) is accepted instead.
-    time.sleep(0.5)
-    if effort in ("max", "ultra"):
-        ok, err = _send_keys(pane, "End", "Enter")
-        if not ok:
-            return False, err
-        time.sleep(0.5)
-        return _send_keys(
-            pane, "Home", *("Down" for _ in range(("max", "ultra").index(effort))), "Enter"
-        )
-    return _send_keys(
-        pane, "Home", *("Down" for _ in range(CODEX_REASONING_EFFORTS.index(effort))), "Enter"
-    )
 
 
 def spawn_launch_command(
