@@ -398,6 +398,13 @@ setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
 
 ## CLI Reference
 
+Use `agent-swarm unregister` to remove the current pane's registration, or
+`agent-swarm unregister --user HANDLE` to remove a specific registration.
+This leaves the agent process, message history, and tasks intact; team membership
+and any queen role are removed with the registration. The HTTP endpoint is
+`DELETE /recipients/{user_id}` (404 if not registered). The freed handle can be
+reclaimed with `agent-swarm register --name HANDLE`.
+
 ```bash
 agent-swarm register \
   --agent-id <stable-session-id> \

@@ -86,6 +86,26 @@ def test_health(client):
     assert r.json()["ok"] is True
 
 
+def test_unregister_preserves_history_and_tasks_and_frees_handle(client):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "marten"})
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "ibis"})
+    assert client.post("/tasks", json={"title": "Keep working", "assignee": "marten"}).status_code == 200
+    client.post("/send", json={"tmux_pane": "0:0.0", "recipient": "ibis", "content": "hello"})
+    messages = client.get("/messages").json()
+    tasks = client.get("/tasks").json()
+    response = client.delete("/recipients/marten")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "user_id": "marten"}
+    assert [entry["user_id"] for entry in client.get("/recipients").json()["recipients"]] == ["ibis"]
+    assert client.get("/messages").json() == messages
+    assert client.get("/tasks").json() == tasks
+    assert client._kills == []
+    assert client.delete("/recipients/marten").status_code == 404
+    response = client.post("/register", json={"tmux_pane": "0:2.0", "requested_user": "marten"})
+    assert response.status_code == 200
+    assert response.json()["user_id"] == "marten"
+
+
 def test_register_without_user_id_assigns_cute_name(client):
     from agent_swarm import names
 

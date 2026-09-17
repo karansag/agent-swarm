@@ -484,6 +484,12 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 kept_offline.append(r["user_id"])
         return {"ok": True, "removed": removed, "kept_offline": kept_offline}
 
+    @app.delete("/recipients/{user_id}")
+    def unregister(user_id: str):
+        if not db.delete_recipient(conn, user_id):
+            raise HTTPException(status_code=404, detail="recipient not registered")
+        return {"ok": True, "user_id": user_id}
+
     def _deliver_from_owner(recipient_id: str, content: str, context: str | None):
         """Deliver a message from the human operator to an agent's pane."""
         recipient = db.get_recipient(conn, recipient_id)

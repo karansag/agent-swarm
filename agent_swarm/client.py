@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+from urllib.parse import quote
 
 import httpx
 
@@ -123,6 +124,19 @@ def cmd_prune(args: argparse.Namespace) -> int:
     return 0 if r.is_success else 1
 
 
+def cmd_unregister(args: argparse.Namespace) -> int:
+    user = args.user
+    if user is None:
+        pane = current_pane()
+        user = registered_user(pane) if pane else None
+    if user is None:
+        print("error: current pane is not registered; pass --user HANDLE", file=sys.stderr)
+        return 2
+    response = httpx.delete(f"{base_url()}/recipients/{quote(user, safe='')}", timeout=5)
+    print(response.text)
+    return 0 if response.is_success else 1
+
+
 def cmd_tasks(args: argparse.Namespace) -> int:
     r = httpx.get(f"{base_url()}/tasks", timeout=5)
     if not r.is_success:
@@ -220,6 +234,10 @@ def main(argv: list[str] | None = None) -> int:
         help="tmux key name used to submit each delivered message (default: C-m)",
     )
     reg.set_defaults(func=cmd_register)
+
+    unregister = sub.add_parser("unregister", help="remove one registration without deleting messages or tasks")
+    unregister.add_argument("--user", help="handle to remove (default: current pane's handle)")
+    unregister.set_defaults(func=cmd_unregister)
 
     snd = sub.add_parser("send")
     snd.add_argument("--to", required=True)

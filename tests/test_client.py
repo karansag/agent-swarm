@@ -6,6 +6,33 @@ from types import SimpleNamespace
 from agent_swarm import client, tmux
 
 
+def test_unregister_defaults_to_current_pane(monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "current_pane", lambda: "marin:1.2")
+    monkeypatch.setattr(client, "registered_user", lambda pane: "marten" if pane == "marin:1.2" else None)
+    monkeypatch.setattr(client, "base_url", lambda: "http://localhost:8765")
+
+    def delete(url, timeout):
+        calls.append((url, timeout))
+        return SimpleNamespace(text='{"ok":true}', is_success=True)
+
+    monkeypatch.setattr(client.httpx, "delete", delete)
+    assert client.main(["unregister"]) == 0
+    assert calls == [("http://localhost:8765/recipients/marten", 5)]
+
+
+def test_unregister_explicit_handle_propagates_failure(monkeypatch):
+    monkeypatch.setattr(client, "current_pane", lambda: None)
+    monkeypatch.setattr(client.httpx, "delete", lambda url, timeout: SimpleNamespace(text="not registered", is_success=False))
+    assert client.main(["unregister", "--user", "marten"]) == 1
+
+
+def test_unregister_without_identity_does_not_delete(monkeypatch, capsys):
+    monkeypatch.setattr(client, "current_pane", lambda: None)
+    assert client.main(["unregister"]) == 2
+    assert "pass --user HANDLE" in capsys.readouterr().err
+
+
 def test_current_pane_targets_tmux_pane_env(monkeypatch):
     calls = []
 

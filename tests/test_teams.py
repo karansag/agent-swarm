@@ -52,6 +52,19 @@ def test_team_crud_and_membership(client):
     assert all(r["team_id"] is None for r in state["recipients"])
 
 
+def test_unregister_queen_clears_role_without_removing_teammates(client):
+    queen = _register(client, "0:0.0")
+    teammate = _register(client, "0:1.0")
+    team = _make_team(client)
+    for user in (queen, teammate):
+        client.post(f"/agents/{user}/team", json={"team_id": team["id"]})
+    assert client.patch(f"/teams/{team['id']}", json={"queen": queen}).status_code == 200
+    assert client.delete(f"/recipients/{queen}").status_code == 200
+    remaining = client.get("/teams").json()["teams"][0]
+    assert remaining["queen"] is None
+    assert remaining["members"] == [teammate]
+
+
 def test_queen_promotion_delivers_scoped_prompt(client):
     a = _register(client, "0:0.0")
     b = _register(client, "0:1.0")
