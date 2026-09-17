@@ -77,31 +77,49 @@ def infer_flavor(model: str | None) -> str:
     return DEFAULT_FLAVOR
 
 
-# Specific model-line keywords take priority over generic family names so
-# e.g. "claude-opus-4-7" tags as "opus" rather than the redundant "claude".
-_MODEL_TAG_KEYWORDS = [
-    "opus", "sonnet", "haiku",  # claude lines
+# Named model lines, which identify a model far better than its family does.
+# Checked before the generic fallback so "claude-opus-4-7" reads as "opus"
+# rather than the redundant "claude".
+_MODEL_LINE_KEYWORDS = [
+    "opus", "sonnet", "haiku", "fable",  # claude lines
     "sol", "terra", "luna",  # codex live-model codenames
-    "gemini", "hermes", "pi",
+    "gemini",
 ]
 
 
-def model_tag(model: str | None) -> str | None:
-    """Short recognizable tag for a model label, e.g. "claude-opus-4-7" -> "opus".
-
-    Used to make agent-swarm's auto-assigned names more distinguishable
-    (e.g. "ferret-opus") when several agents draw from the same animal pool.
-    """
+def model_line(model: str | None) -> str | None:
+    """Short name for a model label's specific line, e.g. "claude-opus-4-7" -> "opus"."""
     if not model:
         return None
     label = model.lower()
-    for kw in _MODEL_TAG_KEYWORDS:
+    for kw in _MODEL_LINE_KEYWORDS:
         if _has_label_token(label, kw):
             return kw
-    # Unknown model family: fall back to its first alphabetic run, e.g.
-    # "claude-x" -> "claude", "gpt-4" -> "gpt".
-    match = re.search(r"[a-z]+", label)
-    return match.group(0) if match else None
+    # Unnamed line: use the leading family token with its major version, so
+    # "gpt-5-codex" -> "gpt5" stays distinct from a later "gpt-6-codex".
+    match = re.match(r"[^a-z]*([a-z]+)[^0-9a-z]*(\d+)?", label)
+    if not match:
+        return None
+    family, version = match.group(1), match.group(2)
+    return f"{family}{version}" if version else family
+
+
+def handle_tag(flavor: str | None, model: str | None) -> str | None:
+    """Suffix identifying an agent's harness and model, e.g. ("claude", "opus") -> "claude-opus".
+
+    Auto-assigned handles append this to an animal name ("ferret-claude-opus")
+    so agents drawing from the same pool are told apart by what they actually
+    are. The harness leads because it is always known and decides delivery;
+    the model line follows only when it adds something the harness does not,
+    so a bare "claude-code" stays "claude" rather than "claude-claude".
+    """
+    harness = (flavor or "").lower() or None
+    line = model_line(model)
+    if harness is None:
+        return line
+    if line is None or line == harness or line.startswith(harness):
+        return harness
+    return f"{harness}-{line}"
 
 
 def submit_key_for_flavor(flavor: str | None) -> str:

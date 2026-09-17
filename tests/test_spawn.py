@@ -124,24 +124,46 @@ def test_live_model_options_describe_direct_picker_and_custom_modes():
     assert opts["hermes"]["mode"] == "custom"
 
 
-def test_model_tag_prefers_specific_model_line_over_family():
+def test_model_line_prefers_named_lines_over_family():
     # "opus" beats the redundant "claude" family name.
-    assert tmux.model_tag("claude-opus-4-7") == "opus"
-    assert tmux.model_tag("claude-sonnet-5") == "sonnet"
-    assert tmux.model_tag("claude-3-5-haiku-20241022") == "haiku"
+    assert tmux.model_line("claude-opus-4-7") == "opus"
+    assert tmux.model_line("claude-sonnet-5") == "sonnet"
+    assert tmux.model_line("claude-3-5-haiku-20241022") == "haiku"
+    assert tmux.model_line("claude-fable-5-1") == "fable"
 
 
-def test_model_tag_recognizes_codex_live_model_codenames():
-    assert tmux.model_tag("gpt-5.6-sol") == "sol"
-    assert tmux.model_tag("gpt-5.6-terra") == "terra"
-    assert tmux.model_tag("gpt-5.6-luna") == "luna"
+def test_model_line_recognizes_codex_live_model_codenames():
+    assert tmux.model_line("gpt-5.6-sol") == "sol"
+    assert tmux.model_line("gpt-5.6-terra") == "terra"
+    assert tmux.model_line("gpt-5.6-luna") == "luna"
 
 
-def test_model_tag_falls_back_to_first_word_for_unknown_models():
-    assert tmux.model_tag("claude-x") == "claude"
-    assert tmux.model_tag("totally-made-up") == "totally"
+def test_model_line_keeps_major_version_for_unnamed_lines():
+    # Version stays so a later generation is a different tag.
+    assert tmux.model_line("gpt-5-codex") == "gpt5"
+    assert tmux.model_line("gpt-6-codex") == "gpt6"
+    assert tmux.model_line("claude-code") == "claude"
+    assert tmux.model_line("totally-made-up") == "totally"
 
 
-def test_model_tag_handles_missing_model():
-    assert tmux.model_tag(None) is None
-    assert tmux.model_tag("") is None
+def test_model_line_handles_missing_model():
+    assert tmux.model_line(None) is None
+    assert tmux.model_line("") is None
+
+
+def test_handle_tag_leads_with_harness_then_model_line():
+    assert tmux.handle_tag("claude", "claude-opus-4-7") == "claude-opus"
+    assert tmux.handle_tag("codex", "gpt-5.6-terra") == "codex-terra"
+    assert tmux.handle_tag("codex", "gpt-5-codex") == "codex-gpt5"
+
+
+def test_handle_tag_drops_a_model_line_that_only_repeats_the_harness():
+    # "claude-code" tells us nothing "claude" did not already say.
+    assert tmux.handle_tag("claude", "claude-code") == "claude"
+    assert tmux.handle_tag("hermes", "hermes-2") == "hermes"
+
+
+def test_handle_tag_falls_back_to_whichever_half_is_known():
+    assert tmux.handle_tag("generic", None) == "generic"
+    assert tmux.handle_tag(None, "claude-opus-4-7") == "opus"
+    assert tmux.handle_tag(None, None) is None

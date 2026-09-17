@@ -122,7 +122,8 @@ def test_register_without_user_id_assigns_cute_name(client):
     assert body["assigned"] is True
     animal, _, tag = body["user_id"].partition("-")
     assert animal in names.POOL
-    assert tag == "opus"
+    # Harness first, then the model line it does not already imply.
+    assert tag == "claude-opus"
     assert body["agent_id"] == "00000000-0000-4000-8000-000000000001"
     assert body["model"] == "claude-opus-4-7"
     assert body["flavor"] == "claude"

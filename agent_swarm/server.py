@@ -394,7 +394,12 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         elif existing_id is not None:
             user_id = existing_id
         else:
-            user_id = names.pick_unused(conn, tmux.model_tag(req.model))
+            # A brand new registration has no stored flavor to fall back on,
+            # so what the agent just told us is the whole picture.
+            user_id = names.pick_unused(
+                conn,
+                tmux.handle_tag(req.flavor or tmux.infer_flavor(req.model), req.model),
+            )
         # A re-register that omits both model and flavor must not downgrade a
         # known harness to 'generic': the write COALESCEs, but only over NULL,
         # so fall back to what is already stored before defaulting.
@@ -799,7 +804,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 status_code=500,
                 detail={"error": "could not create tmux window", "detail": err},
             )
-        user_id = names.pick_unused(conn, tmux.model_tag(model))
+        user_id = names.pick_unused(conn, tmux.handle_tag(req.flavor, model))
         db.register(
             conn,
             user_id,
