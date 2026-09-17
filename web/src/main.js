@@ -282,11 +282,24 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
 
 function TaskCard({ t, agentIds, teams, blockers, refresh }) {
   const [dragging, setDragging] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [note, setNote] = useState("");
+  const [showNote, setShowNote] = useState(false);
+  const [err, setErr] = useState("");
   const when = new Date(t.created_at * 1000)
     .toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const ids = t.assignee && !agentIds.includes(t.assignee)
     ? agentIds.concat(t.assignee) : agentIds;
-  const act = async (p) => { await patchTask(t.id, p); refresh(); };
+  const act = async (p) => {
+    const r = await patchTask(t.id, p);
+    if (!r.ok) { setErr(r.error); return false; }
+    setErr(""); refresh(); return true;
+  };
+  const close = async () => {
+    if (await act({ status: "done", note: note.trim() })) {
+      setClosing(false); setNote("");
+    }
+  };
   const draggable = t.status !== "done";
   const blocked = blockers.length > 0 && t.status !== "done";
   const deps = t.depends_on || [];
@@ -309,6 +322,23 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     <div class="t">${t.title}</div>
     <div class="meta">#${t.id} · created ${when}${deps.length > 0 ? ` · after ${deps.map(d => `#${d}`).join(" ")}` : ""}${t.description ? ` · ${t.description}` : ""}${t.worktree ? ` · worktree ${t.worktree}` : ""}</div>
     ${blocked && html`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map(d => `#${d}`).join(" ")}</div>`}
+    ${t.assignee && html`<div class="meta">picked up by <a class="agent-link" href=${focusHash(t.assignee)}
+        title=${`Open ${t.assignee} and message it`}>${t.assignee}</a></div>`}
+    ${t.note && html`<div class="tnote">
+      <button type="button" class="tnote-toggle" onClick=${() => setShowNote(!showNote)}
+        title="How to verify this work">${showNote ? "▾" : "▸"} how to verify</button>
+      ${showNote && html`<div class="tnote-body">${t.note}</div>`}
+    </div>`}
+    ${closing && html`<div class="tnote-edit">
+      <textarea rows="3" value=${note} autofocus
+        placeholder="How is this verified? How to use it, or how to reproduce what it fixed, and where to look."
+        onInput=${(e) => setNote(e.target.value)}></textarea>
+      <div class="tnote-actions">
+        <button class="mini" disabled=${!note.trim()} onClick=${close}>save & close</button>
+        <button class="mini" onClick=${() => { setClosing(false); setErr(""); }}>cancel</button>
+      </div>
+    </div>`}
+    ${err && html`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
       <select title="assignee" value=${t.team_id ? `t:${t.team_id}` : (t.assignee || "")}
         onChange=${onAssign}>
@@ -320,7 +350,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
       </select>
       ${t.status === "done"
         ? html`<button class="mini" onClick=${() => act({ status: "open" })}>reopen</button>`
-        : html`<button class="mini" onClick=${() => act({ status: "done" })}>done</button>`}
+        : html`<button class="mini" onClick=${() => { setNote(t.note || ""); setClosing(!closing); }}>done</button>`}
     </div>
   </div>`;
 }

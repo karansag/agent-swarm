@@ -227,6 +227,18 @@
   .tcard.dragging { opacity: .45; cursor: grabbing; border-style: dashed; border-color: var(--honey-dim); }
   .col.done .tcard { opacity: .6; }
   .tcard.blocked { border-style: dashed; }
+  .agent-link { color: var(--honey); text-decoration: none; border-bottom: 1px dotted var(--honey-dim); }
+  .agent-link:hover { color: var(--cream); border-bottom-color: var(--cream); }
+  .tnote { margin-top: 6px; }
+  .tnote-toggle { background: none; border: 0; padding: 0; cursor: pointer; font-size: 10px; color: var(--cream-dim); }
+  .tnote-toggle:hover { color: var(--cream); }
+  .tnote-body { margin-top: 4px; padding: 6px 8px; border-left: 2px solid var(--honey-dim);
+    font-size: 11px; line-height: 1.45; color: var(--cream-dim); white-space: pre-wrap; }
+  .tnote-edit { margin-top: 6px; }
+  .tnote-edit textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 11px;
+    padding: 5px 6px; border-radius: 6px; resize: vertical; }
+  .tnote-actions { display: flex; gap: 6px; margin-top: 4px; }
+  .tnote-err { color: var(--alert); }
   .tcard .blocked-tag { color: var(--honey); }
   .tcard .t { font-size: 12.5px; }
   .tcard .meta { font-size: 10px; color: var(--cream-dim); margin-top: 3px; }

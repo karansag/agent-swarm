@@ -622,7 +622,7 @@ def test_task_status_flow_open_picked_up_done(client):
     )
     assert r.json()["task"]["status"] == "picked_up"
     assert r.json()["task"]["worktree"] == "/tmp/repo-task-1"
-    r = client.patch(f"/tasks/{tid}", json={"status": "done"})
+    r = client.patch(f"/tasks/{tid}", json={"status": "done", "note": "ran the suite"})
     assert r.json()["task"]["status"] == "done"
     assert client.patch(f"/tasks/{tid}", json={"worktree": ""}).status_code == 422
     assert client.patch(f"/tasks/{tid}", json={"status": "bogus"}).status_code == 422
@@ -938,3 +938,66 @@ def test_prune_keeps_shell_panes_unless_asked(client):
     assert r["removed"] == [shell] and r["kept_offline"] == []
     ids = {x["user_id"] for x in client.get("/recipients").json()["recipients"]}
     assert ids == {live}
+
+
+def test_closing_a_task_requires_a_verification_note(client):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "marten"})
+    tid = client.post("/tasks", json={"title": "Ship it", "assignee": "marten"}).json()["task"]["id"]
+
+    r = client.patch(f"/tasks/{tid}", json={"status": "done"})
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "note" in detail["error"]
+    # The refusal carries the same guidance the agent was given up front.
+    assert "how to use it" in detail["note"]
+    assert client.get("/tasks").json()["tasks"][0]["status"] == "open"
+
+    # A note supplied with the close is enough, and it is kept on the task.
+    r = client.patch(
+        f"/tasks/{tid}",
+        json={"status": "done", "note": "Run `agent-swarm tasks`; note shows on the card."},
+    )
+    assert r.status_code == 200
+    task = r.json()["task"]
+    assert task["status"] == "done"
+    assert task["note"].startswith("Run `agent-swarm tasks`")
+
+
+def test_a_note_left_earlier_satisfies_the_close(client):
+    tid = client.post("/tasks", json={"title": "Two steps"}).json()["task"]["id"]
+    client.patch(f"/tasks/{tid}", json={"note": "Open the dashboard and expand the task."})
+    assert client.patch(f"/tasks/{tid}", json={"status": "done"}).status_code == 200
+
+
+def test_blank_note_does_not_count_as_a_note(client):
+    tid = client.post("/tasks", json={"title": "Whitespace"}).json()["task"]["id"]
+    r = client.patch(f"/tasks/{tid}", json={"status": "done", "note": "   "})
+    assert r.status_code == 422
+
+
+def test_reopening_and_other_updates_never_need_a_note(client):
+    tid = client.post("/tasks", json={"title": "Reopen me"}).json()["task"]["id"]
+    client.patch(f"/tasks/{tid}", json={"status": "done", "note": "verified by hand"})
+    assert client.patch(f"/tasks/{tid}", json={"status": "open"}).status_code == 200
+    assert client.patch(f"/tasks/{tid}", json={"status": "picked_up"}).status_code == 200
+
+
+def test_assignment_message_and_brief_tell_agents_to_leave_a_note(client):
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "ibis"})
+    brief = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["protocol_brief"]
+    assert "--note" in brief and "required" in brief
+
+    client.post("/tasks", json={"title": "Do a thing", "assignee": "ibis"})
+    delivered = client._calls[-1][1]
+    assert "--note" in delivered
+    assert "how to use it" in delivered
+
+
+def test_task_card_links_to_the_assigned_agent_and_shows_the_note():
+    portal = portal_source()
+    # The assignee is a link into that agent's page, not plain text.
+    assert "picked up by" in portal
+    assert "focusHash(t.assignee)" in portal
+    # And the note is readable from the card.
+    assert "how to verify" in portal
+    assert "tnote-body" in portal

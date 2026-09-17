@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     assignee    TEXT,
     status      TEXT NOT NULL DEFAULT 'open',
     worktree    TEXT,
+    note        TEXT,
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
 );
@@ -202,6 +203,8 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN worktree TEXT")
     if "team_id" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN team_id INTEGER")
+    if "note" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN note TEXT")
     conn.commit()
 
 
@@ -349,6 +352,7 @@ def update_task(
     assignee: str | None | object = _UNSET,
     worktree: str | None | object = _UNSET,
     team_id: int | None | object = _UNSET,
+    note: str | None | object = _UNSET,
 ) -> dict | None:
     task = get_task(conn, task_id)
     if task is None:
@@ -369,13 +373,16 @@ def update_task(
             task["assignee"] = None
     if worktree is not _UNSET:
         task["worktree"] = worktree
+    if note is not _UNSET:
+        task["note"] = note
     conn.execute(
-        "UPDATE tasks SET status=?, assignee=?, team_id=?, worktree=?, updated_at=? WHERE id=?",
+        "UPDATE tasks SET status=?, assignee=?, team_id=?, worktree=?, note=?, updated_at=? WHERE id=?",
         (
             task["status"],
             task["assignee"],
             task["team_id"],
             task["worktree"],
+            task["note"],
             time.time(),
             task_id,
         ),

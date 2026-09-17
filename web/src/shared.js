@@ -71,5 +71,9 @@ export const disp = (u) => u === "owner" ? html`<span class="owner-name">owner</
 export const focusHash = (u) => `#/agent/${encodeURIComponent(u)}`;
 
 export async function patchTask(id, patch) {
-  await fetch(`/tasks/${id}`, { method: "PATCH", headers: JSONH, body: JSON.stringify(patch) });
+  const r = await fetch(`/tasks/${id}`, { method: "PATCH", headers: JSONH, body: JSON.stringify(patch) });
+  if (r.ok) return { ok: true };
+  // Closing without a note is refused; surface that rather than doing nothing.
+  const body = await r.json().catch(() => null);
+  return { ok: false, error: body?.detail?.error || `request failed (${r.status})` };
 }

@@ -201,6 +201,7 @@ def test_cmd_task_update_records_worktree(monkeypatch, capsys):
         assignee=None,
         worktree="/tmp/repo-task-7",
         depends_on=None,
+        note=None,
     )
 
     assert client.cmd_task_update(args) == 0
@@ -295,3 +296,28 @@ def test_base_url_prefers_new_environment_name(monkeypatch):
     monkeypatch.setenv("AGENT_MSG_URL", "http://legacy.example:9999")
     monkeypatch.setenv("AGENT_SWARM_URL", "http://new.example:8765")
     assert client.base_url() == "http://new.example:8765"
+
+
+def test_cmd_task_update_forwards_the_closing_note(monkeypatch, capsys):
+    captured = {}
+
+    def fake_patch(url, json, timeout):
+        captured["json"] = json
+        return SimpleNamespace(text='{"ok": true}', is_success=True)
+
+    monkeypatch.setattr(client.httpx, "patch", fake_patch)
+    args = Namespace(
+        id=42,
+        status="done",
+        assignee=None,
+        worktree=None,
+        depends_on=None,
+        note="Run the suite; see tests/test_server.py.",
+    )
+
+    assert client.cmd_task_update(args) == 0
+    assert captured["json"] == {
+        "status": "done",
+        "note": "Run the suite; see tests/test_server.py.",
+    }
+    capsys.readouterr()

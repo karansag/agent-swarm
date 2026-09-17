@@ -39,6 +39,15 @@ PORTAL_STATIC_PATH = Path(__file__).parent / "static"
 # for the dashboard instead of being injected into a tmux pane.
 OWNER = "owner"
 
+# Said the same way wherever a worker meets it: in the assignment message, in
+# the protocol brief, and in the error it gets if it tries to close without one.
+NOTE_GUIDANCE = (
+    "Say how to verify the work: for a feature, how to use it; for a fix, how "
+    "to reproduce the problem it solves; and where to look - the command to "
+    "run, the endpoint or screen to open, or the files that changed. Write it "
+    "for someone coming back to this later with no memory of the work."
+)
+
 
 class RegisterReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -125,6 +134,12 @@ class TaskUpdateReq(BaseModel):
     worktree: str | None = Field(default=None, min_length=1)
     team_id: int | None = None
     depends_on: list[int] | None = None
+    note: str | None = Field(
+        default=None,
+        description="How to verify the finished work: how to use it if it is a "
+        "feature, how to reproduce if it is a fix, and where to look. Required "
+        "to close a task, and kept on the task so it can be read later.",
+    )
 
 
 class SpawnReq(BaseModel):
@@ -256,7 +271,10 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
         f"The owner can assign you tasks. They arrive as messages tagged "
         f"'task #N'. When you start one, run "
         f"`agent-swarm task-update N --status picked_up`; when you finish, "
-        f"run `agent-swarm task-update N --status done`. "
+        f"run `agent-swarm task-update N --status done --note \"...\"`. "
+        f"The note is required: closing without one is refused. {NOTE_GUIDANCE} "
+        f"It stays on the task, so the owner can open it later and see how to "
+        f"check the work. "
         f"List tasks anytime: `agent-swarm tasks`. You can file work for the "
         f"shared board with `agent-swarm task-create \"title\"` (optionally "
         f"add `--description`, `--assignee`, or `--depends-on 3,5` to record "
@@ -621,7 +639,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             f"Before editing, use branch task/{task['id']} in a dedicated git worktree. "
             f"Record it when you start: agent-swarm task-update {task['id']} "
             f"--worktree /absolute/path --status picked_up. "
-            f"When finished: agent-swarm task-update {task['id']} --status done."
+            f"When finished: agent-swarm task-update {task['id']} --status done "
+            f"--note \"...\". The note is required and the close is refused "
+            f"without one. {NOTE_GUIDANCE}"
         )
         content = f"You are assigned task #{task['id']}: {task['title']}."
         if task.get("description"):
@@ -716,8 +736,20 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             kwargs["team_id"] = req.team_id
         if "worktree" in req.model_fields_set:
             kwargs["worktree"] = req.worktree
+        if "note" in req.model_fields_set:
+            kwargs["note"] = (req.note or "").strip() or None
         if "depends_on" in req.model_fields_set:
             _set_deps(task_id, req.depends_on or [])
+        # Closing is the one moment the worker still has the context needed to
+        # say how the work is checked, so it is the moment we insist on it.
+        if req.status == "done" and not (kwargs.get("note") or before["note"]):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "a task needs a note before it can be closed",
+                    "note": NOTE_GUIDANCE,
+                },
+            )
         task = db.update_task(conn, task_id, **kwargs)
         if task["assignee"] and task["assignee"] != before["assignee"]:
             _notify_assignment(task)

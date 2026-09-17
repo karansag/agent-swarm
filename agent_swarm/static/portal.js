@@ -603,11 +603,16 @@ function pairKey(a, b) {
 var disp = (u) => u === "owner" ? m$1`<span class="owner-name">owner</span>` : u;
 var focusHash = (u) => `#/agent/${encodeURIComponent(u)}`;
 async function patchTask(id, patch) {
-	await fetch(`/tasks/${id}`, {
+	const r = await fetch(`/tasks/${id}`, {
 		method: "PATCH",
 		headers: JSONH,
 		body: JSON.stringify(patch)
 	});
+	if (r.ok) return { ok: true };
+	return {
+		ok: false,
+		error: (await r.json().catch(() => null))?.detail?.error || `request failed (${r.status})`
+	};
 }
 //#endregion
 //#region web/src/hive.js
@@ -1851,14 +1856,33 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
 }
 function TaskCard({ t, agentIds, teams, blockers, refresh }) {
 	const [dragging, setDragging] = d(false);
+	const [closing, setClosing] = d(false);
+	const [note, setNote] = d("");
+	const [showNote, setShowNote] = d(false);
+	const [err, setErr] = d("");
 	const when = (/* @__PURE__ */ new Date(t.created_at * 1e3)).toLocaleTimeString([], {
 		hour: "2-digit",
 		minute: "2-digit"
 	});
 	const ids = t.assignee && !agentIds.includes(t.assignee) ? agentIds.concat(t.assignee) : agentIds;
 	const act = async (p) => {
-		await patchTask(t.id, p);
+		const r = await patchTask(t.id, p);
+		if (!r.ok) {
+			setErr(r.error);
+			return false;
+		}
+		setErr("");
 		refresh();
+		return true;
+	};
+	const close = async () => {
+		if (await act({
+			status: "done",
+			note: note.trim()
+		})) {
+			setClosing(false);
+			setNote("");
+		}
 	};
 	const draggable = t.status !== "done";
 	const blocked = blockers.length > 0 && t.status !== "done";
@@ -1885,6 +1909,26 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     <div class="t">${t.title}</div>
     <div class="meta">#${t.id} · created ${when}${deps.length > 0 ? ` · after ${deps.map((d) => `#${d}`).join(" ")}` : ""}${t.description ? ` · ${t.description}` : ""}${t.worktree ? ` · worktree ${t.worktree}` : ""}</div>
     ${blocked && m$1`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map((d) => `#${d}`).join(" ")}</div>`}
+    ${t.assignee && m$1`<div class="meta">picked up by <a class="agent-link" href=${focusHash(t.assignee)}
+        title=${`Open ${t.assignee} and message it`}>${t.assignee}</a></div>`}
+    ${t.note && m$1`<div class="tnote">
+      <button type="button" class="tnote-toggle" onClick=${() => setShowNote(!showNote)}
+        title="How to verify this work">${showNote ? "▾" : "▸"} how to verify</button>
+      ${showNote && m$1`<div class="tnote-body">${t.note}</div>`}
+    </div>`}
+    ${closing && m$1`<div class="tnote-edit">
+      <textarea rows="3" value=${note} autofocus
+        placeholder="How is this verified? How to use it, or how to reproduce what it fixed, and where to look."
+        onInput=${(e) => setNote(e.target.value)}></textarea>
+      <div class="tnote-actions">
+        <button class="mini" disabled=${!note.trim()} onClick=${close}>save & close</button>
+        <button class="mini" onClick=${() => {
+		setClosing(false);
+		setErr("");
+	}}>cancel</button>
+      </div>
+    </div>`}
+    ${err && m$1`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
       <select title="assignee" value=${t.team_id ? `t:${t.team_id}` : t.assignee || ""}
         onChange=${onAssign}>
@@ -1894,7 +1938,10 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
         </optgroup>`}
         ${ids.map((a) => m$1`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
       </select>
-      ${t.status === "done" ? m$1`<button class="mini" onClick=${() => act({ status: "open" })}>reopen</button>` : m$1`<button class="mini" onClick=${() => act({ status: "done" })}>done</button>`}
+      ${t.status === "done" ? m$1`<button class="mini" onClick=${() => act({ status: "open" })}>reopen</button>` : m$1`<button class="mini" onClick=${() => {
+		setNote(t.note || "");
+		setClosing(!closing);
+	}}>done</button>`}
     </div>
   </div>`;
 }

@@ -148,6 +148,21 @@ Use a specific, outcome-oriented title. Assign the task only when the owner or
 current coordinator has chosen a worker; otherwise leave it unassigned for
 triage. The task appears in the overview immediately.
 
+Closing a task requires a note, and the server refuses the close without one:
+
+```bash
+agent-swarm task-update 42 --status done --note "Adds --note to task-update.
+Try: agent-swarm task-update <id> --status done with no note; it is refused.
+Changed: agent_swarm/server.py, web/src/main.js. Covered by tests/test_server.py."
+```
+
+Write it for the owner coming back later with no memory of the work: how to
+use it if it was a feature, how to reproduce the problem if it was a fix, and
+where to look — the command to run, the screen to open, or the files that
+changed. The note is stored on the task and shown on its dashboard card, so it
+is the record of what you did, not a formality. Do not close a task you cannot
+describe this way; say so to the owner instead.
+
 ---
 
 ## Step 5 — isolate repository tasks

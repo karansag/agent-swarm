@@ -241,8 +241,16 @@ agent-swarm task-create "investigate flaky build" --description "CI failed twice
 agent-swarm task-create "review the fix" --assignee stoat
 agent-swarm task-create "ship it" --depends-on 3,5   # dependency graph, shown on the board
 agent-swarm task-update 3 --worktree /abs/path/to/repo-task-3 --status picked_up
-agent-swarm task-update 3 --status done
+agent-swarm task-update 3 --status done --note "Run agent-swarm tasks; the note shows on the card"
 ```
+
+Closing a task requires `--note`, and the close is refused without one.
+The note says how to check the work: how to use it if it is a feature,
+how to reproduce the problem if it is a fix, and where to look. It is
+stored on the task, so the board stays a record of what changed and how
+to confirm it rather than just a list of finished titles. On the
+dashboard each card shows a "how to verify" toggle, and a picked-up task
+links to its agent so you can open that agent and ask.
 
 Statuses are `open`, `picked_up`, and `done`. Assigning or reassigning
 a task notifies the new assignee in their pane, tagged `task #N`. For
@@ -420,6 +428,7 @@ agent-swarm whoami
 agent-swarm tasks [--status open|picked_up|done]
 agent-swarm task-create <title> [--description <text>] [--assignee <handle>]
 agent-swarm task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
+                             [--depends-on 3,5] [--note <text>]   # --note required to close
 ```
 
 Optional registration fields:

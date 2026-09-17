@@ -8,7 +8,8 @@
     agent-swarm whoami       # prints detected tmux pane + registered handle
     agent-swarm tasks [--status open|picked_up|done]
     agent-swarm task-create TITLE [--description TEXT] [--assignee HANDLE] [--depends-on 3,5]
-    agent-swarm task-update ID --status open|picked_up|done [--assignee X] [--worktree PATH] [--depends-on 3,5]
+    agent-swarm task-update ID --status open|picked_up|done [--assignee X] [--worktree PATH]
+                            [--depends-on 3,5] [--note TEXT]   # --note required to close
 
 Defaults:
     --pane            current shell's tmux pane (via `TMUX_PANE`-targeted `tmux display-message`)
@@ -177,9 +178,12 @@ def cmd_task_update(args: argparse.Namespace) -> int:
         payload["worktree"] = args.worktree
     if args.depends_on is not None:
         payload["depends_on"] = _parse_deps(args.depends_on)
+    if args.note is not None:
+        payload["note"] = args.note
     if not payload:
         print(
-            "error: pass --status, --assignee, --worktree, and/or --depends-on",
+            "error: pass --status, --assignee, --worktree, --note, "
+            "and/or --depends-on",
             file=sys.stderr,
         )
         return 2
@@ -284,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
     tup.add_argument(
         "--depends-on",
         help="comma-separated task ids this task waits on; empty string clears",
+    )
+    tup.add_argument(
+        "--note",
+        help="how to verify the work: how to use it, how to reproduce the "
+        "problem it fixes, and where to look. Required to close a task.",
     )
     tup.set_defaults(func=cmd_task_update)
 
