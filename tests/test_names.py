@@ -3,7 +3,7 @@
 import random
 import sqlite3
 
-from agent_swarm import names
+from agent_swarm import names, tmux
 
 
 def _conn():
@@ -44,6 +44,18 @@ def test_same_animal_can_be_reused_under_a_different_tag():
     assert names.pick_unused(conn) is not None
     name = names.pick_unused(conn, "sonnet", rng=random.Random(0))
     assert not name.endswith("-opus")
+
+
+def test_every_generated_handle_can_be_requested_back():
+    # An agent that loses its pane reclaims its handle with `register --name`,
+    # which runs it through normalize_requested. The longest handle the
+    # generator can produce must therefore still be a legal request.
+    conn = _conn()
+    longest_animal = max(names.POOL, key=len)
+    tag = tmux.handle_tag("claude", "claude-fable-5-1", "karans-linux")
+    generated = names.pick_unused(conn, tag)
+    assert names.normalize_requested(generated) == generated
+    assert names.normalize_requested(f"{longest_animal}-{tag}")
 
 
 def test_pick_unused_falls_back_to_numeric_suffix_when_pool_exhausted():

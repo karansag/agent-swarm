@@ -158,7 +158,10 @@ def pick_unused(
 # Handles the server refuses to hand out: 'owner' is the human operator.
 RESERVED = frozenset({"owner"})
 
-_VALID_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+# 48 rather than 32 so that every handle this module can generate is also one
+# an agent may ask for: "salamander-claude-fable-karanslinux" is 35 characters,
+# and an agent that loses its pane must be able to re-request the handle it had.
+_VALID_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 
 
 class InvalidName(ValueError):
@@ -174,7 +177,7 @@ def normalize_requested(name: str) -> str:
     candidate = name.strip().lower()
     if not _VALID_NAME.match(candidate):
         raise InvalidName(
-            "name must be 1-32 characters of lowercase letters, digits or "
+            "name must be 1-48 characters of lowercase letters, digits or "
             "hyphens, and start with a letter or digit"
         )
     if candidate in RESERVED:

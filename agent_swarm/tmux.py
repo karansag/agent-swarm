@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import socket
 import subprocess
 import time
 
@@ -104,22 +105,52 @@ def model_line(model: str | None) -> str | None:
     return f"{family}{version}" if version else family
 
 
-def handle_tag(flavor: str | None, model: str | None) -> str | None:
-    """Suffix identifying an agent's harness and model, e.g. ("claude", "opus") -> "claude-opus".
+def local_host() -> str:
+    """This machine's short name, as agents should report it.
 
-    Auto-assigned handles append this to an animal name ("ferret-claude-opus")
-    so agents drawing from the same pool are told apart by what they actually
-    are. The harness leads because it is always known and decides delivery;
-    the model line follows only when it adds something the harness does not,
-    so a bare "claude-code" stays "claude" rather than "claude-claude".
+    AGENT_SWARM_NODE wins so a machine whose hostname is long or ambiguous can
+    present a better one; cross-machine setups rely on the same override.
+    """
+    return os.environ.get("AGENT_SWARM_NODE") or socket.gethostname().split(".")[0]
+
+
+def host_tag(host: str | None) -> str | None:
+    """Short handle-safe token for a machine name, e.g. "karans-linux.local" -> "karanslinux".
+
+    Only the first DNS label is kept, then everything outside [a-z0-9] is
+    dropped rather than turned into a hyphen: the handle already uses hyphens
+    to separate its parts, so a host must not be able to add more of them.
+    """
+    if not host:
+        return None
+    label = host.strip().lower().split(".")[0]
+    token = re.sub(r"[^a-z0-9]", "", label)
+    return token[:12] or None
+
+
+def handle_tag(
+    flavor: str | None, model: str | None, host: str | None = None
+) -> str | None:
+    """Suffix identifying an agent, e.g. ("claude", "opus", "karans-linux") -> "claude-opus-karanslinux".
+
+    Auto-assigned handles append this to an animal name so agents drawing from
+    the same pool are told apart by what they actually are and where they run.
+    The harness leads because it is always known and decides delivery; the
+    model line follows only when it adds something the harness does not, so a
+    bare "claude-code" stays "claude" rather than "claude-claude"; the host
+    trails as the "where", and is omitted when the agent did not report one.
     """
     harness = (flavor or "").lower() or None
     line = model_line(model)
     if harness is None:
-        return line
-    if line is None or line == harness or line.startswith(harness):
-        return harness
-    return f"{harness}-{line}"
+        parts = [line]
+    elif line is None or line == harness or line.startswith(harness):
+        parts = [harness]
+    else:
+        parts = [harness, line]
+    parts.append(host_tag(host))
+    kept = [p for p in parts if p]
+    return "-".join(kept) if kept else None
 
 
 def submit_key_for_flavor(flavor: str | None) -> str:

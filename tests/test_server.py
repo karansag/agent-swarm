@@ -869,7 +869,7 @@ def test_register_normalizes_requested_name(client):
 
 
 def test_register_rejects_malformed_requested_name(client):
-    for bad in ("has space", "-leading", "Ünicode", "", "x" * 33):
+    for bad in ("has space", "-leading", "Ünicode", "", "x" * 49):
         r = client.post(
             "/register", json={"tmux_pane": "0:0.0", "requested_user": bad}
         )

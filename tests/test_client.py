@@ -166,6 +166,7 @@ def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
         return SimpleNamespace(text='{"ok": true}', is_success=True)
 
     monkeypatch.setattr(client, "current_pane", lambda: "session-a:9.0")
+    monkeypatch.setenv("AGENT_SWARM_NODE", "testbox")
     monkeypatch.setattr(client.httpx, "post", fake_post)
 
     args = Namespace(
@@ -180,7 +181,8 @@ def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
     )
 
     assert client.cmd_register(args) == 0
-    assert captured["json"] == {"tmux_pane": "session-a:9.0"}
+    # The host travels with every registration; it names the assigned handle.
+    assert captured["json"] == {"tmux_pane": "session-a:9.0", "host": "testbox"}
     assert capsys.readouterr().out == '{"ok": true}\n'
 
 
@@ -245,6 +247,7 @@ def test_cmd_register_sends_requested_name(monkeypatch, capsys):
         return SimpleNamespace(text='{"ok": true}', is_success=True)
 
     monkeypatch.setattr(client, "current_pane", lambda: "session-a:9.0")
+    monkeypatch.setenv("AGENT_SWARM_NODE", "testbox")
     monkeypatch.setattr(client.httpx, "post", fake_post)
 
     args = Namespace(
@@ -261,6 +264,7 @@ def test_cmd_register_sends_requested_name(monkeypatch, capsys):
     assert client.cmd_register(args) == 0
     assert captured["json"] == {
         "tmux_pane": "session-a:9.0",
+        "host": "testbox",
         "requested_user": "jax",
     }
     capsys.readouterr()

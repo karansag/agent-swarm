@@ -167,3 +167,32 @@ def test_handle_tag_falls_back_to_whichever_half_is_known():
     assert tmux.handle_tag("generic", None) == "generic"
     assert tmux.handle_tag(None, "claude-opus-4-7") == "opus"
     assert tmux.handle_tag(None, None) is None
+
+
+def test_handle_tag_trails_the_host_when_one_is_reported():
+    assert (
+        tmux.handle_tag("claude", "claude-opus-4-7", "karans-linux")
+        == "claude-opus-karanslinux"
+    )
+    assert tmux.handle_tag("codex", "gpt-5-codex", "karans-linux") == "codex-gpt5-karanslinux"
+    # No host reported: the handle is exactly what it was before.
+    assert tmux.handle_tag("claude", "claude-code") == "claude"
+    assert tmux.handle_tag(None, None, "karans-linux") == "karanslinux"
+
+
+def test_host_tag_keeps_handles_parseable():
+    # Only the first DNS label, and no hyphens of its own: the handle already
+    # uses hyphens to separate animal, harness, model and host.
+    assert tmux.host_tag("karans-linux.local") == "karanslinux"
+    assert tmux.host_tag("Karans-MacBook-Pro") == "karansmacboo"  # capped at 12
+    assert tmux.host_tag("  box01  ") == "box01"
+    assert tmux.host_tag(None) is None
+    assert tmux.host_tag("---") is None
+
+
+def test_local_host_prefers_the_node_override(monkeypatch):
+    monkeypatch.setenv("AGENT_SWARM_NODE", "hub")
+    assert tmux.local_host() == "hub"
+    monkeypatch.delenv("AGENT_SWARM_NODE")
+    monkeypatch.setattr(tmux.socket, "gethostname", lambda: "karans-linux.local")
+    assert tmux.local_host() == "karans-linux"

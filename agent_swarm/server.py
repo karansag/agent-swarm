@@ -64,6 +64,11 @@ class RegisterReq(BaseModel):
         default=None,
         description="Optional delivery flavor; controls default submit key behavior.",
     )
+    host: str | None = Field(
+        default=None,
+        description="Machine the agent runs on, used in the assigned handle. "
+        "The client sends $AGENT_SWARM_NODE or the short hostname.",
+    )
     instructions: str | None = Field(
         default=None,
         description="Optional human guidance for peers talking to this agent.",
@@ -398,7 +403,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             # so what the agent just told us is the whole picture.
             user_id = names.pick_unused(
                 conn,
-                tmux.handle_tag(req.flavor or tmux.infer_flavor(req.model), req.model),
+                tmux.handle_tag(
+                    req.flavor or tmux.infer_flavor(req.model), req.model, req.host
+                ),
             )
         # A re-register that omits both model and flavor must not downgrade a
         # known harness to 'generic': the write COALESCEs, but only over NULL,
@@ -804,7 +811,10 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 status_code=500,
                 detail={"error": "could not create tmux window", "detail": err},
             )
-        user_id = names.pick_unused(conn, tmux.handle_tag(req.flavor, model))
+        # A spawned agent always lands in a pane on the server's own machine.
+        user_id = names.pick_unused(
+            conn, tmux.handle_tag(req.flavor, model, tmux.local_host())
+        )
         db.register(
             conn,
             user_id,
