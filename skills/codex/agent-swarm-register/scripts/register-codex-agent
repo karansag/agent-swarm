@@ -2,7 +2,15 @@
 set -euo pipefail
 
 AGENT_SWARM_PROJECT="${AGENT_SWARM_PROJECT:-${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}}"
-model="${CODEX_MODEL:-gpt-5-codex}"
+# The exact model id is what the dashboard shows. Prefer --model, then the
+# env, then the top-level `model = "..."` in Codex's config; send nothing
+# rather than a placeholder so a label already on record is kept.
+codex_config_model() {
+  local config="${CODEX_HOME:-${HOME}/.codex}/config.toml"
+  [[ -f "$config" ]] || return 0
+  awk '/^\[/ { exit } /^[[:space:]]*model[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$config"
+}
+model="${CODEX_MODEL:-$(codex_config_model)}"
 default_instructions="Codex agent; send normal agent-swarm messages. No /queue prefix is needed."
 has_instructions=0
 
@@ -52,7 +60,11 @@ if [[ "$has_instructions" -eq 0 ]]; then
   extra_args+=(--instructions "$default_instructions")
 fi
 
-args=(register --model "$model" --flavor codex ${extra_args[@]+"${extra_args[@]}"})
+args=(register)
+if [[ -n "$model" ]]; then
+  args+=(--model "$model")
+fi
+args+=(--flavor codex ${extra_args[@]+"${extra_args[@]}"})
 
 if command -v agent-swarm >/dev/null 2>&1; then
   exec agent-swarm "${args[@]}"

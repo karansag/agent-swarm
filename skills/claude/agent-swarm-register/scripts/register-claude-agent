@@ -2,7 +2,10 @@
 set -euo pipefail
 
 AGENT_SWARM_PROJECT="${AGENT_SWARM_PROJECT:-${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}}"
-model="${CLAUDE_MODEL:-claude-code}"
+# The exact model id (e.g. claude-opus-4-7) is what the dashboard shows. The
+# agent should pass --model; otherwise fall back to the env, and send nothing
+# rather than a placeholder so a label already on record is kept.
+model="${CLAUDE_MODEL:-${ANTHROPIC_MODEL:-}}"
 
 if [[ "${1:-}" == "--whoami" ]]; then
   shift
@@ -43,7 +46,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-args=(register --model "$model" --flavor claude ${extra_args[@]+"${extra_args[@]}"})
+args=(register)
+if [[ -n "$model" ]]; then
+  args+=(--model "$model")
+fi
+args+=(--flavor claude ${extra_args[@]+"${extra_args[@]}"})
 
 if command -v agent-swarm >/dev/null 2>&1; then
   exec agent-swarm "${args[@]}"
