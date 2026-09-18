@@ -182,6 +182,17 @@ class AgentTeamReq(BaseModel):
     team_id: int | None = None
 
 
+class AgentModelReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Model label shown on the dashboard, e.g. claude-opus-4-7. "
+        "Display only: the running agent is not switched. Blank clears it.",
+    )
+
+
 def _queen_prompt(team: dict, objective: str) -> str:
     teammates = [m for m in team["members"] if m != team["queen"]]
     roster = ", ".join(teammates) if teammates else "(no teammates yet)"
@@ -862,6 +873,14 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             recipient = db.set_agent_team(conn, user_id, req.team_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail={"error": str(exc)})
+        if recipient is None:
+            raise HTTPException(status_code=404, detail={"error": "unknown agent"})
+        return {"ok": True, "recipient": recipient}
+
+    @app.post("/agents/{user_id}/model")
+    def agents_set_model(user_id: str, req: AgentModelReq):
+        model = (req.model or "").strip() or None
+        recipient = db.set_recipient_model(conn, user_id, model)
         if recipient is None:
             raise HTTPException(status_code=404, detail={"error": "unknown agent"})
         return {"ok": True, "recipient": recipient}

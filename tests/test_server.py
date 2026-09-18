@@ -1001,3 +1001,18 @@ def test_task_card_links_to_the_assigned_agent_and_shows_the_note():
     # And the note is readable from the card.
     assert "how to verify" in portal
     assert "tnote-body" in portal
+
+
+def test_set_model_label_is_display_only(client):
+    user = client.post("/register", json={"tmux_pane": "0:0.0", "model": "claude-sonnet-4-6"}).json()["user_id"]
+
+    r = client.post(f"/agents/{user}/model", json={"model": "  claude-opus-4-7 "})
+    assert r.status_code == 200
+    assert r.json()["recipient"]["model"] == "claude-opus-4-7"
+    state = client.get("/api/state").json()
+    assert next(x for x in state["recipients"] if x["user_id"] == user)["model"] == "claude-opus-4-7"
+
+    r = client.post(f"/agents/{user}/model", json={"model": ""})
+    assert r.status_code == 200 and r.json()["recipient"]["model"] is None
+
+    assert client.post("/agents/nobody/model", json={"model": "x"}).status_code == 404

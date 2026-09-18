@@ -1682,7 +1682,11 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     <div class="who">
       <div class="nm">${r.user_id}${isQueen && m$1`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
-      <div class="tech" title=${`${flavor} · ${r.tmux_pane}`}><span class="flavor">${flavor}</span> · ${r.tmux_pane}</div>
+      <div class="tech" title=${[
+		flavor,
+		r.model,
+		r.tmux_pane
+	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.tmux_pane}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
@@ -1695,6 +1699,66 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     </div>
     ${(unread || attention) && m$1`<span class="badge" title=${attention ? "needs attention" : "new messages"}></span>`}
   </div>`;
+}
+function shortModel(model, flavor) {
+	const prefix = `${flavor}-`;
+	return model.toLowerCase().startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+function ModelLabel({ r, refresh }) {
+	const [editing, setEditing] = d(false);
+	const [value, setValue] = d("");
+	const [known, setKnown] = d([]);
+	const [busy, setBusy] = d(false);
+	const inputRef = A(null);
+	h(() => {
+		if (editing) inputRef.current?.focus();
+	}, [editing]);
+	const flavor = (r.flavor || "generic").toLowerCase();
+	const listId = `models-${r.user_id}`;
+	const start = () => {
+		setValue(r.model || "");
+		setEditing(true);
+		fetch("/api/spawn-options").then((res) => res.json()).then((d) => setKnown(((d.harnesses || []).find((h) => h.flavor === flavor) || {}).models || [])).catch(() => {});
+	};
+	const save = async () => {
+		if (busy) return;
+		if (value.trim() === (r.model || "")) {
+			setEditing(false);
+			return;
+		}
+		setBusy(true);
+		const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/model`, {
+			method: "POST",
+			headers: JSONH,
+			body: JSON.stringify({ model: value })
+		});
+		setBusy(false);
+		if (!res.ok) {
+			alert(`Could not update the model label for ${r.user_id}.`);
+			return;
+		}
+		setEditing(false);
+		refresh();
+	};
+	if (!editing) return m$1`<button type="button" class="model-label" onClick=${start}
+      title="Edit the model label. Display only: switch the real model in the agent's pane, then update it here.">
+      ${r.model ? m$1`<b>${r.model}</b>` : m$1`<span class="unset">set model</span>`} <span class="pen">✎</span>
+    </button>`;
+	return m$1`<span class="model-edit">
+    <input type="text" value=${value} list=${listId} placeholder="e.g. claude-opus-4-7"
+      aria-label=${`Model label for ${r.user_id}`} disabled=${busy} ref=${inputRef}
+      onInput=${(e) => setValue(e.target.value)}
+      onKeyDown=${(e) => {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			save();
+		}
+		if (e.key === "Escape") setEditing(false);
+	}} />
+    <datalist id=${listId}>${known.map((m) => m$1`<option key=${m} value=${m} />`)}</datalist>
+    <button type="button" class="mini" disabled=${busy} onClick=${save}>${busy ? "saving…" : "save"}</button>
+    <button type="button" class="mini" disabled=${busy} onClick=${() => setEditing(false)}>cancel</button>
+  </span>`;
 }
 var DEFAULT_MODEL = "default";
 function SpawnControl({ refresh }) {
@@ -2267,7 +2331,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          ${r.model && m$1` <b>${r.model}</b>`} · pane <b>${r.tmux_pane}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} /> · pane <b>${r.tmux_pane}</b>${r.pane_alive ? "" : " (stopped)"}
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? m$1` <span class="attn">${detail}</span>` : ""}
         </div>

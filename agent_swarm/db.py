@@ -459,6 +459,16 @@ def delete_team(conn: sqlite3.Connection, team_id: int) -> bool:
 
 
 @_serialized
+def set_recipient_model(
+    conn: sqlite3.Connection, user_id: str, model: str | None
+) -> dict | None:
+    """Relabel an agent's model on the dashboard. Never touches the agent itself."""
+    cur = conn.execute("UPDATE recipients SET model=? WHERE user_id=?", (model, user_id))
+    conn.commit()
+    return get_recipient(conn, user_id) if cur.rowcount else None
+
+
+@_serialized
 def set_agent_team(
     conn: sqlite3.Connection, user_id: str, team_id: int | None
 ) -> dict | None:
