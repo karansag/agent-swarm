@@ -2145,10 +2145,19 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
+	const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 	h(() => {
 		const el = boxRef.current;
-		if (el && pinned.current) el.scrollTop = el.scrollHeight;
-	}, [msgs.length]);
+		if (!el) return;
+		const stick = () => {
+			if (pinned.current) el.scrollTop = el.scrollHeight;
+		};
+		const ro = new ResizeObserver(stick);
+		ro.observe(el);
+		for (const child of el.children) ro.observe(child);
+		stick();
+		return () => ro.disconnect();
+	}, [msgs.length, lastId]);
 	const onScroll = (e) => {
 		const el = e.target;
 		pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;

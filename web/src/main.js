@@ -552,10 +552,20 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
   const resizeRef = useRef(null);
   const [historyHeight, setHistoryHeight] = useState(null);
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
+  // Stay pinned to the newest message whenever the history box or any bubble
+  // changes size (drag-resize, window resize, late font/layout), not only
+  // when a message arrives.
+  const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
   useEffect(() => {
     const el = boxRef.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  }, [msgs.length]);
+    if (!el) return;
+    const stick = () => { if (pinned.current) el.scrollTop = el.scrollHeight; };
+    const ro = new ResizeObserver(stick);
+    ro.observe(el);
+    for (const child of el.children) ro.observe(child);
+    stick();
+    return () => ro.disconnect();
+  }, [msgs.length, lastId]);
   const onScroll = (e) => {
     const el = e.target;
     pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
