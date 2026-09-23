@@ -18,6 +18,7 @@ import {
   patchTask,
 } from "./shared.js";
 import { HiveView } from "./hive.js";
+import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
 
 function Avatar({ name, size }) {
@@ -780,7 +781,8 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
             m.sender === "owner" ? "from-owner" : "",
             m.pending ? "pending" : "",
           ].join(" ")}>
-          <div class="bubble">${m.content}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
+          <div class="bubble">${m.content && html`<div class="md"
+            dangerouslySetInnerHTML=${{ __html: renderMarkdown(m.content) }} />`}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
             ${m.attachments.map(name => html`<${MessageImage} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${!m.delivered && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
