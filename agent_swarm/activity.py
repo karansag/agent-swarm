@@ -37,25 +37,57 @@ def _compile(*patterns: str) -> list[re.Pattern]:
     return [re.compile(p) for p in patterns]
 
 
-# Deliberately small starting set. Keys are delivery flavors; "generic" is
-# the fallback for any flavor without its own entry (also hermes, pi).
-ATTENTION_PATTERNS: dict[str, list[re.Pattern]] = {
-    "claude": _compile(r"Do you want to", r"❯ 1\. Yes", r"Esc to cancel"),
-    "codex": _compile(r"Allow command", r"\by/n\b", r"Approve"),
-    "generic": _compile(r"\[y/N\]", r"\(y/n\)", r"password:"),
+# What a live approval prompt looks like, per delivery flavor ("generic" is
+# the fallback, also used by hermes and pi).
+#
+# `markers` decide that an agent is waiting: they are the answer options and
+# footers only a live prompt draws, so an agent's own prose ("- Approve #9130.",
+# "Do you want to land it?") never trips them. `questions` only choose the line
+# shown as the reason, the prompt's question when it is on screen.
+#
+# Codex strings are from the 0.154 TUI; "Allow command?" is from older builds.
+ATTENTION_PATTERNS: dict[str, dict[str, list[re.Pattern]]] = {
+    "claude": {
+        "markers": _compile(r"❯ 1\. Yes\b", r"\bEsc to cancel\b"),
+        "questions": _compile(r"^\W*Do you want to .+\?\s*$"),
+    },
+    "codex": {
+        "markers": _compile(
+            r"^\W*\d\. Yes, proceed\b",
+            r"tell Codex what to do differently",
+            r"^\W*Allow command\?",
+        ),
+        "questions": _compile(
+            r"^\W*Would you like to .+\?\s*$",
+            r"^\W*Do you want to proceed\?\s*$",
+            r"^\W*Allow command\?",
+        ),
+    },
+    "generic": {
+        "markers": _compile(r"\[y/N\]", r"\(y/n\)", r"(?i)\bpassword( for \S+)?:\s*$"),
+        "questions": [],
+    },
 }
 
 
 def _attention_detail(flavor: str | None, capture: str) -> str | None:
-    """Return the first (topmost) screen line that looks like a prompt
-    awaiting the operator, or None. The line is stripped for display."""
+    """If the screen shows a live prompt awaiting the operator, return the line
+    to display (its question when visible, else the first marker line)."""
     patterns = ATTENTION_PATTERNS.get(
         (flavor or "generic").lower(), ATTENTION_PATTERNS["generic"]
     )
-    for line in capture.splitlines():
-        if any(p.search(line) for p in patterns):
-            return line.strip()
-    return None
+    lines = capture.splitlines()
+    marker = next(
+        (line for line in lines if any(p.search(line) for p in patterns["markers"])),
+        None,
+    )
+    if marker is None:
+        return None
+    question = next(
+        (line for line in lines if any(p.search(line) for p in patterns["questions"])),
+        None,
+    )
+    return (question or marker).strip()
 
 
 def step(

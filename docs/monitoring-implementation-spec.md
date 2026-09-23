@@ -18,14 +18,20 @@ need the loop or tmux.
 
 - `snapshot_hash(text: str) -> str` — sha1 of the capture with trailing
   whitespace stripped from each line and the whole text.
-- `ATTENTION_PATTERNS: dict[str, list[re.Pattern]]` — keys are flavors
-  plus `"generic"` fallback. Initial set, deliberately small:
-  - claude: `Do you want to`, `❯ 1\. Yes`, `Esc to cancel`
-  - codex: `Allow command`, `\by/n\b`, `Approve`
-  - generic (also hermes, pi): `\[y/N\]`, `\(y/n\)`, `password:`
-  A static screen matching any pattern for its flavor (fall back to
-  generic when the flavor has no entry) is `needs_attention`; the
-  matched line (stripped) is the `detail`.
+- `ATTENTION_PATTERNS: dict[str, dict[str, list[re.Pattern]]]` — keys are
+  flavors plus `"generic"` fallback; each has `markers` and `questions`.
+  Markers are what only a live prompt draws (answer options, footers), so
+  an agent's own prose cannot trip them:
+  - claude: `❯ 1. Yes`, `Esc to cancel`
+  - codex: a numbered `N. Yes, proceed` option, `tell Codex what to do
+    differently`, legacy `Allow command?`
+  - generic (also hermes, pi): `[y/N]`, `(y/n)`, a line ending `password:`
+    or `password for <user>:`
+  A static screen with a marker for its flavor (fall back to generic when
+  the flavor has no entry) is `needs_attention`. The `detail` is the
+  prompt's question line when one is on screen (claude `Do you want to …?`,
+  codex `Would you like to …?` / `Do you want to proceed?`), else the
+  first marker line, stripped.
 - `step(registry: dict, observations: list[Observation], now: float,
   interval: float, grace: float) -> list[Notification]`
   - `Observation` = (user_id, flavor, pane_alive: bool,

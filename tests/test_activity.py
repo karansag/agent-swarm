@@ -105,3 +105,77 @@ def test_unregistered_users_dropped():
     assert set(reg) == {"otter", "tapir"}
     run(reg, [obs(user_id="otter")], now=INTERVAL)
     assert set(reg) == {"otter"}
+
+
+# Real screens (trimmed) the detector has to get right.
+BADGER_PROSE = """\
+• Noted. #9131 is already approved, and my pass found no additional blocker. I updated Agent Swarm task
+  #12 accordingly.
+
+  Remaining recommendations:
+
+  - Approve #9130.
+  - Hold #9128 and #9129 for the identified fixes.
+
+─────────────────────────────────────────────────────────────────────
+
+› Ask a follow-up question
+
+  gpt-5.6-sol medium · ~/marin · main"""
+
+CODEX_APPROVAL = """\
+• I need to run the test suite.
+
+  Would you like to run the following command?
+
+  $ uv run pytest -q
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for this command in this session (a)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel"""
+
+CLAUDE_PROSE = """\
+⏺ Cleanup is on master and pushed. Do you want to restart the launchd service now?
+
+❯ 
+  ? for shortcuts"""
+
+
+def detail(flavor, capture):
+    return activity._attention_detail(flavor, capture)
+
+
+def test_agent_prose_is_not_a_prompt():
+    assert detail("codex", BADGER_PROSE) is None
+    assert detail("claude", CLAUDE_PROSE) is None
+    assert detail("codex", "I'd answer y/n here, and Approve the PR.") is None
+
+
+def test_codex_approval_prompt_reports_its_question():
+    assert detail("codex", CODEX_APPROVAL) == "Would you like to run the following command?"
+    # Without the question on screen, the option line still flags it.
+    options_only = CODEX_APPROVAL.split("› 1.")[1]
+    assert detail("codex", "› 1." + options_only) == "› 1. Yes, proceed (y)"
+
+
+def test_codex_legacy_allow_command_prompt():
+    assert detail("codex", "▌Allow command?\n▌ Yes (y)  No (n)") == "▌Allow command?"
+
+
+def test_claude_dialog_reports_its_question():
+    assert detail("claude", CLAUDE_DIALOG) == "Do you want to proceed?"
+
+
+def test_generic_prompts():
+    assert detail("generic", "[sudo] password for karan: ") == "[sudo] password for karan:"
+    assert detail("pi", "Overwrite file? [y/N]") == "Overwrite file? [y/N]"
+    assert detail("generic", "set the password: in config.yaml first") is None
+
+
+def test_badger_screen_reads_idle_not_attention():
+    reg = {}
+    run(reg, [obs(flavor="codex", capture=BADGER_PROSE)], now=0)
+    run(reg, [obs(flavor="codex", capture=BADGER_PROSE)], now=3 * INTERVAL)
+    assert reg["otter"]["status"] == "idle"
