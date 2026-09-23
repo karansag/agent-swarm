@@ -104,11 +104,15 @@ def register(
     instructions: str | None = None,
     message_prefix: str | None = None,
     submit_key: str | None = None,
+    tmux_server: str | None = None,
+    pane_label: str | None = None,
 ) -> None:
     _ensure_columns(conn)
+    # One agent per pane. A row holding the same id under an earlier tmux
+    # server is a different pane, so it stays (offline) with its history.
     conn.execute(
-        "DELETE FROM recipients WHERE tmux_pane=? AND user_id<>?",
-        (tmux_pane, user_id),
+        "DELETE FROM recipients WHERE tmux_pane=? AND tmux_server IS ? AND user_id<>?",
+        (tmux_pane, tmux_server, user_id),
     )
     if agent_id:
         conn.execute(
@@ -117,10 +121,13 @@ def register(
         )
     conn.execute(
         "INSERT INTO recipients("
-        "user_id, tmux_pane, agent_id, model, flavor, instructions, message_prefix, submit_key, registered_at"
-        ") VALUES(?,?,?,?,?,?,?,?,?) "
+        "user_id, tmux_pane, agent_id, model, flavor, instructions, message_prefix, submit_key, registered_at, "
+        "tmux_server, pane_label"
+        ") VALUES(?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(user_id) DO UPDATE SET "
         "tmux_pane=excluded.tmux_pane, "
+        "tmux_server=excluded.tmux_server, "
+        "pane_label=excluded.pane_label, "
         "agent_id=COALESCE(excluded.agent_id, recipients.agent_id), "
         "model=COALESCE(excluded.model, recipients.model), "
         "flavor=COALESCE(excluded.flavor, recipients.flavor), "
@@ -138,6 +145,8 @@ def register(
             message_prefix,
             submit_key,
             time.time(),
+            tmux_server,
+            pane_label,
         ),
     )
     conn.commit()
@@ -199,6 +208,12 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE recipients ADD COLUMN {col} TEXT")
     if "team_id" not in cols:
         conn.execute("ALTER TABLE recipients ADD COLUMN team_id INTEGER")
+    # tmux_pane holds the pane id (%N); tmux_server is the tmux server that
+    # issued it (NULL for rows from before pane ids, which migrate_panes
+    # rebinds); pane_label is the last-known session:window.pane, display only.
+    for col in ("tmux_server", "pane_label"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE recipients ADD COLUMN {col} TEXT")
     task_cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     if "worktree" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN worktree TEXT")
@@ -221,11 +236,66 @@ def lookup_pane(conn: sqlite3.Connection, user_id: str) -> str | None:
 
 
 @_serialized
-def lookup_user_by_pane(conn: sqlite3.Connection, tmux_pane: str) -> str | None:
+def lookup_user_by_pane(
+    conn: sqlite3.Connection, tmux_pane: str, tmux_server: str | None = None
+) -> str | None:
+    """The agent bound to this pane id under this tmux server."""
     row = conn.execute(
-        "SELECT user_id FROM recipients WHERE tmux_pane=?", (tmux_pane,)
+        "SELECT user_id FROM recipients WHERE tmux_pane=? AND tmux_server IS ?",
+        (tmux_pane, tmux_server),
     ).fetchone()
     return row["user_id"] if row else None
+
+
+@_serialized
+def lookup_user_by_restored_label(
+    conn: sqlite3.Connection, pane_label: str, flavor: str | None, tmux_server: str
+) -> str | None:
+    """An agent from an earlier tmux server that sat at this same position.
+
+    After a tmux restart that restores the layout (e.g. tmux-resurrect), pane
+    ids start over but positions come back, so a harness re-registering from
+    its old position gets its identity back. Only rows from another server
+    qualify, never ones bound in the running server.
+    """
+    row = conn.execute(
+        "SELECT user_id FROM recipients WHERE pane_label=? AND flavor IS ? "
+        "AND tmux_server IS NOT NULL AND tmux_server<>? AND tmux_server<>? "
+        "ORDER BY registered_at DESC LIMIT 1",
+        (pane_label, flavor, tmux_server, UNBOUND),
+    ).fetchone()
+    return row["user_id"] if row else None
+
+
+# tmux_server value for a row that could not be tied to any pane (see
+# migrate_panes): offline until the agent registers again.
+UNBOUND = "unbound"
+
+
+@_serialized
+def legacy_pane_rows(conn: sqlite3.Connection) -> list[dict]:
+    """Rows still addressed the old way (no tmux server recorded)."""
+    _ensure_columns(conn)
+    return [dict(r) for r in conn.execute(
+        "SELECT user_id, tmux_pane, flavor, registered_at FROM recipients "
+        "WHERE tmux_server IS NULL"
+    )]
+
+
+@_serialized
+def bind_pane(
+    conn: sqlite3.Connection,
+    user_id: str,
+    tmux_pane: str,
+    tmux_server: str,
+    pane_label: str | None,
+) -> None:
+    """Point a registration at a pane id (or mark it UNBOUND)."""
+    conn.execute(
+        "UPDATE recipients SET tmux_pane=?, tmux_server=?, pane_label=? WHERE user_id=?",
+        (tmux_pane, tmux_server, pane_label, user_id),
+    )
+    conn.commit()
 
 
 @_serialized
@@ -241,7 +311,7 @@ def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | No
 def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT user_id, tmux_pane, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients WHERE user_id=?",
         (user_id,),
     ).fetchone()
@@ -252,7 +322,7 @@ def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
 def list_recipients(conn: sqlite3.Connection) -> list[dict]:
     _ensure_columns(conn)
     rows = conn.execute(
-        "SELECT user_id, tmux_pane, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients ORDER BY user_id"
     ).fetchall()
     return [dict(r) for r in rows]

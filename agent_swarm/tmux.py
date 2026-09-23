@@ -10,13 +10,19 @@ import subprocess
 import time
 
 
+# Panes are addressed by tmux's pane id (%N), which never changes or gets
+# reused while the tmux server runs. The positional session:window.pane form
+# is only a display label: tmux reuses and renumbers it as windows and panes
+# come and go, so an agent stored that way can end up pointing at another.
+
+
 def current_pane() -> str | None:
-    """Return the caller's own pane id (session:window.pane), or None if not in tmux."""
+    """Return the caller's own pane id (%N), or None if not in tmux."""
     pane_target = os.environ.get("TMUX_PANE")
     command = ["tmux", "display-message", "-p"]
     if pane_target:
         command.extend(["-t", pane_target])
-    command.append("#S:#I.#P")
+    command.append("#{pane_id}")
     try:
         out = subprocess.run(
             command,
@@ -406,8 +412,8 @@ def spawn_window(
     session: str = AGENTS_SESSION, command: str | None = None
 ) -> tuple[str | None, str | None]:
     """Create a detached tmux window (and session if needed) and optionally
-    launch a command in it. Returns (pane_id, error_or_None)."""
-    fmt = "#S:#I.#P"
+    launch a command in it. Returns (pane_id, error_or_None); the id is %N."""
+    fmt = "#{pane_id}"
     try:
         has = subprocess.run(
             ["tmux", "has-session", "-t", session],
@@ -450,19 +456,60 @@ def spawn_window(
         return None, str(e)
 
 
-def list_panes() -> set[str]:
-    """Return all live pane ids (session:window.pane); empty set if tmux is unavailable."""
+def _tmux_out(*args: str, timeout: float = 2) -> str | None:
     try:
         out = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#S:#I.#P"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=2,
+            ["tmux", *args], capture_output=True, text=True, check=True, timeout=timeout
         )
     except (subprocess.SubprocessError, FileNotFoundError):
-        return set()
-    return {line for line in out.stdout.splitlines() if line}
+        return None
+    return out.stdout
+
+
+def server_id() -> str | None:
+    """Identify the running tmux server ("pid:start_time"), or None without tmux.
+
+    Pane ids restart from %0 when the tmux server restarts, so an id is only
+    meaningful together with the server that issued it.
+    """
+    out = _tmux_out("display-message", "-p", "#{pid}:#{start_time}")
+    val = (out or "").strip()
+    return val or None
+
+
+def server_start_time() -> float | None:
+    """When the running tmux server started, or None without tmux."""
+    sid = server_id()
+    try:
+        return float(sid.split(":")[1]) if sid else None
+    except (IndexError, ValueError):
+        return None
+
+
+def resolve_pane(target: str) -> tuple[str, str] | None:
+    """(pane id, session:window.pane label) for any tmux target, or None."""
+    out = _tmux_out("display-message", "-p", "-t", target, "#{pane_id}\t#S:#I.#P")
+    pane_id, _, label = (out or "").strip().partition("\t")
+    return (pane_id, label) if pane_id.startswith("%") else None
+
+
+def pane_table() -> dict[str, dict[str, str]]:
+    """Every pane by id: its label, foreground command, and title. {} without tmux."""
+    out = _tmux_out(
+        "list-panes", "-a", "-F",
+        "#{pane_id}\t#S:#I.#P\t#{pane_current_command}\t#{pane_title}",
+    )
+    table = {}
+    for line in (out or "").splitlines():
+        pane_id, label, command, title = (line.split("\t") + ["", "", ""])[:4]
+        if pane_id:
+            table[pane_id] = {"label": label, "command": command.strip(), "title": title}
+    return table
+
+
+def list_panes() -> set[str]:
+    """Return all live pane ids (%N); empty set if tmux is unavailable."""
+    return set(pane_table())
 
 
 # A pane whose foreground process is one of these has no agent in it: the
@@ -473,22 +520,7 @@ SHELL_COMMANDS = {"bash", "zsh", "sh", "dash", "fish", "ksh", "tcsh", "csh"}
 
 def pane_commands() -> dict[str, str]:
     """Map every live pane id to its foreground command; {} if tmux is unavailable."""
-    try:
-        out = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#S:#I.#P\t#{pane_current_command}"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=2,
-        )
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return {}
-    result = {}
-    for line in out.stdout.splitlines():
-        pane, _, command = line.partition("\t")
-        if pane:
-            result[pane] = command.strip()
-    return result
+    return {pane_id: row["command"] for pane_id, row in pane_table().items()}
 
 
 def live_agent_panes() -> set[str]:
@@ -496,8 +528,17 @@ def live_agent_panes() -> set[str]:
     return {pane for pane, cmd in pane_commands().items() if cmd not in SHELL_COMMANDS}
 
 
-def offline_reason(pane: str, existing: set[str], live: set[str]) -> str | None:
-    """Why a registered pane can't take a message right now, or None if it can."""
+def offline_reason(
+    pane: str, existing: set[str], live: set[str], stale: str | None = None
+) -> str | None:
+    """Why a registered pane can't take a message right now, or None if it can.
+
+    `stale` explains why the stored pane id can't be trusted at all (it came
+    from an earlier tmux server, or the agent's pane could not be verified);
+    any pane that has that id now belongs to someone else.
+    """
+    if stale:
+        return f"recipient offline: {stale}; the agent must register again"
     if pane not in existing:
         return f"recipient offline: pane {pane} no longer exists"
     if pane not in live:

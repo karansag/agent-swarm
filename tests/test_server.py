@@ -52,6 +52,15 @@ def client(tmp_path, monkeypatch):
     # 0:0.0 and 0:1.0 run agents; 0:2.0 exists but holds a bare shell.
     monkeypatch.setattr(tmux, "list_panes", lambda: {"0:0.0", "0:1.0", "0:2.0"})
     monkeypatch.setattr(tmux, "live_agent_panes", lambda: {"0:0.0", "0:1.0"})
+    # Fake panes are their own ids, all from one tmux server; an unknown
+    # target resolves to nothing, as tmux would.
+    monkeypatch.setattr(
+        tmux, "resolve_pane",
+        lambda target: (target, target) if target in tmux.list_panes() else None,
+    )
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    monkeypatch.setattr(tmux, "server_start_time", lambda: 0.0)
+    monkeypatch.setattr(tmux, "pane_table", lambda: {})
     monkeypatch.setattr(
         tmux, "capture_pane", lambda pane: (f"screen of {pane}\n$ ", None)
     )

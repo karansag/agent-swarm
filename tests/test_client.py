@@ -38,14 +38,15 @@ def test_current_pane_targets_tmux_pane_env(monkeypatch):
 
     def fake_run(cmd, capture_output, text, check, timeout):
         calls.append(cmd)
-        return SimpleNamespace(stdout="session-a:9.0\n")
+        return SimpleNamespace(stdout="%177\n")
 
     monkeypatch.setenv("TMUX_PANE", "%177")
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
 
-    assert tmux.current_pane() == "session-a:9.0"
+    # The stable pane id, not the positional session:window.pane.
+    assert tmux.current_pane() == "%177"
     assert calls == [
-        ["tmux", "display-message", "-p", "-t", "%177", "#S:#I.#P"]
+        ["tmux", "display-message", "-p", "-t", "%177", "#{pane_id}"]
     ]
 
 
@@ -54,13 +55,13 @@ def test_current_pane_without_tmux_pane_env_uses_tmux_current_target(monkeypatch
 
     def fake_run(cmd, capture_output, text, check, timeout):
         calls.append(cmd)
-        return SimpleNamespace(stdout="session-a:5.0\n")
+        return SimpleNamespace(stdout="%5\n")
 
     monkeypatch.delenv("TMUX_PANE", raising=False)
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
 
-    assert tmux.current_pane() == "session-a:5.0"
-    assert calls == [["tmux", "display-message", "-p", "#S:#I.#P"]]
+    assert tmux.current_pane() == "%5"
+    assert calls == [["tmux", "display-message", "-p", "#{pane_id}"]]
 
 
 def test_set_pane_title_uses_tmux_select_pane(monkeypatch):
@@ -275,10 +276,13 @@ def test_cmd_register_sends_requested_name(monkeypatch, capsys):
 
 def test_live_agent_panes_excludes_bare_shells(monkeypatch):
     def fake_run(cmd, capture_output, text, check, timeout):
-        return SimpleNamespace(stdout="a:0.0\tclaude\na:0.1\tbash\nb:2.0\tnode\nc:0.0\tzsh\n")
+        return SimpleNamespace(stdout=(
+            "%1\ta:0.0\tclaude\tt\n%2\ta:0.1\tbash\tt\n%3\tb:2.0\tnode\tt\n%4\tc:0.0\tzsh\tt\n"
+        ))
 
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
-    assert tmux.live_agent_panes() == {"a:0.0", "b:2.0"}
+    assert tmux.live_agent_panes() == {"%1", "%3"}
+    assert tmux.pane_table()["%3"] == {"label": "b:2.0", "command": "node", "title": "t"}
 
 
 def test_offline_reason_distinguishes_gone_from_shell():

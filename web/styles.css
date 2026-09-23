@@ -122,6 +122,12 @@
   .chip-card .tech .model { color: var(--cream); }
   .chip-card .flav { font-size: 12px; color: var(--honey-dim); flex: none; }
   .chip-card .controls { display: grid; justify-items: end; gap: 2px; flex: none; }
+  button.jump-agent {
+    border: 1px solid var(--line); border-radius: 5px; background: none;
+    color: var(--cream-dim); cursor: pointer; font-family: var(--mono);
+    font-size: 9px; line-height: 1; padding: 3px 6px;
+  }
+  button.jump-agent:hover, button.jump-agent:focus-visible { color: var(--honey); border-color: var(--honey-dim); }
   button.stop-agent {
     border: 1px solid var(--line); border-radius: 5px; background: none;
     color: var(--cream-dim); cursor: pointer; font-family: var(--mono);
@@ -276,6 +282,8 @@
   .fhead .nm { font-family: var(--serif); font-style: italic; font-size: 26px; }
   .fhead .meta { font-size: 11px; color: var(--cream-dim); margin-top: 2px; }
   .fhead .meta b { color: var(--cream); font-weight: 500; }
+  .fhead .jump-cmd code { color: var(--cream); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; user-select: all; }
+  .fhead .jump-cmd .mini { margin-left: 4px; }
   .fhead .model-label { font: inherit; color: inherit; background: none; border: 0; padding: 0 2px; cursor: pointer; border-radius: 3px; }
   .fhead .model-label:hover, .fhead .model-label:focus-visible { background: var(--panel); }
   .fhead .model-label .pen { color: var(--honey-dim); font-size: 10px; }

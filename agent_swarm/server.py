@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import activity, attachments, db, names, tmux
+from . import activity, attachments, db, names, panes, tmux
 
 log = logging.getLogger("agent_swarm.monitor")
 
@@ -324,12 +324,15 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     )
 
     async def _monitor_tick():
+        _migrate_legacy_panes()
         recipients = db.list_recipients(conn)
         live_panes = tmux.live_agent_panes()
+        server = tmux.server_id()
         observations = []
         for r in recipients:
             pane = r["tmux_pane"]
-            alive = pane in live_panes
+            # An id from an earlier tmux server now names some other pane.
+            alive = pane in live_panes and _stale(r, server) is None
             capture = None
             if alive:
                 # Subprocess capture must not block the event loop.
@@ -426,11 +429,16 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     @app.post("/register")
     def register(req: RegisterReq):
+        _migrate_legacy_panes()
+        pane, label, server = _pane_ref(req.tmux_pane)
+        flavor_hint = req.flavor or (tmux.infer_flavor(req.model) if req.model else None)
         existing_id = None
         if req.agent_id:
             existing_id = db.lookup_user_by_agent_id(conn, req.agent_id)
         if existing_id is None:
-            existing_id = db.lookup_user_by_pane(conn, req.tmux_pane)
+            existing_id = db.lookup_user_by_pane(conn, pane, server)
+        if existing_id is None and server is not None and label and flavor_hint:
+            existing_id = db.lookup_user_by_restored_label(conn, label, flavor_hint, server)
 
         requested = None
         if req.requested_user is not None:
@@ -441,7 +449,12 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                     status_code=400,
                     detail={"error": str(e), "requested_user": req.requested_user},
                 ) from e
-            if db.name_taken_by_other(conn, requested, req.agent_id, req.tmux_pane):
+            # A handle whose agent is offline can be reclaimed, so a restarted
+            # agent gets its name and history back from a new pane.
+            if (
+                db.name_taken_by_other(conn, requested, req.agent_id, pane)
+                and _is_alive(requested)
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -455,6 +468,15 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             # Honor the request, moving an already-registered agent's history
             # over when it is asking for a different handle than it holds.
             if existing_id is not None and existing_id != requested:
+                if db.get_recipient(conn, requested) is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "error": f"this pane is registered as {existing_id}; "
+                            f"unregister it before claiming {requested}",
+                            "requested_user": requested,
+                        },
+                    )
                 db.rename_recipient(conn, existing_id, requested)
                 renamed_from = existing_id
             user_id = requested
@@ -480,23 +502,26 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         db.register(
             conn,
             user_id,
-            req.tmux_pane,
+            pane,
             req.agent_id,
             req.model,
             flavor,
             req.instructions,
             req.message_prefix,
             submit_key,
+            tmux_server=server,
+            pane_label=label,
         )
         status_title = tmux.status_title(user_id, flavor)
-        tmux.set_pane_title(req.tmux_pane, status_title)
+        tmux.set_pane_title(pane, status_title)
         registered = db.get_recipient(conn, user_id)
         peers = [r for r in _annotated_recipients() if r["user_id"] != user_id]
         return {
             "ok": True,
             "user_id": user_id,
             "status_title": status_title,
-            "tmux_pane": req.tmux_pane,
+            "tmux_pane": pane,
+            "pane_label": label,
             "agent_id": registered["agent_id"] if registered else req.agent_id,
             "model": registered["model"] if registered else req.model,
             "flavor": registered["flavor"] if registered else flavor,
@@ -511,19 +536,76 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             "protocol_brief": _protocol_brief(user_id, peers),
         }
 
+    def _pane_ref(target: str) -> tuple[str, str, str | None]:
+        """(pane id, session:window.pane label, tmux server) for a pane target.
+
+        Clients send either form; both are resolved to the pane's id now, while
+        the positional one still means what the client meant. Without tmux the
+        target is kept as given, tied to no server.
+        """
+        resolved = tmux.resolve_pane(target)
+        if resolved is None:
+            return target, target, None
+        return resolved[0], resolved[1], tmux.server_id()
+
+    def _offline(r: dict, existing: set[str], live: set[str], server: str | None) -> str | None:
+        return tmux.offline_reason(r["tmux_pane"], existing, live, stale=_stale(r, server))
+
+    def _stale(r: dict, server: str | None) -> str | None:
+        """Why a row's pane id no longer identifies its pane, or None."""
+        if server is None:
+            return None  # no tmux to compare against
+        bound = r.get("tmux_server")
+        if bound == db.UNBOUND:
+            return "its pane could not be verified when pane ids were introduced"
+        if bound is not None and bound != server:
+            return "its pane is from an earlier tmux session"
+        if bound is None and r["tmux_pane"].startswith("%"):
+            return "its pane id was never tied to a tmux session"
+        return None
+
     def _annotated_recipients() -> list[dict]:
+        _migrate_legacy_panes()
         existing, live = tmux.list_panes(), tmux.live_agent_panes()
+        server, table = tmux.server_id(), tmux.pane_table()
         rows = db.list_recipients(conn)
         for r in rows:
-            r["offline_reason"] = tmux.offline_reason(r["tmux_pane"], existing, live)
+            r["offline_reason"] = _offline(r, existing, live, server)
             r["alive"] = r["offline_reason"] is None
+            # Show where the pane is right now; fall back to where it last was.
+            if r["alive"] and r["tmux_pane"] in table:
+                r["pane_label"] = table[r["tmux_pane"]]["label"]
+            r["pane_label"] = r.get("pane_label") or r["tmux_pane"]
         return rows
+
+    def _is_alive(user_id: str) -> bool:
+        return any(r["user_id"] == user_id and r["alive"] for r in _annotated_recipients())
+
+    def _migrate_legacy_panes() -> None:
+        """Rebind rows stored before pane ids; see agent_swarm/panes.py."""
+        rows = db.legacy_pane_rows(conn)
+        if not rows:
+            return
+        server = tmux.server_id()
+        if server is None:
+            return  # no tmux right now; try again on a later call
+        for d in panes.plan(rows, tmux.pane_table(), tmux.server_start_time()):
+            row = next(r for r in rows if r["user_id"] == d.user_id)
+            if d.pane_id is not None:
+                db.bind_pane(conn, d.user_id, d.pane_id, server, d.label)
+            elif d.gone:
+                # Keeping the old address under this server reads as "pane no
+                # longer exists" (addresses never match ids), so prune clears it.
+                db.bind_pane(conn, d.user_id, row["tmux_pane"], server, row["tmux_pane"])
+            else:
+                db.bind_pane(conn, d.user_id, row["tmux_pane"], db.UNBOUND, row["tmux_pane"])
+            log.info("pane migration: %s -> %s (%s)", d.user_id, d.pane_id or "offline", d.reason)
 
     def _refuse_if_offline(
         sender: str, recipient: dict, context, content, files: list[str] | None = None
     ) -> None:
-        reason = tmux.offline_reason(
-            recipient["tmux_pane"], tmux.list_panes(), tmux.live_agent_panes()
+        reason = _offline(
+            recipient, tmux.list_panes(), tmux.live_agent_panes(), tmux.server_id()
         )
         if reason is None:
             return
@@ -618,7 +700,8 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     @app.post("/send")
     def send(req: SendReq):
-        sender = db.lookup_user_by_pane(conn, req.tmux_pane)
+        pane, _, server = _pane_ref(req.tmux_pane)
+        sender = db.lookup_user_by_pane(conn, pane, server)
         if sender is None:
             raise HTTPException(
                 status_code=404,
@@ -898,6 +981,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         user_id = names.pick_unused(
             conn, tmux.handle_tag(req.flavor, model, tmux.local_host())
         )
+        _, label, server = _pane_ref(pane)
         db.register(
             conn,
             user_id,
@@ -908,11 +992,13 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             None,
             None,
             tmux.submit_key_for_flavor(req.flavor),
+            tmux_server=server,
+            pane_label=label,
         )
         tmux.set_pane_title(pane, tmux.status_title(user_id, req.flavor))
         tmux.rename_window(pane, user_id)
         return {
-            "ok": True, "user_id": user_id, "tmux_pane": pane,
+            "ok": True, "user_id": user_id, "tmux_pane": pane, "pane_label": label,
             "flavor": req.flavor, "model": model, "autonomy": req.autonomy,
         }
 
@@ -924,7 +1010,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         pane = recipient["tmux_pane"]
         # A pane that is gone, or that only holds a bare shell, has no agent
         # to stop; leave the shell (and the registration) alone.
-        if pane not in tmux.live_agent_panes():
+        if _stale(recipient, tmux.server_id()) or pane not in tmux.live_agent_panes():
             return {
                 "ok": True, "user_id": user_id, "tmux_pane": pane,
                 "already_stopped": True,
@@ -1026,9 +1112,11 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         if recipient is None:
             raise HTTPException(status_code=404, detail={"error": "unknown agent"})
         text, err = tmux.capture_pane(recipient["tmux_pane"])
+        live = tmux.pane_table().get(recipient["tmux_pane"])
         return {
             "user_id": user_id,
             "tmux_pane": recipient["tmux_pane"],
+            "pane_label": live["label"] if live else recipient.get("pane_label") or recipient["tmux_pane"],
             "text": text,
             "error": err,
         }

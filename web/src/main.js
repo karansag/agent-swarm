@@ -48,7 +48,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       : html`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
   const stop = async (e) => {
     e.stopPropagation();
-    if (!confirm(`Stop ${r.user_id}? This will kill tmux pane ${r.tmux_pane}.`)) return;
+    if (!confirm(`Stop ${r.user_id}? This will kill tmux pane ${r.pane_label}.`)) return;
     setStopping(true);
     const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/stop`, { method: "POST" });
     setStopping(false);
@@ -101,10 +101,11 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     <div class="who">
       <div class="nm">${r.user_id}${isQueen && html`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
-      <div class="tech" title=${[flavor, r.model, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.tmux_pane}</div>
+      <div class="tech" title=${[flavor, r.model, r.pane_label, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
+      <${JumpToPane} r=${r} compact=${true} />
       ${team && r.pane_alive && html`<button type="button" class="queen-agent" disabled=${crowning}
         title=${isQueen ? `remove ${r.user_id} as queen` : `make ${r.user_id} queen of ${team.name}`}
         aria-label=${isQueen ? `Remove ${r.user_id} as queen` : `Make ${r.user_id} queen of ${team.name}`}
@@ -114,6 +115,35 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     </div>
     ${(unread || attention) && html`<span class="badge" title=${attention ? "needs attention" : "new messages"}></span>`}
   </div>`;
+}
+
+// The tmux command that takes you to an agent's pane, typed at tmux's command
+// prompt (prefix, then ":"). It uses the pane id, which stays valid however
+// windows and panes are renumbered.
+function JumpToPane({ r, compact = false }) {
+  const [copied, setCopied] = useState(false);
+  const paneExists = r.pane_alive || (r.offline_reason || "").includes("bare shell");
+  if (!paneExists || !String(r.tmux_pane).startsWith("%")) return null;
+  const command = `switch-client -t ${r.tmux_pane}`;
+  const copy = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      prompt("Copy this, then paste it at tmux's command prompt (prefix, then :)", command);
+    }
+  };
+  const title = `Copy "${command}" — paste it at tmux's command prompt (prefix, then :) to jump to ${r.pane_label}`;
+  if (compact) {
+    return html`<button type="button" class="jump-agent" title=${title}
+      aria-label=${`Copy tmux command to jump to ${r.user_id}`} onClick=${copy}>${copied ? "copied" : "⇥"}</button>`;
+  }
+  return html`<span class="jump-cmd" title=${title}>
+    · <code>${command}</code>
+    <button type="button" class="mini" onClick=${copy}>${copied ? "copied" : "copy"}</button>
+  </span>`;
 }
 
 // "claude-opus-4-7" reads as "opus-4-7" next to the claude flavor tag.
@@ -507,7 +537,7 @@ function Scope({ user, refresh }) {
   return html`<div class="scope">
     <div class="bar">
       <span class="t">terminal</span>
-      <span>${data ? data.tmux_pane : ""}</span>
+      <span>${data ? data.pane_label : ""}</span>
       <span style="margin-left:auto">live capture · 2s</span>
     </div>
     ${data && data.error
@@ -845,7 +875,8 @@ function FocusView({ user, state, refresh, freshIds }) {
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          <${ModelLabel} r=${r} refresh=${refresh} /> · pane <b>${r.tmux_pane}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${JumpToPane} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? html` <span class="attn">${detail}</span>` : ""}
         </div>
