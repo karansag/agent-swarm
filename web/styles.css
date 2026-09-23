@@ -326,6 +326,7 @@
   .composer .context:focus { outline: none; border-color: var(--honey-dim); }
   .composer .hint { margin-left: auto; white-space: nowrap; }
   .composer .count { white-space: nowrap; }
+  .composer .compose-meta .mini { white-space: nowrap; flex: none; }
   .composer.dragging { outline: 1px dashed var(--honey); outline-offset: -4px; background: rgba(242,169,59,.06); }
   .composer .compose-images { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0 23px; }
   .composer .compose-image { position: relative; margin: 0; }
@@ -338,6 +339,10 @@
   .composer .uploading { font-size: 10px; color: var(--cream-dim); }
   .msg .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .msg .msg-images.only { margin-top: 0; }
+  .msg .image-expired {
+    display: inline-flex; align-items: center; padding: 10px 14px; font-size: 10px; font-style: italic;
+    color: var(--cream-dim); border: 1px dashed var(--line); border-radius: 4px;
+  }
   .msg .msg-images img { display: block; max-height: 180px; max-width: min(320px, 100%); border-radius: 4px; border: 1px solid var(--line); }
   .composer .sent { color: var(--moss); }
   .composer .error { color: var(--alert); }

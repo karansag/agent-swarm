@@ -639,7 +639,7 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     </div>
     ${(images.length > 0 || uploading > 0) && html`<div class="compose-images">
       ${images.map(name => html`<figure key=${name} class="compose-image">
-        <img src=${`/attachments/${name}`} alt="attached image" />
+        <img src=${`/attachments/${name}`} alt="attached image" onError=${() => removeImage(name)} />
         <button type="button" class="remove" onClick=${() => removeImage(name)}
           title="remove image" aria-label="Remove image">×</button>
       </figure>`)}
@@ -663,6 +663,15 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
       </div>
     </div>
   </form>`;
+}
+
+// Old images are cleaned up after a while; show that instead of a broken image.
+function MessageImage({ name }) {
+  const [expired, setExpired] = useState(false);
+  if (expired) return html`<span class="image-expired" title="images are removed after a retention period">image expired</span>`;
+  return html`<a href=${`/attachments/${name}`} target="_blank" rel="noopener" title="open full size">
+    <img src=${`/attachments/${name}`} alt="attached image" loading="lazy" onError=${() => setExpired(true)} />
+  </a>`;
 }
 
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
@@ -733,8 +742,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
             m.sender === "owner" ? "from-owner" : "",
           ].join(" ")}>
           <div class="bubble">${m.content}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
-            ${m.attachments.map(name => html`<a key=${name} href=${`/attachments/${name}`} target="_blank" rel="noopener"
-              title="open full size"><img src=${`/attachments/${name}`} alt="attached image" loading="lazy" /></a>`)}
+            ${m.attachments.map(name => html`<${MessageImage} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${rel(m.ts, now)}${!m.delivered && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
         </div>`)}

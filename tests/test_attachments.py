@@ -1,9 +1,14 @@
 """Images pasted into the dashboard: upload, serve, and delivery as a file path."""
 
+import os
+import sqlite3
 import struct
+import time
 import zlib
 
-from agent_swarm import attachments
+from fastapi.testclient import TestClient
+
+from agent_swarm import attachments, server, tmux
 from tests.test_server import client  # noqa: F401  (reuse the app fixture)
 
 
@@ -113,3 +118,104 @@ def test_messages_without_images_report_an_empty_list(client):
     user = register(client)
     client.post("/owner/send", json={"recipient": user, "content": "plain"})
     assert client.get("/api/state").json()["messages"][-1]["attachments"] == []
+
+
+DAY = 24 * 60 * 60
+
+
+def age_file(path, days):
+    t = time.time() - days * DAY
+    os.utime(path, (t, t))
+
+
+def age_messages(tmp_path, days):
+    conn = sqlite3.connect(tmp_path / "db.sqlite")
+    conn.execute("UPDATE messages SET ts = ?", (time.time() - days * DAY,))
+    conn.commit()
+    conn.close()
+
+
+def send_image(client, user, color=0):
+    image = upload(client, png(color)).json()
+    assert client.post(
+        "/owner/send", json={"recipient": user, "attachments": [image["name"]]}
+    ).status_code == 200
+    return image
+
+
+def test_cleanup_drops_stale_drafts_but_keeps_fresh_ones(client, tmp_path):
+    stale = upload(client, png(1)).json()
+    fresh = upload(client, png(2)).json()
+    age_file(stale["path"], 2)
+
+    assert client.app.state.cleanup()["images"] == [stale["name"]]
+    assert client.get(stale["url"]).status_code == 404
+    assert client.get(fresh["url"]).status_code == 200
+
+
+def test_repasting_an_old_upload_restarts_its_grace(client):
+    image = upload(client, png()).json()
+    age_file(image["path"], 2)
+    upload(client, png())
+    assert client.app.state.cleanup()["images"] == []
+
+
+def test_cleanup_keeps_sent_images_within_retention(client, tmp_path):
+    user = register(client)
+    image = send_image(client, user)
+    age_file(image["path"], 10)  # file is old, but a recent message uses it
+    age_messages(tmp_path, 10)
+    assert client.app.state.cleanup() == {"messages": 0, "images": []}
+    assert client.get(image["url"]).status_code == 200
+
+
+def test_cleanup_expires_images_past_retention_and_the_thread_keeps_the_message(client, tmp_path):
+    user = register(client)
+    image = send_image(client, user)
+    age_file(image["path"], 40)
+    age_messages(tmp_path, 40)
+
+    assert client.app.state.cleanup() == {"messages": 0, "images": [image["name"]]}
+    msg = client.get("/api/state").json()["messages"][-1]
+    assert msg["attachments"] == [image["name"]]  # the dashboard shows it as expired
+    assert client.get(image["url"]).status_code == 404
+
+
+def test_cleanup_deletes_old_messages_and_their_images(client, tmp_path):
+    user = register(client)
+    image = send_image(client, user)
+    age_file(image["path"], 61)
+    age_messages(tmp_path, 61)
+    client.post("/owner/send", json={"recipient": user, "content": "recent"})
+
+    result = client.app.state.cleanup()
+    assert result == {"messages": 1, "images": [image["name"]]}
+    assert [m["content"] for m in client.get("/api/state").json()["messages"]] == ["recent"]
+
+
+def test_retention_settings_of_zero_keep_everything(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_SWARM_ATTACHMENT_RETENTION_DAYS", "0")
+    monkeypatch.setenv("AGENT_SWARM_MESSAGE_RETENTION_DAYS", "0")
+    monkeypatch.setattr(tmux, "deliver", lambda *a, **k: (True, None))
+    monkeypatch.setattr(tmux, "list_panes", lambda: {"0:0.0"})
+    monkeypatch.setattr(tmux, "live_agent_panes", lambda: {"0:0.0"})
+    monkeypatch.setattr(tmux, "set_pane_title", lambda *a: (True, None))
+    monkeypatch.setattr(tmux, "rename_window", lambda *a: (True, None))
+    c = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False))
+    user = register(c)
+    image = send_image(c, user)
+    age_file(image["path"], 400)
+    age_messages(tmp_path, 400)
+    assert c.app.state.cleanup() == {"messages": 0, "images": []}
+
+
+def test_sweep_leaves_foreign_files_and_clears_interrupted_uploads(tmp_path):
+    root = tmp_path / "attachments"
+    root.mkdir()
+    (root / "notes.txt").write_text("mine")
+    part = root / ".abc.png.1.2.part"
+    part.write_bytes(b"x")
+    age_file(root / "notes.txt", 100)
+    age_file(part, 2)
+    assert attachments.sweep(root, {}, time.time(), retention=None) == []
+    assert (root / "notes.txt").exists() and not part.exists()

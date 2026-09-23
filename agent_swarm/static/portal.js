@@ -2251,7 +2251,7 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     </div>
     ${(images.length > 0 || uploading > 0) && m$1`<div class="compose-images">
       ${images.map((name) => m$1`<figure key=${name} class="compose-image">
-        <img src=${`/attachments/${name}`} alt="attached image" />
+        <img src=${`/attachments/${name}`} alt="attached image" onError=${() => removeImage(name)} />
         <button type="button" class="remove" onClick=${() => removeImage(name)}
           title="remove image" aria-label="Remove image">×</button>
       </figure>`)}
@@ -2278,6 +2278,13 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
       </div>
     </div>
   </form>`;
+}
+function MessageImage({ name }) {
+	const [expired, setExpired] = d(false);
+	if (expired) return m$1`<span class="image-expired" title="images are removed after a retention period">image expired</span>`;
+	return m$1`<a href=${`/attachments/${name}`} target="_blank" rel="noopener" title="open full size">
+    <img src=${`/attachments/${name}`} alt="attached image" loading="lazy" onError=${() => setExpired(true)} />
+  </a>`;
 }
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const boxRef = A(null);
@@ -2349,8 +2356,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 		m.sender === "owner" ? "from-owner" : ""
 	].join(" ")}>
           <div class="bubble">${m.content}${m.attachments?.length > 0 && m$1`<div class=${`msg-images ${m.content ? "" : "only"}`}>
-            ${m.attachments.map((name) => m$1`<a key=${name} href=${`/attachments/${name}`} target="_blank" rel="noopener"
-              title="open full size"><img src=${`/attachments/${name}`} alt="attached image" loading="lazy" /></a>`)}
+            ${m.attachments.map((name) => m$1`<${MessageImage} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && m$1` · <span class="ctx">${m.context}</span>`} · ${rel(m.ts, now)}${!m.delivered && m$1` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
         </div>`)}

@@ -542,6 +542,25 @@ def fetch_messages(
     return [_message(r) for r in rows]
 
 
+@_serialized
+def delete_messages_before(conn: sqlite3.Connection, cutoff: float) -> int:
+    """Delete messages sent before `cutoff`; return how many were removed."""
+    cur = conn.execute("DELETE FROM messages WHERE ts < ?", (cutoff,))
+    conn.commit()
+    return cur.rowcount
+
+
+@_serialized
+def attachment_last_used(conn: sqlite3.Connection) -> dict[str, float]:
+    """Each attachment name mapped to the time of the newest message carrying it."""
+    rows = conn.execute(
+        "SELECT j.value AS name, MAX(m.ts) AS ts "
+        "FROM messages m, json_each(m.attachments) j "
+        "WHERE m.attachments IS NOT NULL GROUP BY j.value"
+    ).fetchall()
+    return {r["name"]: r["ts"] for r in rows}
+
+
 def _message(row: sqlite3.Row) -> dict:
     msg = dict(row)
     msg["attachments"] = json.loads(msg["attachments"]) if msg.get("attachments") else []

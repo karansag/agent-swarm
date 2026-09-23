@@ -17,6 +17,11 @@ from pathlib import Path
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PER_MESSAGE = 10
 
+DAY = 24 * 60 * 60
+# An upload no message refers to yet is a draft; give it this long to be sent.
+ORPHAN_GRACE = DAY
+DEFAULT_RETENTION_DAYS = 30.0
+
 MEDIA_TYPES = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -52,7 +57,10 @@ def save(root: Path, data: bytes) -> str:
     name = f"{hashlib.sha256(data).hexdigest()}.{ext}"
     root.mkdir(parents=True, exist_ok=True)
     path = root / name
-    if not path.exists():
+    if path.exists():
+        # Re-pasting an old image restarts its orphan grace period.
+        os.utime(path)
+    else:
         tmp = root / f".{name}.{os.getpid()}.{time.monotonic_ns()}.part"
         tmp.write_bytes(data)
         tmp.replace(path)
@@ -69,3 +77,43 @@ def resolve(root: Path, name: str) -> Path | None:
 
 def media_type(name: str) -> str:
     return MEDIA_TYPES[name.rsplit(".", 1)[1]]
+
+
+def sweep(
+    root: Path,
+    last_used: dict[str, float],
+    now: float,
+    retention: float | None,
+    orphan_grace: float = ORPHAN_GRACE,
+) -> list[str]:
+    """Delete attachments nobody needs any more; return the names removed.
+
+    `last_used` maps each name to the time of the newest message carrying it.
+    A file no message refers to is an abandoned draft upload and goes once it
+    is older than `orphan_grace`. A referenced file goes once its newest
+    message is older than `retention` seconds; None keeps those forever.
+    Interrupted uploads (`.part` files) are cleared after the grace period.
+    """
+    if not root.is_dir():
+        return []
+    removed = []
+    for path in root.iterdir():
+        name = path.name
+        try:
+            if name.startswith(".") and name.endswith(".part"):
+                if now - path.stat().st_mtime > orphan_grace:
+                    path.unlink()
+                continue
+            if not _NAME.match(name):
+                continue  # not ours; leave it alone
+            used = last_used.get(name)
+            if used is None:
+                expired = now - path.stat().st_mtime > orphan_grace
+            else:
+                expired = retention is not None and now - used > retention
+            if expired:
+                path.unlink()
+                removed.append(name)
+        except FileNotFoundError:
+            continue  # removed concurrently
+    return removed

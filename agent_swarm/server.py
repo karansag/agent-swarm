@@ -350,6 +350,40 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 delivery_error=None,
             )
 
+    retention_days = float(
+        os.environ.get(
+            "AGENT_SWARM_ATTACHMENT_RETENTION_DAYS", attachments.DEFAULT_RETENTION_DAYS
+        )
+    )
+    # 0 (or less) keeps sent images forever; unsent drafts are still swept.
+    retention = retention_days * attachments.DAY if retention_days > 0 else None
+    message_days = float(os.environ.get("AGENT_SWARM_MESSAGE_RETENTION_DAYS", "60"))
+
+    def _cleanup() -> dict:
+        """Daily cleanup: old messages first, then images nothing needs."""
+        now = time.time()
+        messages = 0
+        if message_days > 0:
+            messages = db.delete_messages_before(conn, now - message_days * attachments.DAY)
+        # Images carried only by the messages just deleted are now unreferenced
+        # and, being older than the orphan grace, go in the same pass.
+        images = attachments.sweep(
+            attachments_root, db.attachment_last_used(conn), now, retention
+        )
+        if messages or images:
+            log.info("cleanup removed %d message(s), %d image(s)", messages, len(images))
+        return {"messages": messages, "images": images}
+
+    async def _cleanup_loop():
+        while True:
+            try:
+                await asyncio.to_thread(_cleanup)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("cleanup failed")
+            await asyncio.sleep(attachments.DAY)
+
     async def _monitor_loop():
         while True:
             try:
@@ -363,16 +397,21 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        task = asyncio.create_task(_monitor_loop()) if monitor else None
+        # Background work (monitor, daily cleanup) is off in tests.
+        tasks = (
+            [asyncio.create_task(_monitor_loop()), asyncio.create_task(_cleanup_loop())]
+            if monitor else []
+        )
         try:
             yield
         finally:
-            if task is not None:
+            for task in tasks:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
     app = FastAPI(title="agent-swarm", version="0.1.0", lifespan=lifespan)
+    app.state.cleanup = _cleanup
     app.mount(
         "/static",
         StaticFiles(directory=PORTAL_STATIC_PATH),
