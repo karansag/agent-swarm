@@ -128,7 +128,9 @@ def test_deliver_retries_submit_once_when_composer_still_holds_text(monkeypatch)
     calls = []
     monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
     monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: True)
-    monkeypatch.setattr(tmux.time, "sleep", lambda seconds: None)
+    clock = _FakeClock()
+    monkeypatch.setattr(tmux.time, "sleep", clock.sleep)
+    monkeypatch.setattr(tmux.time, "monotonic", clock.monotonic)
 
     assert tmux.deliver(
         "session-a:9.0", "[agent-msg from manatee] hello", submit_key="Enter"
@@ -321,3 +323,44 @@ def test_cmd_task_update_forwards_the_closing_note(monkeypatch, capsys):
         "note": "Run the suite; see tests/test_server.py.",
     }
     capsys.readouterr()
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def monotonic(self):
+        return self.now
+
+
+def test_deliver_returns_as_soon_as_the_submit_lands(monkeypatch):
+    calls = []
+    clock = _FakeClock()
+    checks = iter([True, True, False])  # the composer clears on the third poll
+    monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: next(checks))
+    monkeypatch.setattr(tmux.time, "sleep", clock.sleep)
+    monkeypatch.setattr(tmux.time, "monotonic", clock.monotonic)
+
+    assert tmux.deliver("s:0.0", "hello", submit_key="Enter") == (True, None)
+    assert calls.count(["tmux", "send-keys", "-t", "s:0.0", "Enter"]) == 1
+    # Three polls, not the whole verify window.
+    assert clock.now < 0.5 < tmux.SUBMIT_VERIFY_DELAY
+
+
+def test_deliver_retries_only_after_the_whole_verify_window(monkeypatch):
+    calls = []
+    clock = _FakeClock()
+    monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: True)
+    monkeypatch.setattr(tmux.time, "sleep", clock.sleep)
+    monkeypatch.setattr(tmux.time, "monotonic", clock.monotonic)
+
+    tmux.deliver("s:0.0", "hello", submit_key="Enter")
+    assert calls.count(["tmux", "send-keys", "-t", "s:0.0", "Enter"]) == 2
+    assert clock.now >= tmux.SUBMIT_VERIFY_DELAY

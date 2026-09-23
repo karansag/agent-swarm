@@ -518,6 +518,11 @@ function Scope({ user, refresh }) {
   </div>`;
 }
 
+// Messages the owner has sent that the server has not confirmed yet. Composers
+// announce them here so the thread can show them the moment send is pressed.
+const pendingSends = new EventTarget();
+let pendingSeq = 0;
+
 // Upload one image; resolves to the stored name the server hands back.
 async function uploadImage(file) {
   const r = await fetch("/attachments", {
@@ -556,6 +561,23 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
+  useEffect(() => {
+    let timer;
+    const onOutcome = (e) => {
+      if (e.detail.draftKey !== draftKey) return;
+      const { status: next, draft } = e.detail;
+      if (draft) {
+        setText(t => t || draft.text);
+        setContext(c => c || draft.context);
+        setImages(imgs => (imgs.length ? imgs : draft.images));
+      }
+      setStatus(next);
+      clearTimeout(timer);
+      if (next === "delivered") timer = setTimeout(() => setStatus(s => (s === "delivered" ? "" : s)), 2500);
+    };
+    pendingSends.addEventListener("outcome", onOutcome);
+    return () => { clearTimeout(timer); pendingSends.removeEventListener("outcome", onOutcome); };
+  }, [draftKey]);
   // Keep the draft (text, tag, and uploaded images) across reloads.
   const loadedKey = useRef(null);
   useEffect(() => {
@@ -586,23 +608,39 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     e.preventDefault();
     const content = text.trim();
     if (!canSend) return;
+    // Clear the composer and show the message in the thread right away; the
+    // server confirms delivery afterwards, and a failure restores the draft.
+    const draft = { text, context, images };
+    const pending = {
+      id: `pending-${++pendingSeq}`, pending: true, delivered: true,
+      sender: "owner", recipient, content, context: context.trim() || null,
+      attachments: images, ts: Date.now() / 1000,
+    };
     setSending(true);
-    setStatus("");
+    setStatus("sending…");
+    setText("");
+    setContext("");
+    setImages([]);
+    pendingSends.dispatchEvent(new CustomEvent("add", { detail: pending }));
+    // The outcome is addressed by draft key, not to this component: sending
+    // the first message turns the empty panel into a thread with its own
+    // composer, and that one has to show the result and get the draft back.
+    const report = (detail) => pendingSends.dispatchEvent(
+      new CustomEvent("outcome", { detail: { draftKey, ...detail } }));
     try {
       const r = await fetch("/owner/send", {
         method: "POST", headers: JSONH,
-        body: JSON.stringify({ recipient, content, context: context.trim() || null, attachments: images }),
+        body: JSON.stringify({ recipient, content, context: pending.context, attachments: images }),
       });
       if (!r.ok) throw new Error("delivery failed");
-      setText("");
-      setContext("");
-      setImages([]);
-      setStatus("delivered");
-      setTimeout(() => setStatus(""), 2500);
-      refresh();
+      report({ status: "delivered" });
     } catch {
-      setStatus("delivery failed — draft kept");
+      try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* best effort */ }
+      report({ status: "delivery failed — draft kept", draft });
     } finally {
+      // Swap the placeholder for the server's copy in one step, no flicker.
+      await refresh();
+      pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
       setSending(false);
     }
   };
@@ -740,11 +778,12 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
             freshIds.has(m.id) ? "fresh" : "",
             m.delivered ? "" : "failed",
             m.sender === "owner" ? "from-owner" : "",
+            m.pending ? "pending" : "",
           ].join(" ")}>
           <div class="bubble">${m.content}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
             ${m.attachments.map(name => html`<${MessageImage} key=${name} name=${name} />`)}
           </div>`}</div>
-          <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${rel(m.ts, now)}${!m.delivered && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
+          <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${!m.delivered && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
         </div>`)}
     </div>
     <button type="button" class="history-resizer" role="separator" aria-orientation="horizontal"
@@ -854,6 +893,17 @@ function App() {
   const [freshIds, setFreshIds] = useState(new Set());
   const [pings, setPings] = useState({});
   const seen = useRef({ maxId: 0, first: true, byAgent: {} });
+  const [pending, setPending] = useState([]);
+  useEffect(() => {
+    const add = (e) => setPending(p => [...p, e.detail]);
+    const settle = (e) => setPending(p => p.filter(m => m.id !== e.detail));
+    pendingSends.addEventListener("add", add);
+    pendingSends.addEventListener("settle", settle);
+    return () => {
+      pendingSends.removeEventListener("add", add);
+      pendingSends.removeEventListener("settle", settle);
+    };
+  }, []);
 
   const focusUser = route.startsWith("#/agent/")
     ? decodeURIComponent(route.slice("#/agent/".length)) : null;
@@ -921,12 +971,13 @@ function App() {
   </header>`;
 
   if (!state) return html`${header}<main><div class="stage"><div class="empty">connecting…</div></div></main>`;
+  const view = pending.length ? { ...state, messages: [...state.messages, ...pending] } : state;
 
   return html`${header}
   <main>
     <div class="stage">
       ${focusUser
-        ? html`<${FocusView} user=${focusUser} state=${state} refresh=${poll} freshIds=${freshIds} />`
+        ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />`
         : html`<${Overview} state=${state} refresh=${poll} />`}
     </div>
     <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}

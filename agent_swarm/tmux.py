@@ -243,6 +243,25 @@ def _composer_holds_text(pane: str) -> bool:
     return len(re.sub(r"^[>›❯$%#]+", "", row).strip()) > 0
 
 
+SUBMIT_POLL_INTERVAL = 0.1
+
+
+def _await_submit(pane: str, timeout: float) -> bool:
+    """Wait up to `timeout` for the composer to clear after the submit key.
+
+    Polls rather than sleeping the whole window: a harness usually takes the
+    submit within a couple of polls, so a send returns in a few hundred ms.
+    True once the composer is empty; False if text is still there at the end.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        time.sleep(SUBMIT_POLL_INTERVAL)
+        if not _composer_holds_text(pane):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+
+
 def deliver(
     pane: str,
     text: str,
@@ -273,8 +292,7 @@ def deliver(
             ["tmux", "send-keys", "-t", pane, submit_key],
             capture_output=True, text=True, check=True, timeout=5,
         )
-        time.sleep(SUBMIT_VERIFY_DELAY)
-        if _composer_holds_text(pane):
+        if not _await_submit(pane, SUBMIT_VERIFY_DELAY):
             # Retry only the submit key once; re-pasting would duplicate text.
             subprocess.run(
                 ["tmux", "send-keys", "-t", pane, submit_key],

@@ -395,6 +395,7 @@
   @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.97); } }
   .msg .tag { font-size: 10px; color: var(--cream-dim); margin: 2px 4px 0; }
   .msg .tag .ctx { color: var(--honey-dim); }
+  .msg.pending .bubble { opacity: .6; }
   .msg.failed .bubble { border-style: dashed; border-color: var(--alert); }
   .msg.failed .tag .ctx { color: var(--alert); }
   .msg.from-owner .bubble { border-color: var(--honey-dim); background: rgba(242,169,59,.14); }
