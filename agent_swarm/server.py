@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import activity, db, names, tmux
+from . import activity, attachments, db, names, tmux
 
 log = logging.getLogger("agent_swarm.monitor")
 
@@ -112,8 +112,14 @@ class OwnerSendReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     recipient: str = Field(min_length=1)
-    content: str = Field(min_length=1)
+    content: str = ""
     context: str | None = None
+    attachments: list[str] = Field(
+        default_factory=list,
+        max_length=attachments.MAX_PER_MESSAGE,
+        description="Names returned by POST /attachments. The recipient agent "
+        "gets each as an absolute file path appended to the message.",
+    )
 
 
 class TaskCreateReq(BaseModel):
@@ -299,6 +305,7 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
 
 def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     conn = db.connect(db_path)
+    attachments_root = Path(db_path).expanduser().resolve().parent / "attachments"
 
     # Per-agent activity state, mutated by the monitor loop and read by
     # /api/state. Keyed by user_id; see agent_swarm.activity.step for the shape.
@@ -473,7 +480,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             r["alive"] = r["offline_reason"] is None
         return rows
 
-    def _refuse_if_offline(sender: str, recipient: dict, context, content) -> None:
+    def _refuse_if_offline(
+        sender: str, recipient: dict, context, content, files: list[str] | None = None
+    ) -> None:
         reason = tmux.offline_reason(
             recipient["tmux_pane"], tmux.list_panes(), tmux.live_agent_panes()
         )
@@ -481,7 +490,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             return
         mid = db.record_message(
             conn, sender, recipient["user_id"], context, content,
-            delivered=False, delivery_error=reason,
+            delivered=False, delivery_error=reason, attachments=files,
         )
         raise HTTPException(
             status_code=409,
@@ -518,8 +527,21 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             raise HTTPException(status_code=404, detail="recipient not registered")
         return {"ok": True, "user_id": user_id}
 
-    def _deliver_from_owner(recipient_id: str, content: str, context: str | None):
+    def _with_attachments(content: str, files: list[str]) -> str:
+        """Message text plus one line per attached image, as a path the agent can open."""
+        lines = [
+            f"[attached image: {attachments_root / name}]" for name in files
+        ]
+        return "\n\n".join(part for part in (content, "\n".join(lines)) if part)
+
+    def _deliver_from_owner(
+        recipient_id: str,
+        content: str,
+        context: str | None,
+        files: list[str] | None = None,
+    ):
         """Deliver a message from the human operator to an agent's pane."""
+        files = files or []
         recipient = db.get_recipient(conn, recipient_id)
         if recipient is None:
             mid = db.record_message(
@@ -530,6 +552,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 content,
                 delivered=False,
                 delivery_error="recipient not registered",
+                attachments=files,
             )
             raise HTTPException(
                 status_code=404,
@@ -539,8 +562,8 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                     "message_id": mid,
                 },
             )
-        _refuse_if_offline(OWNER, recipient, context, content)
-        body = tmux.format_message(OWNER, context, content)
+        _refuse_if_offline(OWNER, recipient, context, content, files)
+        body = tmux.format_message(OWNER, context, _with_attachments(content, files))
         ok, err = tmux.deliver(
             recipient["tmux_pane"],
             body,
@@ -549,7 +572,8 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             flavor=recipient.get("flavor"),
         )
         mid = db.record_message(
-            conn, OWNER, recipient_id, context, content, delivered=ok, delivery_error=err
+            conn, OWNER, recipient_id, context, content, delivered=ok,
+            delivery_error=err, attachments=files,
         )
         return {"ok": ok, "message_id": mid, "delivery_error": err}
 
@@ -628,7 +652,54 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     @app.post("/owner/send")
     def owner_send(req: OwnerSendReq):
-        return _deliver_from_owner(req.recipient, req.content, req.context)
+        content = req.content.strip()
+        if not content and not req.attachments:
+            raise HTTPException(
+                status_code=422, detail={"error": "message needs text or an image"}
+            )
+        unknown = [
+            name for name in req.attachments
+            if attachments.resolve(attachments_root, name) is None
+        ]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "unknown attachment", "attachments": unknown},
+            )
+        return _deliver_from_owner(req.recipient, content, req.context, req.attachments)
+
+    @app.post("/attachments")
+    async def attachments_upload(request: Request):
+        """Store a pasted or dropped image; the raw bytes are the request body."""
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > attachments.MAX_BYTES:
+            raise HTTPException(status_code=413, detail={"error": "image too large"})
+        data = await request.body()
+        try:
+            name = await asyncio.to_thread(attachments.save, attachments_root, data)
+        except ValueError as exc:
+            status = 413 if len(data) > attachments.MAX_BYTES else 415
+            raise HTTPException(status_code=status, detail={"error": str(exc)})
+        return {
+            "ok": True,
+            "name": name,
+            "url": f"/attachments/{name}",
+            "path": str(attachments_root / name),
+        }
+
+    @app.get("/attachments/{name}")
+    def attachments_get(name: str):
+        path = attachments.resolve(attachments_root, name)
+        if path is None:
+            raise HTTPException(status_code=404, detail={"error": "unknown attachment"})
+        return FileResponse(
+            path,
+            media_type=attachments.media_type(name),
+            headers={
+                "Cache-Control": "private, max-age=31536000, immutable",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     def _team_line(user_id: str) -> str:
         """One sentence telling an agent who its teammates are right now."""

@@ -518,18 +518,35 @@ function Scope({ user, refresh }) {
   </div>`;
 }
 
+// Upload one image; resolves to the stored name the server hands back.
+async function uploadImage(file) {
+  const r = await fetch("/attachments", {
+    method: "POST", headers: { "content-type": file.type || "application/octet-stream" }, body: file,
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail?.error || `upload failed (${r.status})`);
+  return body.name;
+}
+
+const imageFiles = (list) => [...(list || [])].filter(f => f.type.startsWith("image/"));
+
 function MessageComposer({ recipient, refresh, draftId = "thread" }) {
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
+  const [images, setImages] = useState([]);
+  const [uploading, setUploading] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
   const composerRef = useRef(null);
+  const fileRef = useRef(null);
   const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
   useEffect(() => {
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
       setText(draft?.text || "");
       setContext(draft?.context || "");
+      setImages(Array.isArray(draft?.images) ? draft.images : []);
       setStatus("");
     } catch { /* an invalid saved draft should not block messaging */ }
   }, [draftKey]);
@@ -539,21 +556,47 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
+  // Keep the draft (text, tag, and uploaded images) across reloads.
+  const loadedKey = useRef(null);
+  useEffect(() => {
+    if (loadedKey.current !== draftKey) { loadedKey.current = draftKey; return; }
+    try {
+      if (text || context || images.length) localStorage.setItem(draftKey, JSON.stringify({ text, context, images }));
+      else localStorage.removeItem(draftKey);
+    } catch { /* storage full or blocked: the draft just isn't kept */ }
+  }, [draftKey, text, context, images]);
+  const addFiles = async (files) => {
+    if (!files.length) return;
+    setStatus("");
+    setUploading(n => n + files.length);
+    for (const file of files) {
+      try {
+        const name = await uploadImage(file);
+        setImages(prev => (prev.includes(name) ? prev : [...prev, name]));
+      } catch (err) {
+        setStatus(`image not added: ${err.message}`);
+      } finally {
+        setUploading(n => n - 1);
+      }
+    }
+  };
+  const removeImage = (name) => setImages(prev => prev.filter(x => x !== name));
+  const canSend = !sending && uploading === 0 && (text.trim() || images.length > 0);
   const send = async (e) => {
     e.preventDefault();
     const content = text.trim();
-    if (!content || sending) return;
+    if (!canSend) return;
     setSending(true);
     setStatus("");
     try {
       const r = await fetch("/owner/send", {
         method: "POST", headers: JSONH,
-        body: JSON.stringify({ recipient, content, context: context.trim() || null }),
+        body: JSON.stringify({ recipient, content, context: context.trim() || null, attachments: images }),
       });
       if (!r.ok) throw new Error("delivery failed");
       setText("");
       setContext("");
-      localStorage.removeItem(draftKey);
+      setImages([]);
       setStatus("delivered");
       setTimeout(() => setStatus(""), 2500);
       refresh();
@@ -563,41 +606,59 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
       setSending(false);
     }
   };
-  const updateText = (value) => {
-    setText(value);
-    localStorage.setItem(draftKey, JSON.stringify({ text: value, context }));
-  };
-  const updateContext = (value) => {
-    setContext(value);
-    localStorage.setItem(draftKey, JSON.stringify({ text, context: value }));
-  };
   const clearDraft = () => {
     setText("");
     setContext("");
+    setImages([]);
     setStatus("");
-    localStorage.removeItem(draftKey);
     composerRef.current?.focus();
   };
-  return html`<form class="composer" onSubmit=${send}>
+  // Only file drags are ours; agent chips dragged across the page carry text.
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  return html`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send}
+      onDragOver=${e => { if (hasFiles(e)) { e.preventDefault(); setDragging(true); } }}
+      onDragLeave=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
+      onDrop=${e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        setDragging(false);
+        addFiles(imageFiles(e.dataTransfer.files));
+      }}>
     <div class="compose-row">
       <span class="mark">❯</span>
       <textarea ref=${composerRef} value=${text} rows="2"
-        onInput=${e => updateText(e.target.value)}
+        onInput=${e => setText(e.target.value)}
+        onPaste=${e => {
+          const files = imageFiles(e.clipboardData?.files);
+          if (files.length) { e.preventDefault(); addFiles(files); }
+        }}
         onKeyDown=${e => {
           if (e.key === "Enter" && !e.shiftKey && !(e.metaKey || e.ctrlKey)) send(e);
         }}
-        placeholder=${`Message ${recipient}…`} aria-label=${`Message ${recipient} as owner`} />
+        placeholder=${`Message ${recipient}… (paste or drop images)`} aria-label=${`Message ${recipient} as owner`} />
     </div>
+    ${(images.length > 0 || uploading > 0) && html`<div class="compose-images">
+      ${images.map(name => html`<figure key=${name} class="compose-image">
+        <img src=${`/attachments/${name}`} alt="attached image" />
+        <button type="button" class="remove" onClick=${() => removeImage(name)}
+          title="remove image" aria-label="Remove image">×</button>
+      </figure>`)}
+      ${uploading > 0 && html`<span class="uploading" role="status">uploading ${uploading}…</span>`}
+    </div>`}
     <div class="compose-meta">
-      <input class="context" type="text" value=${context} onInput=${e => updateContext(e.target.value)}
+      <input class="context" type="text" value=${context} onInput=${e => setContext(e.target.value)}
         placeholder="context tag (optional)" aria-label="Optional context tag" />
-      <span class="count">${text.length} character${text.length === 1 ? "" : "s"}</span>
+      <button type="button" class="mini" onClick=${() => fileRef.current?.click()}
+        title="attach images (or paste / drop them)">+ image</button>
+      <input ref=${fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
+        onChange=${e => { addFiles(imageFiles(e.target.files)); e.target.value = ""; }} />
+      <span class="count">${text.length} character${text.length === 1 ? "" : "s"}${images.length > 0 ? ` · ${images.length} image${images.length === 1 ? "" : "s"}` : ""}</span>
       <span class="hint">Enter to send · Shift + Enter for a new line</span>
       <div class="actions">
-        ${status && html`<span class=${status.startsWith("delivery failed") ? "error" : "sent"} role="status">${status}</span>`}
-        ${(text || context) && html`<button type="button" class="mini" onClick=${clearDraft}>clear</button>`}
-        <button class="act" type="submit" disabled=${sending || !text.trim()}>
-          ${sending ? "sending…" : "send"}
+        ${status && html`<span class=${status.startsWith("delivery failed") || status.startsWith("image not added") ? "error" : "sent"} role="status">${status}</span>`}
+        ${(text || context || images.length > 0) && html`<button type="button" class="mini" onClick=${clearDraft}>clear</button>`}
+        <button class="act" type="submit" disabled=${!canSend}>
+          ${sending ? "sending…" : uploading ? "uploading…" : "send"}
         </button>
       </div>
     </div>
@@ -671,7 +732,10 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
             m.delivered ? "" : "failed",
             m.sender === "owner" ? "from-owner" : "",
           ].join(" ")}>
-          <div class="bubble">${m.content}</div>
+          <div class="bubble">${m.content}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
+            ${m.attachments.map(name => html`<a key=${name} href=${`/attachments/${name}`} target="_blank" rel="noopener"
+              title="open full size"><img src=${`/attachments/${name}`} alt="attached image" loading="lazy" /></a>`)}
+          </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${rel(m.ts, now)}${!m.delivered && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
         </div>`)}
     </div>

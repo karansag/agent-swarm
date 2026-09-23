@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import wraps
+import json
 import sqlite3
 import threading
 import time
@@ -205,6 +206,9 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN team_id INTEGER")
     if "note" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN note TEXT")
+    msg_cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    if "attachments" not in msg_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT")
     conn.commit()
 
 
@@ -500,10 +504,11 @@ def record_message(
     content: str,
     delivered: bool,
     delivery_error: str | None,
+    attachments: list[str] | None = None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error) "
-        "VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error, attachments) "
+        "VALUES(?,?,?,?,?,?,?,?)",
         (
             sender,
             recipient,
@@ -512,6 +517,7 @@ def record_message(
             time.time(),
             1 if delivered else 0,
             delivery_error,
+            json.dumps(attachments) if attachments else None,
         ),
     )
     conn.commit()
@@ -533,4 +539,10 @@ def fetch_messages(
         rows = conn.execute(
             "SELECT * FROM messages ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [_message(r) for r in rows]
+
+
+def _message(row: sqlite3.Row) -> dict:
+    msg = dict(row)
+    msg["attachments"] = json.loads(msg["attachments"]) if msg.get("attachments") else []
+    return msg
