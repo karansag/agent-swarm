@@ -1,15 +1,16 @@
 import { html } from "htm/preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
-import { Avatar, focusHash, hue, rel } from "./shared.js";
+import { Avatar, SUMMARY_SOURCE, focusHash, hue, rel } from "./shared.js";
 
 /* The history view: every task as a tile, newest first, with a live text
    search. Its main job is to answer "who was working on X".
 
-   Search runs over a flat list of *records*. Today every record comes from a
-   task. Another source (for example per-agent status lines) can be added by
-   writing one more `xxxRecords()` builder that returns the same shape, and a
-   tile renderer for its `kind`. A record is:
+   Search runs over a flat list of *records*: tasks, and each agent's status
+   lines ("working on X"). Status lines only show while searching or filtering
+   by agent, and never under a status chip, so the plain view stays a list of
+   tasks. Another source is one more `xxxRecords()` builder returning the same
+   shape, plus a tile renderer for its `kind`. A record is:
 
      { key, kind, id?, status?, ts, agents: [user_id], fields: { name: text }, src }
 
@@ -70,6 +71,17 @@ function taskRecords(tasks, teams) {
     },
     src: t,
   }));
+}
+
+function statusRecords(recipients) {
+  return (recipients || []).flatMap(r => (r.summaries || []).map((s, i) => ({
+    key: `status:${r.user_id}:${s.ts}:${i}`,
+    kind: "status",
+    ts: s.ts,
+    agents: [r.user_id],
+    fields: { status: s.text, agent: r.user_id },
+    src: { ...s, user_id: r.user_id, current: i === 0 },
+  })));
 }
 
 const tokenize = (q) => q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -158,7 +170,26 @@ function TaskTile({ rec, re, now, filterAgent }) {
   </article>`;
 }
 
-const TILE = { task: TaskTile };
+function StatusTile({ rec, re, now, filterAgent }) {
+  const s = rec.src;
+  return html`<article class="htile status-line">
+    <div class="h-who">
+      <${Avatar} name=${s.user_id} size="tiny" />
+      <a class="agent-link h-agent" href=${focusHash(s.user_id)}
+        title=${`Open ${s.user_id} and message it`}>${hl(s.user_id, re)}</a>
+      <button type="button" class="h-only" onClick=${() => filterAgent(s.user_id)}
+        title=${`Show only ${s.user_id}`} aria-label=${`Show only ${s.user_id}`}>⌕</button>
+      <span class="pill statusline">${s.current ? "status now" : "status"}</span>
+    </div>
+    <div class="h-title">${hl(s.text, re)}</div>
+    <div class="h-meta">
+      <span title=${fmtDate(s.ts)}>${fmtDate(s.ts)} · ${rel(s.ts, now)}</span>
+      <span>${SUMMARY_SOURCE[s.source] || s.source}</span>
+    </div>
+  </article>`;
+}
+
+const TILE = { task: TaskTile, status: StatusTile };
 
 export function HistoryView({ state }) {
   const [s, setS] = useState(() => parseHash(location.hash));
@@ -187,14 +218,17 @@ export function HistoryView({ state }) {
   };
   const filterAgent = (a) => update({ agent: s.agent === a ? "" : a });
 
-  const records = useMemo(
+  const tasks = useMemo(
     () => taskRecords(state.tasks, state.teams),
     [state.tasks, state.teams],
   );
+  const lines = useMemo(() => statusRecords(state.recipients), [state.recipients]);
   const tokens = tokenize(s.q);
   const re = markRe(tokens);
+  const withLines = (tokens.length || s.agent) && !s.status;
+  const records = withLines ? tasks.concat(lines) : tasks;
   const textHits = tokens.length ? records.filter(r => matches(r, tokens)) : records;
-  const inStatus = (r) => !s.status || !r.status || r.status === s.status;
+  const inStatus = (r) => !s.status || r.status === s.status;
   const hasAgent = (r) => !s.agent || r.agents.includes(s.agent);
 
   // Each count ignores its own filter, so every chip shows what clicking it gives.
@@ -217,10 +251,10 @@ export function HistoryView({ state }) {
     .sort((a, b) => (s.sort === "oldest" ? a.ts - b.ts : b.ts - a.ts));
 
   return html`<div class="history">
-    <h2>task history <span class="count">· ${shown.length} of ${records.length}</span></h2>
+    <h2>task history <span class="count">· ${shown.length} of ${tasks.length} tasks${withLines ? ` + ${lines.length} status lines` : ""}</span></h2>
     <div class="h-controls">
       <input ref=${inputRef} type="text" class="h-search" value=${s.q} autofocus
-        placeholder="search title, notes, agent, worktree, #id…  ( / to focus )"
+        placeholder="search tasks, notes, status lines, agent, worktree, #id…  ( / to focus )"
         aria-label="Search all tasks"
         onInput=${e => update({ q: e.target.value })}
         onKeyDown=${e => { if (e.key === "Escape" && s.q) { e.stopPropagation(); update({ q: "" }); } }} />

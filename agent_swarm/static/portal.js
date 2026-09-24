@@ -1679,6 +1679,23 @@ function taskRecords(tasks, teams) {
 		src: t
 	}));
 }
+function statusRecords(recipients) {
+	return (recipients || []).flatMap((r) => (r.summaries || []).map((s, i) => ({
+		key: `status:${r.user_id}:${s.ts}:${i}`,
+		kind: "status",
+		ts: s.ts,
+		agents: [r.user_id],
+		fields: {
+			status: s.text,
+			agent: r.user_id
+		},
+		src: {
+			...s,
+			user_id: r.user_id,
+			current: i === 0
+		}
+	})));
+}
 var tokenize = (q) => q.toLowerCase().split(/\s+/).filter(Boolean);
 function matches(rec, tokens) {
 	return tokens.every((tok) => {
@@ -1749,7 +1766,28 @@ function TaskTile({ rec, re, now, filterAgent }) {
     </div>
   </article>`;
 }
-var TILE = { task: TaskTile };
+function StatusTile({ rec, re, now, filterAgent }) {
+	const s = rec.src;
+	return m$1`<article class="htile status-line">
+    <div class="h-who">
+      <${Avatar} name=${s.user_id} size="tiny" />
+      <a class="agent-link h-agent" href=${focusHash(s.user_id)}
+        title=${`Open ${s.user_id} and message it`}>${hl(s.user_id, re)}</a>
+      <button type="button" class="h-only" onClick=${() => filterAgent(s.user_id)}
+        title=${`Show only ${s.user_id}`} aria-label=${`Show only ${s.user_id}`}>⌕</button>
+      <span class="pill statusline">${s.current ? "status now" : "status"}</span>
+    </div>
+    <div class="h-title">${hl(s.text, re)}</div>
+    <div class="h-meta">
+      <span title=${fmtDate(s.ts)}>${fmtDate(s.ts)} · ${rel(s.ts, now)}</span>
+      <span>${SUMMARY_SOURCE[s.source] || s.source}</span>
+    </div>
+  </article>`;
+}
+var TILE = {
+	task: TaskTile,
+	status: StatusTile
+};
 function HistoryView({ state }) {
 	const [s, setS] = d(() => parseHash(location.hash));
 	const inputRef = A(null);
@@ -1783,11 +1821,14 @@ function HistoryView({ state }) {
 		history.replaceState(null, "", historyHash(next));
 	};
 	const filterAgent = (a) => update({ agent: s.agent === a ? "" : a });
-	const records = T(() => taskRecords(state.tasks, state.teams), [state.tasks, state.teams]);
+	const tasks = T(() => taskRecords(state.tasks, state.teams), [state.tasks, state.teams]);
+	const lines = T(() => statusRecords(state.recipients), [state.recipients]);
 	const tokens = tokenize(s.q);
 	const re = markRe(tokens);
+	const withLines = (tokens.length || s.agent) && !s.status;
+	const records = withLines ? tasks.concat(lines) : tasks;
 	const textHits = tokens.length ? records.filter((r) => matches(r, tokens)) : records;
-	const inStatus = (r) => !s.status || !r.status || r.status === s.status;
+	const inStatus = (r) => !s.status || r.status === s.status;
 	const hasAgent = (r) => !s.agent || r.agents.includes(s.agent);
 	const statusCount = {};
 	for (const r of textHits) {
@@ -1804,10 +1845,10 @@ function HistoryView({ state }) {
 	const agents = [...agentCount.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 	const shown = textHits.filter((r) => inStatus(r) && hasAgent(r)).sort((a, b) => s.sort === "oldest" ? a.ts - b.ts : b.ts - a.ts);
 	return m$1`<div class="history">
-    <h2>task history <span class="count">· ${shown.length} of ${records.length}</span></h2>
+    <h2>task history <span class="count">· ${shown.length} of ${tasks.length} tasks${withLines ? ` + ${lines.length} status lines` : ""}</span></h2>
     <div class="h-controls">
       <input ref=${inputRef} type="text" class="h-search" value=${s.q} autofocus
-        placeholder="search title, notes, agent, worktree, #id…  ( / to focus )"
+        placeholder="search tasks, notes, status lines, agent, worktree, #id…  ( / to focus )"
         aria-label="Search all tasks"
         onInput=${(e) => update({ q: e.target.value })}
         onKeyDown=${(e) => {
@@ -8198,7 +8239,7 @@ function Doing({ summaries, now }) {
 	if (summaries.length === 0) return m$1`<div class="doing-box empty-doing">No status yet. Agents post one with
       <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
       show up here too.</div>`;
-	const [cur, ...past] = summaries;
+	const [cur, ...past] = summaries.slice(0, 6);
 	const line = (s) => m$1`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
 	return m$1`<div class="doing-box">
     <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>

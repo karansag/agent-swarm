@@ -1127,7 +1127,8 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     @app.get("/api/state")
     def state(limit: int = 300):
         recipients = _annotated_recipients()
-        summaries = db.summaries_by_user(conn)
+        # All that is kept, so the history search can find older lines too.
+        summaries = db.summaries_by_user(conn, db.SUMMARY_HISTORY)
         for r in recipients:
             r["pane_alive"] = r["alive"]
             r["summaries"] = summaries.get(r["user_id"], [])

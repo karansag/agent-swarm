@@ -845,7 +845,7 @@ function Doing({ summaries, now }) {
       <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
       show up here too.</div>`;
   }
-  const [cur, ...past] = summaries;
+  const [cur, ...past] = summaries.slice(0, 6);
   const line = (s) => html`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
   return html`<div class="doing-box">
     <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>

@@ -499,6 +499,9 @@
   }
   .htile.picked_up { border-color: var(--honey-dim); }
   .htile.done { background: var(--ink-2); }
+  .htile.status-line { border-style: dashed; }
+  .htile.status-line .h-title { font-style: italic; }
+  .pill.statusline { color: var(--cream-dim); border-color: var(--line); white-space: nowrap; }
   .h-who { display: flex; align-items: center; gap: 7px; min-width: 0; }
   .h-who .h-agent { font-family: var(--serif); font-style: italic; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .h-who .pill { margin-left: auto; flex: none; }
