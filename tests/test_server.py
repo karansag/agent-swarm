@@ -3,6 +3,7 @@
 Delivery is monkeypatched to avoid touching real tmux.
 """
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,6 @@ def portal_source():
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     calls = []
-    pane_titles = []
 
     def fake_deliver(
         pane,
@@ -36,19 +36,20 @@ def client(tmp_path, monkeypatch):
         calls.append((pane, text, message_prefix, submit_key, flavor))
         return True, None
 
-    def fake_set_pane_title(pane, title):
-        pane_titles.append((pane, title))
-        return True, None
-
     window_names = []
+    pane_tags = []
+
+    def fake_tag_pane(pane, handle):
+        pane_tags.append((pane, handle))
+        return True, None
 
     def fake_rename_window(pane, name):
         window_names.append((pane, name))
         return True, None
 
     monkeypatch.setattr(tmux, "deliver", fake_deliver)
-    monkeypatch.setattr(tmux, "set_pane_title", fake_set_pane_title)
     monkeypatch.setattr(tmux, "rename_window", fake_rename_window)
+    monkeypatch.setattr(tmux, "tag_pane", fake_tag_pane)
     # 0:0.0 and 0:1.0 run agents; 0:2.0 exists but holds a bare shell.
     monkeypatch.setattr(tmux, "list_panes", lambda: {"0:0.0", "0:1.0", "0:2.0"})
     monkeypatch.setattr(tmux, "live_agent_panes", lambda: {"0:0.0", "0:1.0"})
@@ -82,10 +83,10 @@ def client(tmp_path, monkeypatch):
     app = server.create_app(tmp_path / "db.sqlite", monitor=False)
     c = TestClient(app)
     c._calls = calls
-    c._pane_titles = pane_titles
     c._spawns = spawns
     c._kills = kills
     c._window_names = window_names
+    c._pane_tags = pane_tags
     return c
 
 
@@ -137,8 +138,9 @@ def test_register_without_user_id_assigns_cute_name(client):
     assert body["model"] == "claude-opus-4-7"
     assert body["flavor"] == "claude"
     assert body["submit_key"] == "C-m"
-    assert body["status_title"] == f"agent-swarm: {body['user_id']} (claude)"
-    assert client._pane_titles[-1] == ("0:0.0", body["status_title"])
+    # The handle goes in a pane option; the title stays the harness's own.
+    assert "status_title" not in body
+    assert client._pane_tags[-1] == ("0:0.0", body["user_id"])
 
 
 def test_register_rejects_explicit_user_id(client):
@@ -190,7 +192,6 @@ def test_register_known_harness_flavor_defaults(client, flavor, submit_key):
     body = r.json()
     assert body["flavor"] == flavor
     assert body["submit_key"] == submit_key
-    assert body["status_title"] == f"agent-swarm: {body['user_id']} ({flavor})"
 
 
 def test_register_allows_submit_key_override_over_flavor_default(client):
@@ -654,10 +655,8 @@ def test_spawn_creates_window_and_registers_agent(client):
     spawned = next(x for x in recipients if x["user_id"] == body["user_id"])
     assert spawned["flavor"] == "claude"
     assert spawned["submit_key"] == "C-m"
-    assert client._pane_titles[-1] == (
-        "agents:1.0", f"agent-swarm: {body['user_id']} (claude)"
-    )
     assert client._window_names[-1] == ("agents:1.0", body["user_id"])
+    assert client._pane_tags[-1] == ("agents:1.0", body["user_id"])
 
 
 def test_spawn_pi_launches_pi_binary(client):
@@ -789,7 +788,6 @@ def test_register_grants_a_free_requested_name(client):
     assert body["renamed_from"] is None
     # `assigned` means "the server chose this handle", not "a handle was given".
     assert body["assigned"] is False
-    assert body["status_title"] == "agent-swarm: jax (claude)"
 
 
 def test_register_normalizes_requested_name(client):
@@ -885,8 +883,6 @@ def test_reregister_without_model_keeps_stored_flavor_in_pane_title(client):
         json={"tmux_pane": "0:0.0", "agent_id": "a1", "requested_user": "jax"},
     ).json()
     assert body["flavor"] == "claude"
-    assert body["status_title"] == "agent-swarm: jax (claude)"
-    assert client._pane_titles[-1] == ("0:0.0", "agent-swarm: jax (claude)")
 
 
 def _register(client, pane, **extra):
@@ -1025,3 +1021,58 @@ def test_set_model_label_is_display_only(client):
     assert r.status_code == 200 and r.json()["recipient"]["model"] is None
 
     assert client.post("/agents/nobody/model", json={"model": "x"}).status_code == 404
+
+
+def test_status_is_shown_on_the_dashboard_state(client):
+    jax = client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"}).json()
+    r = client.post("/status", json={"tmux_pane": "0:0.0", "text": "  working on\n#12:  pane ids "})
+    assert r.status_code == 200
+    assert r.json()["status"] == "working on #12: pane ids"
+    client.post("/status", json={"tmux_pane": "0:0.0", "text": "done: pane ids"})
+    # Repeating the current status adds nothing.
+    client.post("/status", json={"tmux_pane": "0:0.0", "text": "done: pane ids"})
+    agent = next(
+        x for x in client.get("/api/state").json()["recipients"]
+        if x["user_id"] == jax["user_id"]
+    )
+    assert [s["text"] for s in agent["summaries"]] == ["done: pane ids", "working on #12: pane ids"]
+    assert {s["source"] for s in agent["summaries"]} == {"agent"}
+
+
+def test_status_from_unregistered_pane_is_refused(client):
+    r = client.post("/status", json={"tmux_pane": "0:1.0", "text": "hi"})
+    assert r.status_code == 404
+    r = client.post("/status", json={"tmux_pane": "0:1.0", "text": ""})
+    assert r.status_code == 422
+
+
+def test_monitor_records_harness_pane_titles_as_summaries(client, monkeypatch):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    title = {"t": "⠂ Fix the flaky upload test"}
+    monkeypatch.setattr(
+        tmux, "pane_table",
+        lambda: {"0:0.0": {"label": "0:0.0", "command": "claude", "title": title["t"]}},
+    )
+    tick = client.app.state.monitor_tick
+    asyncio.run(tick())
+    # The spinner turning into Claude's idle mark is not a new topic.
+    title["t"] = "✳ Fix the flaky upload test"
+    asyncio.run(tick())
+    client.post("/status", json={"tmux_pane": "0:0.0", "text": "working on #7"})
+    asyncio.run(tick())  # unchanged title stays behind the agent's own line
+    title["t"] = "Summarize open PRs | marin"
+    asyncio.run(tick())
+    summaries = client.get("/api/state").json()["recipients"][0]["summaries"]
+    assert [(s["text"], s["source"]) for s in summaries] == [
+        ("Summarize open PRs", "title"),
+        ("working on #7", "agent"),
+        ("Fix the flaky upload test", "title"),
+    ]
+
+
+def test_unregister_forgets_summaries(client):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    client.post("/status", json={"tmux_pane": "0:0.0", "text": "working"})
+    assert client.delete("/recipients/jax").status_code == 200
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    assert client.get("/api/state").json()["recipients"][0]["summaries"] == []

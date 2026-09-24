@@ -60,7 +60,22 @@ CREATE TABLE IF NOT EXISTS task_deps (
     depends_on  INTEGER NOT NULL,
     PRIMARY KEY (task_id, depends_on)
 );
+
+-- What each agent says it is doing ("source" agent), or what its harness
+-- wrote into the tmux pane title ("title"). Newest row is the current one.
+CREATE TABLE IF NOT EXISTS summaries (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    ts          REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_summaries_user_ts ON summaries(user_id, ts);
 """
+
+SUMMARY_SOURCES = ("agent", "title")
+# Older summaries past this many per agent are dropped as new ones arrive.
+SUMMARY_HISTORY = 20
 
 TASK_STATUSES = ("open", "picked_up", "done")
 
@@ -333,7 +348,56 @@ def delete_recipient(conn: sqlite3.Connection, user_id: str) -> bool:
     with conn:
         cur = conn.execute("DELETE FROM recipients WHERE user_id=?", (user_id,))
         conn.execute("UPDATE teams SET queen=NULL WHERE queen=?", (user_id,))
+        conn.execute("DELETE FROM summaries WHERE user_id=?", (user_id,))
     return cur.rowcount > 0
+
+
+@_serialized
+def record_summary(
+    conn: sqlite3.Connection, user_id: str, text: str, source: str, ts: float | None = None
+) -> bool:
+    """Store what an agent is doing; False when nothing new was said.
+
+    A pane title counts as new only when it changed since the last title seen;
+    it keeps showing the same text while an agent reports its own summaries.
+    An agent's own summary is new unless it is already the current summary.
+    """
+    only = "AND source='title' " if source == "title" else ""
+    latest = conn.execute(
+        f"SELECT text, source FROM summaries WHERE user_id=? {only}"
+        "ORDER BY ts DESC, id DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    if latest is not None and (latest["text"], latest["source"]) == (text, source):
+        return False
+    with conn:
+        conn.execute(
+            "INSERT INTO summaries(user_id, text, source, ts) VALUES(?,?,?,?)",
+            (user_id, text, source, time.time() if ts is None else ts),
+        )
+        conn.execute(
+            "DELETE FROM summaries WHERE user_id=? AND id NOT IN ("
+            "SELECT id FROM summaries WHERE user_id=? ORDER BY ts DESC, id DESC LIMIT ?)",
+            (user_id, user_id, SUMMARY_HISTORY),
+        )
+    return True
+
+
+@_serialized
+def summaries_by_user(conn: sqlite3.Connection, per_user: int = 5) -> dict[str, list[dict]]:
+    """Each agent's latest summaries, newest first."""
+    rows = conn.execute(
+        "SELECT user_id, text, source, ts FROM ("
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ts DESC, id DESC) AS n "
+        "FROM summaries) WHERE n <= ? ORDER BY user_id, ts DESC, id DESC",
+        (per_user,),
+    ).fetchall()
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["user_id"], []).append(
+            {"text": r["text"], "source": r["source"], "ts": r["ts"]}
+        )
+    return out
 
 
 @_serialized

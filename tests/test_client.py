@@ -3,6 +3,8 @@ from __future__ import annotations
 from argparse import Namespace
 from types import SimpleNamespace
 
+import pytest
+
 from agent_swarm import client, tmux
 
 
@@ -62,21 +64,6 @@ def test_current_pane_without_tmux_pane_env_uses_tmux_current_target(monkeypatch
 
     assert tmux.current_pane() == "%5"
     assert calls == [["tmux", "display-message", "-p", "#{pane_id}"]]
-
-
-def test_set_pane_title_uses_tmux_select_pane(monkeypatch):
-    calls = []
-
-    def fake_run(cmd, capture_output, text, check, timeout):
-        calls.append(cmd)
-        return SimpleNamespace(stdout="")
-
-    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
-
-    assert tmux.set_pane_title("session-a:9.0", "agent-swarm: ibis") == (True, None)
-    assert calls == [
-        ["tmux", "select-pane", "-t", "session-a:9.0", "-T", "agent-swarm: ibis"]
-    ]
 
 
 def test_flavor_defaults_cover_pi_and_hermes():
@@ -368,3 +355,22 @@ def test_deliver_retries_only_after_the_whole_verify_window(monkeypatch):
     tmux.deliver("s:0.0", "hello", submit_key="Enter")
     assert calls.count(["tmux", "send-keys", "-t", "s:0.0", "Enter"]) == 2
     assert clock.now >= tmux.SUBMIT_VERIFY_DELAY
+
+
+@pytest.mark.parametrize(
+    "title, summary",
+    [
+        ("✳ PR 9130 review", "PR 9130 review"),
+        ("⠐ Naming variety", "Naming variety"),
+        ("Summarize open pull requests | marin", "Summarize open pull requests"),
+        ("✳ Claude Code", None),
+        ("agent-swarm: jax (claude)", None),
+        ("", None),
+    ],
+)
+def test_title_summary_reads_harness_titles(title, summary):
+    assert tmux.title_summary(title) == summary
+
+
+def test_title_summary_ignores_the_default_host_title():
+    assert tmux.title_summary(tmux.socket.gethostname()) is None

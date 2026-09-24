@@ -127,6 +127,16 @@
   .chip-card .nm { font-family: var(--serif); font-style: italic; font-size: 16px; line-height: 1.2; }
   .chip-card .sub { font-size: 10px; color: var(--cream-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip-card .sub .on { color: var(--honey-dim); }
+  .chip-card .sub .doing { color: var(--cream); }
+  .chip-card .sub .age { opacity: .7; }
+  .doing-box { margin: -8px 0 20px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12px; }
+  .doing-box .now { color: var(--cream); font-size: 13px; }
+  .doing-box .age { color: var(--cream-dim); font-size: 11px; }
+  .doing-box .src { color: var(--honey-dim); display: inline-block; width: 1.2em; }
+  .doing-box .past { list-style: none; margin: 6px 0 0; padding: 0; color: var(--cream-dim); }
+  .doing-box .past li { margin-top: 2px; }
+  .doing-box.empty-doing { color: var(--cream-dim); }
+  .doing-box code { color: var(--cream); }
   .chip-card .tech { font-size: 9px; color: var(--cream-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip-card .tech .flavor { color: var(--honey-dim); }
   .chip-card .tech .model { color: var(--cream); }

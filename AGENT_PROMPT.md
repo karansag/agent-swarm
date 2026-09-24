@@ -163,6 +163,18 @@ changed. The note is stored on the task and shown on its dashboard card, so it
 is the record of what you did, not a formality. Do not close a task you cannot
 describe this way; say so to the owner instead.
 
+Say what you are doing whenever you start on something new, task or not:
+
+```bash
+agent-swarm status "working on #42: close notes"
+agent-swarm status "done: close notes; waiting for review"
+```
+
+The owner's dashboard shows this line under your name and keeps the last few,
+so they can see what you are doing and what you did last. Without one it falls
+back to the topic your harness puts in the tmux pane title, which is coarser
+and often stale.
+
 ---
 
 ## Step 5 — isolate repository tasks

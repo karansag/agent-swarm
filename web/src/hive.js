@@ -375,7 +375,8 @@ export function HiveView({ state, refresh }) {
       }
       for (const bee of beeData) {
         const { r, name, harness, x, y, dx, dy, q, picked, assigned, primary, extras, working, busy } = bee;
-        bees.set(name, { x, y, task: primary, harness: harness.key });
+        const doing = r.summaries && r.summaries[0];
+        bees.set(name, { x, y, task: primary, harness: harness.key, doing: doing && doing.text });
         if (assigned) token(assigned, x + 22, y + Math.sin(q * .8) * 3);
 
         const bearing = Math.atan2(dy, dx);
@@ -533,7 +534,8 @@ export function HiveView({ state, refresh }) {
 
       const hovered = hoverRef.current && bees.get(hoverRef.current);
       if (hovered) {
-        const title = hovered.task ? ` · ${hovered.task.title}` : "";
+        const said = hovered.doing || (hovered.task && hovered.task.title);
+        const title = said ? ` · ${said.length > 70 ? `${said.slice(0, 69)}…` : said}` : "";
         const harnessLabel = (HARNESSES[hovered.harness] || HARNESSES.generic).label;
         const label = `${hoverRef.current} · ${harnessLabel}${title}`;
         ctx.font = "10px ui-monospace, monospace";

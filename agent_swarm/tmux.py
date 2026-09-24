@@ -174,17 +174,47 @@ def submit_delay_for_flavor(flavor: str | None) -> float:
 
 
 def status_title(user_id: str, flavor: str | None = None) -> str:
-    """Return the short label shown in tmux pane titles."""
+    """The pane title older builds set at registration.
+
+    Registration no longer sets it, so the harness's own title (its summary of
+    the current work) stays visible; the pane-id migration still looks for it.
+    """
     if flavor:
         return f"agent-swarm: {user_id} ({flavor})"
     return f"agent-swarm: {user_id}"
 
 
-def set_pane_title(pane: str, title: str) -> tuple[bool, str | None]:
-    """Set a tmux pane title without renaming the window or agent session."""
+# Titles a pane shows when nobody has said what it is doing: the tmux default
+# (the host name), a harness's idle name, and our own old registration label.
+_EMPTY_TITLES = {"claude code", "codex", "claude", ""}
+
+
+def title_summary(title: str) -> str | None:
+    """What a harness says it is doing, read from its pane title, or None.
+
+    Claude Code writes a spinner or "✳" then a short topic ("✳ PR 9130
+    review"); Codex writes the topic then " | <directory>". Both are stripped.
+    """
+    text = re.sub(r"^[^\w(\[]+", "", title or "").strip()
+    topic, sep, _where = text.rpartition(" | ")
+    if sep and topic:
+        text = topic.strip()
+    if text.lower() in _EMPTY_TITLES or text.startswith("agent-swarm:"):
+        return None
+    if text in {socket.gethostname(), socket.gethostname().split(".")[0]}:
+        return None
+    return text[:200]
+
+
+def tag_pane(pane: str, handle: str) -> tuple[bool, str | None]:
+    """Record the agent's handle as the pane option @agent_swarm.
+
+    tmux formats can show it (`#{@agent_swarm}`) while the pane title keeps
+    the harness's own summary of the current work.
+    """
     try:
         subprocess.run(
-            ["tmux", "select-pane", "-t", pane, "-T", title],
+            ["tmux", "set-option", "-p", "-t", pane, "@agent_swarm", handle],
             capture_output=True,
             text=True,
             check=True,

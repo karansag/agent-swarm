@@ -48,6 +48,14 @@ NOTE_GUIDANCE = (
     "for someone coming back to this later with no memory of the work."
 )
 
+# The dashboard shows each agent's latest status line, so the owner can see
+# what everyone is doing (and did last) without a task to go by.
+STATUS_GUIDANCE = (
+    "Whenever you start on something new, run `agent-swarm status \"working on "
+    "<what, in a few words>\"` so the owner's dashboard shows what you are "
+    "doing; say when you finish, e.g. `agent-swarm status \"done: <what>\"`."
+)
+
 
 class RegisterReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -97,6 +105,13 @@ class PruneReq(BaseModel):
         default=False,
         description="Also drop registrations whose pane exists but only runs a bare shell.",
     )
+
+
+class StatusReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tmux_pane: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=200)
 
 
 class SendReq(BaseModel):
@@ -297,6 +312,8 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
         f"add `--description`, `--assignee`, or `--depends-on 3,5` to record "
         f"ordering; dependencies show as a graph on the dashboard).\n"
         f"\n"
+        f"{STATUS_GUIDANCE}\n"
+        f"\n"
         f"The owner may group agents into teams, each with a queen who "
         f"coordinates that team's work. Tasks can be assigned to a team; "
         f"they reach the queen, who parcels them out."
@@ -327,6 +344,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         _migrate_legacy_panes()
         recipients = db.list_recipients(conn)
         live_panes = tmux.live_agent_panes()
+        titles = {p: row["title"] for p, row in tmux.pane_table().items()}
         server = tmux.server_id()
         observations = []
         for r in recipients:
@@ -335,6 +353,10 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             alive = pane in live_panes and _stale(r, server) is None
             capture = None
             if alive:
+                # Claude Code and Codex title their pane with the current topic.
+                topic = tmux.title_summary(titles.get(pane, ""))
+                if topic:
+                    db.record_summary(conn, r["user_id"], topic, "title")
                 # Subprocess capture must not block the event loop.
                 text, err = await asyncio.to_thread(tmux.capture_pane, pane)
                 capture = text if err is None else None
@@ -415,6 +437,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
 
     app = FastAPI(title="agent-swarm", version="0.1.0", lifespan=lifespan)
     app.state.cleanup = _cleanup
+    app.state.monitor_tick = _monitor_tick
     app.mount(
         "/static",
         StaticFiles(directory=PORTAL_STATIC_PATH),
@@ -512,14 +535,12 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             tmux_server=server,
             pane_label=label,
         )
-        status_title = tmux.status_title(user_id, flavor)
-        tmux.set_pane_title(pane, status_title)
+        tmux.tag_pane(pane, user_id)
         registered = db.get_recipient(conn, user_id)
         peers = [r for r in _annotated_recipients() if r["user_id"] != user_id]
         return {
             "ok": True,
             "user_id": user_id,
-            "status_title": status_title,
             "tmux_pane": pane,
             "pane_label": label,
             "agent_id": registered["agent_id"] if registered else req.agent_id,
@@ -768,6 +789,22 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             "delivery_error": err,
         }
 
+    @app.post("/status")
+    def set_status(req: StatusReq):
+        """An agent says, in a line, what it is working on."""
+        pane, _, server = _pane_ref(req.tmux_pane)
+        user_id = db.lookup_user_by_pane(conn, pane, server)
+        if user_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "sender not registered", "tmux_pane": req.tmux_pane},
+            )
+        text = " ".join(req.text.split())
+        if not text:
+            raise HTTPException(status_code=422, detail={"error": "status is empty"})
+        db.record_summary(conn, user_id, text, "agent")
+        return {"ok": True, "user_id": user_id, "status": text}
+
     @app.get("/messages")
     def messages(user: str | None = None, limit: int = 50):
         return {"messages": db.fetch_messages(conn, user, limit)}
@@ -845,7 +882,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             f"--worktree /absolute/path --status picked_up. "
             f"When finished: agent-swarm task-update {task['id']} --status done "
             f"--note \"...\". The note is required and the close is refused "
-            f"without one. {NOTE_GUIDANCE}"
+            f"without one. {NOTE_GUIDANCE} "
+            f"When you start, also run agent-swarm status \"working on "
+            f"#{task['id']}: <a few words>\" so the dashboard shows it."
         )
         content = f"You are assigned task #{task['id']}: {task['title']}."
         if task.get("description"):
@@ -995,7 +1034,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             tmux_server=server,
             pane_label=label,
         )
-        tmux.set_pane_title(pane, tmux.status_title(user_id, req.flavor))
+        tmux.tag_pane(pane, user_id)
         tmux.rename_window(pane, user_id)
         return {
             "ok": True, "user_id": user_id, "tmux_pane": pane, "pane_label": label,
@@ -1088,8 +1127,10 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     @app.get("/api/state")
     def state(limit: int = 300):
         recipients = _annotated_recipients()
+        summaries = db.summaries_by_user(conn)
         for r in recipients:
             r["pane_alive"] = r["alive"]
+            r["summaries"] = summaries.get(r["user_id"], [])
             row = registry.get(r["user_id"])
             r["activity"] = (
                 {"status": row["status"], "detail": row["detail"], "since": row["since"]}

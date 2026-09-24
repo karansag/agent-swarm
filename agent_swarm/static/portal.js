@@ -603,6 +603,10 @@ function rel(ts, now) {
 	if (d < 86400) return `${Math.round(d / 3600)}h ago`;
 	return `${Math.round(d / 86400)}d ago`;
 }
+var SUMMARY_SOURCE = {
+	agent: "said by the agent",
+	title: "from its pane title"
+};
 function currentTask(tasks, user) {
 	const mine = (tasks || []).filter((t) => t.assignee === user && t.status !== "done");
 	if (!mine.length) return null;
@@ -1060,11 +1064,13 @@ function HiveView({ state, refresh }) {
 			}
 			for (const bee of beeData) {
 				const { r, name, harness, x, y, dx, dy, q, picked, assigned, primary, extras, working, busy } = bee;
+				const doing = r.summaries && r.summaries[0];
 				bees.set(name, {
 					x,
 					y,
 					task: primary,
-					harness: harness.key
+					harness: harness.key,
+					doing: doing && doing.text
 				});
 				if (assigned) token(assigned, x + 22, y + Math.sin(q * .8) * 3);
 				const bearing = Math.atan2(dy, dx);
@@ -1265,7 +1271,8 @@ function HiveView({ state, refresh }) {
 			}
 			const hovered = hoverRef.current && bees.get(hoverRef.current);
 			if (hovered) {
-				const title = hovered.task ? ` · ${hovered.task.title}` : "";
+				const said = hovered.doing || hovered.task && hovered.task.title;
+				const title = said ? ` · ${said.length > 70 ? `${said.slice(0, 69)}…` : said}` : "";
 				const harnessLabel = (HARNESSES[hovered.harness] || HARNESSES.generic).label;
 				const label = `${hoverRef.current} · ${harnessLabel}${title}`;
 				ctx.font = "10px ui-monospace, monospace";
@@ -7359,7 +7366,8 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	const st = STATE[status] || STATE.unknown;
 	const detail = r.activity && r.activity.detail;
 	const attention = status === "needs_attention";
-	const sub = attention ? m$1`<span class="attn" title=${detail || "needs attention"}>${detail || "needs attention"}</span>` : task ? m$1`<span class="on">#${task.id}</span> ${task.title}` : m$1`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
+	const doing = r.summaries && r.summaries[0];
+	const sub = attention ? m$1`<span class="attn" title=${detail || "needs attention"}>${detail || "needs attention"}</span>` : doing ? m$1`<span class="doing" title=${[`${doing.text} (${SUMMARY_SOURCE[doing.source] || doing.source}, ${rel(doing.ts, state.now)})`, task && `task #${task.id}: ${task.title}`].filter(Boolean).join("\n")}>${doing.text}</span> <span class="age">· ${rel(doing.ts, state.now)}</span>` : task ? m$1`<span class="on">#${task.id}</span> ${task.title}` : m$1`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
 	const stop = async (e) => {
 		e.stopPropagation();
 		if (!confirm(`Stop ${r.user_id}? This will kill tmux pane ${r.pane_label}.`)) return;
@@ -8186,6 +8194,19 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
     ${recipient && m$1`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
   </div>`;
 }
+function Doing({ summaries, now }) {
+	if (summaries.length === 0) return m$1`<div class="doing-box empty-doing">No status yet. Agents post one with
+      <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
+      show up here too.</div>`;
+	const [cur, ...past] = summaries;
+	const line = (s) => m$1`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
+	return m$1`<div class="doing-box">
+    <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>
+    ${past.length > 0 && m$1`<ol class="past">
+      ${past.map((s) => m$1`<li>${line(s)} ${s.text} <span class="age">· ${rel(s.ts, now)}</span></li>`)}
+    </ol>`}
+  </div>`;
+}
 function FocusView({ user, state, refresh, freshIds }) {
 	const threadOrder = A(/* @__PURE__ */ new Map());
 	const nextThreadOrder = A(0);
@@ -8238,6 +8259,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         ${r.instructions && m$1`<div class="inst">"${r.instructions}"</div>`}
       </div>
     </div>
+    <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} user=${user} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && m$1`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>

@@ -6,6 +6,7 @@
     agent-swarm messages [--user X] [--limit N]
     agent-swarm recipients
     agent-swarm whoami       # prints detected tmux pane + registered handle
+    agent-swarm status "working on X"   # what you are doing, shown on the dashboard
     agent-swarm tasks [--status open|picked_up|done]
     agent-swarm task-create TITLE [--description TEXT] [--assignee HANDLE] [--depends-on 3,5]
     agent-swarm task-update ID --status open|picked_up|done [--assignee X] [--worktree PATH]
@@ -96,6 +97,18 @@ def cmd_send(args: argparse.Namespace) -> int:
     if args.context:
         payload["context"] = args.context
     r = httpx.post(f"{base_url()}/send", json=payload, timeout=10)
+    print(r.text)
+    return 0 if r.is_success else 1
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    pane = current_pane()
+    if not pane:
+        print("error: could not detect tmux pane; run inside tmux", file=sys.stderr)
+        return 2
+    r = httpx.post(
+        f"{base_url()}/status", json={"tmux_pane": pane, "text": args.text}, timeout=5
+    )
     print(r.text)
     return 0 if r.is_success else 1
 
@@ -295,6 +308,12 @@ def main(argv: list[str] | None = None) -> int:
         "problem it fixes, and where to look. Required to close a task.",
     )
     tup.set_defaults(func=cmd_task_update)
+
+    st = sub.add_parser(
+        "status", help="say in a line what you are working on; shown on the dashboard"
+    )
+    st.add_argument("text", help='e.g. "working on #12: pane-id migration"')
+    st.set_defaults(func=cmd_status)
 
     who = sub.add_parser("whoami")
     who.set_defaults(func=cmd_whoami)

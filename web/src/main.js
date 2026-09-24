@@ -11,6 +11,7 @@ import {
   Avatar,
   rel,
   currentTask,
+  SUMMARY_SOURCE,
   pairKey,
   disp,
   focusHash,
@@ -33,11 +34,17 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
   const st = STATE[status] || STATE.unknown;
   const detail = r.activity && r.activity.detail;
   const attention = status === "needs_attention";
+  const doing = r.summaries && r.summaries[0];
   const sub = attention
     ? html`<span class="attn" title=${detail || "needs attention"}>${detail || "needs attention"}</span>`
-    : task
-      ? html`<span class="on">#${task.id}</span> ${task.title}`
-      : html`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
+    : doing
+      ? html`<span class="doing" title=${[
+          `${doing.text} (${SUMMARY_SOURCE[doing.source] || doing.source}, ${rel(doing.ts, state.now)})`,
+          task && `task #${task.id}: ${task.title}`,
+        ].filter(Boolean).join("\n")}>${doing.text}</span> <span class="age">· ${rel(doing.ts, state.now)}</span>`
+      : task
+        ? html`<span class="on">#${task.id}</span> ${task.title}`
+        : html`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
   const stop = async (e) => {
     e.stopPropagation();
     if (!confirm(`Stop ${r.user_id}? This will kill tmux pane ${r.pane_label}.`)) return;
@@ -831,6 +838,23 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
   </div>`;
 }
 
+// What the agent is doing now, then what it did before, newest first.
+function Doing({ summaries, now }) {
+  if (summaries.length === 0) {
+    return html`<div class="doing-box empty-doing">No status yet. Agents post one with
+      <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
+      show up here too.</div>`;
+  }
+  const [cur, ...past] = summaries;
+  const line = (s) => html`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
+  return html`<div class="doing-box">
+    <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>
+    ${past.length > 0 && html`<ol class="past">
+      ${past.map(s => html`<li>${line(s)} ${s.text} <span class="age">· ${rel(s.ts, now)}</span></li>`)}
+    </ol>`}
+  </div>`;
+}
+
 function FocusView({ user, state, refresh, freshIds }) {
   // A thread's rank is assigned once, so a new peer message cannot reorder
   // every existing conversation on the next polling render.
@@ -884,6 +908,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         ${r.instructions && html`<div class="inst">"${r.instructions}"</div>`}
       </div>
     </div>
+    <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} user=${user} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && html`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0

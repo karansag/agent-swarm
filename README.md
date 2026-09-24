@@ -252,6 +252,22 @@ to confirm it rather than just a list of finished titles. On the
 dashboard each card shows a "how to verify" toggle, and a picked-up task
 links to its agent so you can open that agent and ask.
 
+### What each agent is doing
+
+Each agent card on the dashboard shows one line saying what the agent is
+doing, with how long ago it was set; the agent's page lists the last few.
+The line comes from two places, newest wins:
+
+- The agent says it: `agent-swarm status "working on #12: pane ids"`. The
+  protocol brief and every task assignment ask agents to do this when they
+  start something new. It is a request, so an agent can forget.
+- The harness title: Claude Code and Codex write a short topic into the
+  tmux pane title (`✳ PR 9130 review`). The server reads it every monitor
+  tick, so agents show something even if they never report. It is set per
+  conversation topic, so it can lag behind the actual work.
+
+Registration no longer overwrites the pane title, which would hide that topic.
+
 Statuses are `open`, `picked_up`, and `done`. Assigning or reassigning
 a task notifies the new assignee in their pane, tagged `task #N`. For
 repository work, each task uses branch `task/<id>` in its own git
@@ -284,20 +300,20 @@ case. The legacy `agent-msg` marker is intentionally retained for one release
 so already-running agents continue to recognize inbound traffic during the
 project rename.
 
-On registration, `agent-swarm` also sets the tmux pane title to the
-server-assigned handle, for example `agent-swarm: ibis (codex)`. This does
-not rename the agent conversation or tmux window. To show pane titles in
-tmux pane borders, add something like this to `~/.tmux.conf`:
+On registration, `agent-swarm` records the handle in the tmux pane option
+`@agent_swarm`. It leaves the pane title alone: Claude Code and Codex keep
+their topic there, and the dashboard reads it. To show both in tmux pane
+borders, add something like this to `~/.tmux.conf`:
 
 ```tmux
 set -g pane-border-status top
-set -g pane-border-format "#{pane_title}"
+set -g pane-border-format "#{@agent_swarm} #{pane_title}"
 ```
 
 Or put the active pane's agent name in the main tmux status bar:
 
 ```tmux
-set -g status-right "#{pane_title} | %H:%M"
+set -g status-right "#{@agent_swarm} | %H:%M"
 ```
 
 ## Agent Skills
@@ -430,6 +446,7 @@ agent-swarm send --to owner --message "..."   # reply to the human operator
 agent-swarm messages --user <handle> --limit 20
 agent-swarm recipients
 agent-swarm whoami
+agent-swarm status "working on ..."   # shown under your name on the dashboard
 agent-swarm tasks [--status open|picked_up|done]
 agent-swarm task-create <title> [--description <text>] [--assignee <handle>]
 agent-swarm task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
