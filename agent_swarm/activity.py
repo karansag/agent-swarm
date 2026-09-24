@@ -56,12 +56,19 @@ ATTENTION_PATTERNS: dict[str, dict[str, list[re.Pattern]]] = {
             r"^\W*\d\. Yes, proceed\b",
             r"tell Codex what to do differently",
             r"^\W*Allow command\?",
+            # Its question form (request_user_input): "Question 1/2 (2
+            # unanswered)" over options, footer "tab to add notes | ...".
+            r"\btab to add notes\b",
+            r"\bto navigate questions\b",
+            r"^\W*Question \d+/\d+ \(\d+ unanswered\)",
         ),
         "questions": _compile(
             r"^\W*Would you like to .+\?\s*$",
             r"^\W*Do you want to proceed\?\s*$",
             r"^\W*Allow command\?",
         ),
+        # The question itself is the line after this header.
+        "question_headers": _compile(r"^\W*Question \d+/\d+\b"),
     },
     "generic": {
         "markers": _compile(r"\[y/N\]", r"\(y/n\)", r"(?i)\bpassword( for \S+)?:\s*$"),
@@ -87,6 +94,11 @@ def _attention_detail(flavor: str | None, capture: str) -> str | None:
         (line for line in lines if any(p.search(line) for p in patterns["questions"])),
         None,
     )
+    if question is None:
+        for i, line in enumerate(lines):
+            if any(p.search(line) for p in patterns.get("question_headers", [])):
+                question = next((l for l in lines[i + 1:] if l.strip()), None)
+                break
     return (question or marker).strip()
 
 

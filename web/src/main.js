@@ -410,7 +410,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     <div class="t">${t.title}</div>
     <div class="meta">#${t.id} · created ${when}${deps.length > 0 ? ` · after ${deps.map(d => `#${d}`).join(" ")}` : ""}${t.description ? ` · ${t.description}` : ""}${t.worktree ? ` · worktree ${t.worktree}` : ""}</div>
     ${blocked && html`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map(d => `#${d}`).join(" ")}</div>`}
-    ${t.assignee && html`<div class="meta">picked up by <a class="agent-link" href=${focusHash(t.assignee)}
+    ${t.assignee && html`<div class="meta">${t.status === "open" ? "assigned to" : t.status === "done" ? "done by" : "picked up by"} <a class="agent-link" href=${focusHash(t.assignee)}
         title=${`Open ${t.assignee} and message it`}>${t.assignee}</a></div>`}
     ${t.note && html`<div class="tnote">
       <button type="button" class="tnote-toggle" onClick=${() => setShowNote(!showNote)}

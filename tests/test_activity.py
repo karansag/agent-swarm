@@ -179,3 +179,29 @@ def test_badger_screen_reads_idle_not_attention():
     run(reg, [obs(flavor="codex", capture=BADGER_PROSE)], now=0)
     run(reg, [obs(flavor="codex", capture=BADGER_PROSE)], now=3 * INTERVAL)
     assert reg["otter"]["status"] == "idle"
+
+
+CODEX_QUESTION = """\
+  └ {"ok":true,"message_id":751,"delivered_to_pane":null,"delivery_error":null}
+
+
+  Question 1/2 (2 unanswered)
+  Which Pi package should task #20 install?
+
+  › 1. Current official (Recommended)  Install @earendil-works/pi-coding-agent.
+    2. Deprecated legacy               Install @mariozechner/pi-coding-agent.
+    3. None of the above               Optionally, add details in notes (tab).
+
+  tab to add notes | enter to submit answer | ←/→ to navigate questions | esc to interrupt"""
+
+
+def test_codex_question_form_needs_attention_and_shows_the_question():
+    assert detail("codex", CODEX_QUESTION) == "Which Pi package should task #20 install?"
+    reg = {}
+    run(reg, [obs(flavor="codex", capture=CODEX_QUESTION)], now=0)
+    run(reg, [obs(flavor="codex", capture=CODEX_QUESTION)], now=3 * INTERVAL)
+    assert reg["otter"]["status"] == "needs_attention"
+
+
+def test_prose_about_questions_is_not_a_question_form():
+    assert detail("codex", "I answered question 3 and moved on.") is None
