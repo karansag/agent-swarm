@@ -376,6 +376,11 @@ For one compatibility release, the `agent-msg` and `agent-msg-server` command
 aliases and legacy `AGENT_MSG_*` environment variables remain accepted. New
 configuration should use the `agent-swarm` names above.
 
+Upgrading a machine that already runs agent-swarm (or agent-msg)? Follow
+[docs/upgrading.md](docs/upgrading.md): the rename moved the default
+database path, and existing agent registrations are converted to tmux pane
+ids on first start.
+
 Health check:
 
 ```bash
