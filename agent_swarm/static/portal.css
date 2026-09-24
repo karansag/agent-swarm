@@ -35,7 +35,7 @@
 
   /* ---------- header ---------- */
   header.top {
-    display: flex; align-items: baseline; gap: 18px;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
     padding: 26px 34px 20px;
     border-bottom: 1px solid var(--line);
   }
@@ -48,6 +48,14 @@
   .beacon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--moss); box-shadow: 0 0 0 0 rgba(143,191,111,.6); animation: beacon 2.4s infinite; vertical-align: 1px; margin-right: 6px; }
   .beacon.down { background: var(--alert); animation: none; }
   @keyframes beacon { 0% { box-shadow: 0 0 0 0 rgba(143,191,111,.5); } 70% { box-shadow: 0 0 0 7px rgba(143,191,111,0); } 100% { box-shadow: 0 0 0 0 rgba(143,191,111,0); } }
+
+  nav.views { display: flex; gap: 4px; align-self: center; }
+  nav.views a {
+    color: var(--cream-dim); text-decoration: none; font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; padding: 3px 10px; border: 1px solid transparent; border-radius: 20px;
+  }
+  nav.views a:hover { color: var(--cream); }
+  nav.views a.on { color: var(--honey); border-color: var(--honey-dim); background: rgba(242,169,59,.07); }
 
   main { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 0; align-items: start; }
   @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
@@ -79,6 +87,8 @@
   .hex.small { width: 34px; height: 38px; font-size: 17px; }
   .hex .mono2 { font-family: var(--serif); font-style: italic; color: var(--ink); font-size: 20px; }
   .hex.small .mono2 { font-size: 13px; }
+  .hex.tiny { width: 22px; height: 24px; font-size: 12px; }
+  .hex.tiny .mono2 { font-size: 10px; }
   .status { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 7px; vertical-align: 2px; }
   /* Five activity states. Unknown is a hollow ring so it stays distinct
      from idle beyond color alone. */
@@ -252,6 +262,13 @@
   .tcard .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .tcard .foot select { padding: 3px 6px; font-size: 11px; border-radius: 6px; }
   .tcard .foot .mini { margin-left: auto; }
+  a.col-more {
+    display: block; text-align: center; padding: 7px 0; font-size: 11px; border-top: 1px solid var(--line);
+    color: var(--honey-dim); text-decoration: none;
+  }
+  a.col-more:hover { color: var(--honey); }
+  h2 .h2-link { order: 3; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0; text-transform: none; color: var(--honey-dim); text-decoration: none; }
+  h2 .h2-link:hover { color: var(--honey); }
   .colempty { color: var(--cream-dim); font-size: 11px; text-align: center; padding: 14px 0; }
 
   /* ---------- hive activity ---------- */
@@ -447,6 +464,49 @@
   }
   .pill.picked_up { color: var(--honey); border-color: var(--honey-dim); }
   .pill.done { color: var(--moss); border-color: rgba(143,191,111,.4); }
+
+  /* ---------- task history ---------- */
+  .h-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .h-controls .h-search { flex: 1 1 320px; min-width: 0; font-size: 13.5px; padding: 9px 12px; }
+  .h-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .h-chip, .h-agentchip {
+    background: none; border: 1px solid var(--line); color: var(--cream-dim); cursor: pointer;
+    border-radius: 20px; padding: 3px 10px; font-family: var(--mono); font-size: 11px;
+  }
+  .h-chip .n, .h-agentchip .n { color: var(--cream-dim); opacity: .75; margin-left: 2px; }
+  .h-chip:hover, .h-agentchip:hover { color: var(--cream); border-color: var(--honey-dim); }
+  .h-chip.on { color: var(--honey); border-color: var(--honey-dim); background: rgba(242,169,59,.1); }
+  .h-agents { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 18px; }
+  .h-agentchip { color: var(--cream); display: inline-flex; align-items: center; gap: 5px; }
+  .h-agentchip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--hue); }
+  .h-agentchip.on { border-color: var(--honey); background: rgba(242,169,59,.14); box-shadow: inset 0 0 0 1px var(--honey-dim); }
+  .h-label { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--honey-dim); margin-right: 4px; }
+  .h-noagent { font-size: 11px; color: var(--cream-dim); font-style: italic; }
+  .h-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+  .htile {
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 9px;
+    background: var(--panel); min-width: 0; display: grid; gap: 6px;
+  }
+  .htile.picked_up { border-color: var(--honey-dim); }
+  .htile.done { background: var(--ink-2); }
+  .h-who { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .h-who .h-agent { font-family: var(--serif); font-style: italic; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .h-who .pill { margin-left: auto; flex: none; }
+  .h-only {
+    background: none; border: 1px solid transparent; border-radius: 5px; color: var(--cream-dim);
+    cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 4px; flex: none;
+  }
+  .h-only:hover, .h-only:focus-visible { color: var(--honey); border-color: var(--honey-dim); }
+  .h-title { font-size: 13px; line-height: 1.4; }
+  .h-id { color: var(--cream-dim); font-size: 11px; }
+  .h-field { font-size: 11px; line-height: 1.45; color: var(--cream-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .h-field .h-label { display: block; font-size: 9px; margin-bottom: 1px; white-space: normal; }
+  .h-field + .h-field { border-left: 2px solid var(--honey-dim); padding-left: 7px; }
+  .h-more { background: none; border: 0; padding: 0; cursor: pointer; font-family: var(--mono); font-size: 10px; color: var(--honey-dim); }
+  .h-more:hover { color: var(--honey); }
+  .h-meta { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 10px; color: var(--cream-dim); border-top: 1px solid var(--line); padding-top: 6px; }
+  .h-meta .h-wt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .history mark { background: rgba(242,169,59,.35); color: var(--cream); border-radius: 2px; padding: 0 1px; }
 
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }

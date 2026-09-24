@@ -8,8 +8,7 @@ import {
   FLAVOR_ICON,
   STATE,
   agentStatus,
-  ANIMAL_EMOJI,
-  hue,
+  Avatar,
   rel,
   currentTask,
   pairKey,
@@ -18,16 +17,9 @@ import {
   patchTask,
 } from "./shared.js";
 import { HiveView } from "./hive.js";
+import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
-
-function Avatar({ name, size }) {
-  const base = name.replace(/-\d+$/, "");
-  const emoji = ANIMAL_EMOJI[base];
-  return html`<div class=${`hex ${size || ""}`} style=${`--hue: hsl(${hue(name)} 42% 58%)`}>
-    ${emoji || html`<span class="mono2">${base.slice(0, 2)}</span>`}
-  </div>`;
-}
 
 /* ---------- roster (right sidebar) ---------- */
 
@@ -444,6 +436,8 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
   </div>`;
 }
 
+const DONE_ON_BOARD = 10;
+
 function Kanban({ state, refresh }) {
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState("");
@@ -481,9 +475,14 @@ function Kanban({ state, refresh }) {
     </form>
     <div class="board">
       ${cols.map(([status, label]) => {
-        const items = state.tasks.filter(t => t.status === status);
+        const all = state.tasks.filter(t => t.status === status);
+        // Done keeps growing forever; the board shows only the latest few and
+        // the history view holds the rest.
+        const items = status === "done"
+          ? [...all].sort((a, b) => b.updated_at - a.updated_at).slice(0, DONE_ON_BOARD)
+          : all;
         return html`<div key=${status} class=${`col ${status}`}>
-          <div class="colhead">${label}<span class="n">${items.length}</span></div>
+          <div class="colhead">${label}<span class="n">${all.length}</span></div>
           <div class="cards">
             ${items.length === 0
               ? html`<div class="colempty">none</div>`
@@ -492,6 +491,8 @@ function Kanban({ state, refresh }) {
                   blockers=${(t.depends_on || []).filter(d => (byId.get(d) || {}).status !== "done")}
                   refresh=${refresh} />`)}
           </div>
+          ${status === "done" && all.length > 0 && html`<a class="col-more" href=${historyHash({ status: "done" })}
+            title="Search every task in the history view">${all.length > items.length ? `all ${all.length} done tasks →` : "search done tasks →"}</a>`}
         </div>`;
       })}
     </div>
@@ -897,7 +898,8 @@ function FocusView({ user, state, refresh, freshIds }) {
       <div class="bar">${disp("owner")} <span class="swap">⇄</span> ${user}</div>
       <${MessageComposer} recipient=${user} refresh=${refresh} />
     </div>`}
-    <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && html`<span class="count">· ${myTasks.length}</span>`}</h2>
+    <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && html`<span class="count">· ${myTasks.length}</span>`}
+      ${myTasks.length > 0 && html`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>
     ${myTasks.length === 0
       ? html`<div class="empty">No tasks assigned to ${user}. Assign one from the overview board.</div>`
       : myTasks.map(t => html`<div key=${t.id} class=${`trow ${t.status}`}>
@@ -940,6 +942,7 @@ function App() {
 
   const focusUser = route.startsWith("#/agent/")
     ? decodeURIComponent(route.slice("#/agent/".length)) : null;
+  const onHistory = route.startsWith(HISTORY_ROUTE);
 
   const poll = async () => {
     try {
@@ -997,6 +1000,10 @@ function App() {
   const header = html`<header class="top">
     <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>agent dashboard</h1>
     <span class="sub">agent-swarm</span>
+    <nav class="views" aria-label="views">
+      <a href="#/" class=${!onHistory && !focusUser ? "on" : ""}>overview</a>
+      <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
+    </nav>
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>
@@ -1011,7 +1018,9 @@ function App() {
     <div class="stage">
       ${focusUser
         ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />`
-        : html`<${Overview} state=${state} refresh=${poll} />`}
+        : onHistory
+          ? html`<${HistoryView} state=${state} />`
+          : html`<${Overview} state=${state} refresh=${poll} />`}
     </div>
     <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
       pings=${pings} refresh=${poll} />

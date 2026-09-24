@@ -77,3 +77,11 @@ export async function patchTask(id, patch) {
   const body = await r.json().catch(() => null);
   return { ok: false, error: body?.detail?.error || `request failed (${r.status})` };
 }
+
+export function Avatar({ name, size }) {
+  const base = name.replace(/-\d+$/, "");
+  const emoji = ANIMAL_EMOJI[base];
+  return html`<div class=${`hex ${size || ""}`} style=${`--hue: hsl(${hue(name)} 42% 58%)`}>
+    ${emoji || html`<span class="mono2">${base.slice(0, 2)}</span>`}
+  </div>`;
+}
