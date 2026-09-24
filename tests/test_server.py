@@ -357,7 +357,7 @@ def test_portal_page_served_at_root(client):
     r = client.get("/")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
-    assert "agent dashboard" in r.text
+    assert "Agent Swarm Dashboard" in r.text
     assert '/static/portal.js' in r.text
     assert '/static/portal.css' in r.text
     assert client.get("/static/portal.js").headers["content-type"].startswith(

@@ -35,21 +35,22 @@
 
   /* ---------- header ---------- */
   header.top {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
     padding: 26px 34px 20px;
     border-bottom: 1px solid var(--line);
   }
   header.top h1 {
     font-family: var(--serif); font-style: italic; font-weight: 500;
-    font-size: 30px; letter-spacing: .5px; color: var(--cream);
+    font-size: 30px; line-height: 1; letter-spacing: .5px; color: var(--cream);
   }
-  header.top .sub { color: var(--cream-dim); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
   header.top .right { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--cream-dim); }
   .beacon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--moss); box-shadow: 0 0 0 0 rgba(143,191,111,.6); animation: beacon 2.4s infinite; vertical-align: 1px; margin-right: 6px; }
   .beacon.down { background: var(--alert); animation: none; }
   @keyframes beacon { 0% { box-shadow: 0 0 0 0 rgba(143,191,111,.5); } 70% { box-shadow: 0 0 0 7px rgba(143,191,111,0); } 100% { box-shadow: 0 0 0 0 rgba(143,191,111,0); } }
 
-  nav.views { display: flex; gap: 4px; align-self: center; }
+  nav.views { display: flex; gap: 4px; }
+  /* Once the links wrap under the title, line their text up with its edge. */
+  @media (max-width: 600px) { nav.views { margin-left: -10px; } }
   nav.views a {
     color: var(--cream-dim); text-decoration: none; font-size: 11px; letter-spacing: .12em;
     text-transform: uppercase; padding: 3px 10px; border: 1px solid transparent; border-radius: 20px;

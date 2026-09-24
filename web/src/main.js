@@ -1023,8 +1023,7 @@ function App() {
   };
 
   const header = html`<header class="top">
-    <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>agent dashboard</h1>
-    <span class="sub">agent-swarm</span>
+    <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>Agent Swarm Dashboard</h1>
     <nav class="views" aria-label="views">
       <a href="#/" class=${!onHistory && !focusUser ? "on" : ""}>overview</a>
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
