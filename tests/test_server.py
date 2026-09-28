@@ -1077,7 +1077,17 @@ def test_unregister_forgets_summaries(client):
     assert client.get("/api/state").json()["recipients"][0]["summaries"] == []
 
 
-def test_register_records_the_node_and_keeps_it_across_reregistration(client):
+def _connect_node(client, name):
+    """A second reachable machine whose tmux is the same fake as the local one."""
+    from agent_swarm import nodes
+
+    node = nodes.LocalNode(name)
+    client.app.state.nodes.add(node)
+    return node
+
+
+def test_register_records_the_node_it_came_from(client):
+    _connect_node(client, "macbook")
     r = client.post(
         "/register",
         json={"tmux_pane": "0:0.0", "agent_id": "a-node", "node": "macbook"},
@@ -1085,15 +1095,81 @@ def test_register_records_the_node_and_keeps_it_across_reregistration(client):
     assert r.status_code == 200
     assert r.json()["node"] == "macbook"
     user = r.json()["user_id"]
-    # A re-register that omits the node keeps what is stored, and never
-    # derives one from the handle.
-    r = client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "a-node"})
+    # Registering again from the same node keeps the row where it is; the
+    # node is never derived from the handle.
+    r = client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "a-node", "node": "macbook"})
     assert r.json()["user_id"] == user
     assert r.json()["node"] == "macbook"
     row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
     assert row["node"] == "macbook"
     brief = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["protocol_brief"]
     assert f"{user} (" in brief and "node=macbook" in brief
+
+
+def test_agent_reregistering_from_another_node_moves_with_its_handle(client):
+    _connect_node(client, "macbook")
+    user = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "agent_id": "a-move", "node": "macbook"}
+    ).json()["user_id"]
+    r = client.post("/register", json={"tmux_pane": "0:1.0", "agent_id": "a-move"})
+    assert r.json()["user_id"] == user
+    assert r.json()["node"] == tmux.local_node()
+
+
+def test_register_and_send_refuse_an_unknown_node(client):
+    r = client.post("/register", json={"tmux_pane": "0:0.0", "node": "nowhere"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "unknown node"
+    assert tmux.local_node() in r.json()["detail"]["known"]
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    r = client.post(
+        "/send", json={"tmux_pane": "0:0.0", "node": "nowhere", "recipient": "jax", "content": "x"}
+    )
+    assert r.status_code == 422
+
+
+def test_same_pane_id_on_two_nodes_is_two_agents(client):
+    _connect_node(client, "macbook")
+    a = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    b = client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"]
+    assert a != b
+    rows = {r["user_id"]: r for r in client.get("/recipients").json()["recipients"]}
+    assert rows[a]["node"] == tmux.local_node() and rows[b]["node"] == "macbook"
+    # The sender is resolved on its own node, so a message from the MacBook
+    # pane comes from b, not a.
+    client.post("/send", json={"tmux_pane": "0:0.0", "node": "macbook", "recipient": a, "content": "hi"})
+    assert client.get("/messages").json()["messages"][0]["sender"] == b
+
+
+def test_agents_on_a_disconnected_node_read_offline_and_are_never_pruned(client):
+    _connect_node(client, "macbook")
+    user = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"}
+    ).json()["user_id"]
+    client.app.state.nodes.remove("macbook")
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
+    assert row["alive"] is False
+    assert row["offline_reason"] == "recipient offline: node macbook is not connected"
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "otter"})
+    r = client.post("/send", json={"tmux_pane": "0:1.0", "recipient": "puffin", "content": "hi"})
+    assert r.status_code == 409
+    assert "node macbook is not connected" in r.json()["detail"]["error"]
+    assert client._calls == []
+    # Unreachable is not confirmed gone: prune must leave the registration.
+    assert client.post("/recipients/prune", json={"include_shells": True}).json()["removed"] == []
+    assert client.post("/agents/puffin/stop").status_code == 409
+    peek = client.get("/api/peek/puffin").json()
+    assert peek["text"] is None and "not connected" in peek["error"]
+
+
+def test_spawn_on_a_named_node_registers_the_agent_there(client):
+    _connect_node(client, "macbook")
+    r = client.post("/agents/spawn", json={"flavor": "claude", "node": "macbook"})
+    assert r.status_code == 200
+    assert r.json()["node"] == "macbook"
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == r.json()["user_id"])
+    assert row["node"] == "macbook"
+    assert client.post("/agents/spawn", json={"flavor": "claude", "node": "nowhere"}).status_code == 422
 
 
 def test_register_without_a_node_records_this_machine(client):
@@ -1139,3 +1215,34 @@ def test_rows_from_before_nodes_belong_to_this_machine(tmp_path):
     app = server.create_app(tmp_path / "old.sqlite", monitor=False)
     rows = TestClient(app).get("/recipients").json()["recipients"]
     assert rows[0]["node"] == tmux.local_node()
+
+
+def test_registering_again_without_agent_id_keeps_the_handle(client):
+    # Identity falls back to the pane on its node; a second register from the
+    # same pane must find the row rather than allocate and evict.
+    first = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    again = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    assert again == first
+    _connect_node(client, "macbook")
+    remote = client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"]
+    assert remote != first
+    assert client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"] == remote
+    handles = {r["user_id"] for r in client.get("/recipients").json()["recipients"]}
+    assert handles == {first, remote}
+
+
+def test_whoami_resolves_the_pane_on_its_own_node(client):
+    _connect_node(client, "macbook")
+    local = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    remote = client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"]
+    assert client.get("/whoami", params={"tmux_pane": "0:0.0"}).json()["user_id"] == local
+    r = client.get("/whoami", params={"tmux_pane": "0:0.0", "node": "macbook"}).json()
+    assert r["user_id"] == remote and r["node"] == "macbook"
+    assert client.get("/whoami", params={"tmux_pane": "0:1.0"}).json()["user_id"] is None
+    assert client.get("/whoami", params={"tmux_pane": "0:0.0", "node": "nowhere"}).status_code == 422
+
+
+def test_whoami_ignores_a_pane_from_an_earlier_tmux(client, monkeypatch):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-2")
+    assert client.get("/whoami", params={"tmux_pane": "0:0.0"}).json()["user_id"] is None

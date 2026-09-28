@@ -416,3 +416,22 @@ def test_cli_is_quiet_in_its_own_pane(monkeypatch, capsys):
     monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
     assert client.detect_pane() == "%49"
     assert capsys.readouterr().err == ""
+
+
+def test_registered_user_asks_the_server_for_this_pane_on_this_node(monkeypatch):
+    # Matching the pane id alone would confuse this pane with one of the same
+    # id on another machine, so the CLI hands the full address to the server.
+    captured = {}
+    monkeypatch.setattr(client, "base_url", lambda: "http://localhost:8765")
+    monkeypatch.setattr(client, "local_node", lambda: "laptop")
+
+    def get(url, params, timeout):
+        captured["url"], captured["params"] = url, params
+        return SimpleNamespace(is_success=True, json=lambda: {"user_id": "laptop-agent"})
+
+    monkeypatch.setattr(client.httpx, "get", get)
+    assert client.registered_user("%1") == "laptop-agent"
+    assert captured["url"] == "http://localhost:8765/whoami"
+    assert captured["params"] == {"tmux_pane": "%1", "node": "laptop"}
+    monkeypatch.setattr(client.httpx, "get", lambda url, params, timeout: SimpleNamespace(is_success=False))
+    assert client.registered_user("%1") is None

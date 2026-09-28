@@ -63,13 +63,18 @@ def detect_pane() -> str | None:
 
 
 def registered_user(pane: str) -> str | None:
-    r = httpx.get(f"{base_url()}/recipients", timeout=5)
+    """The handle registered for this pane on this machine, or None.
+
+    Asked of the server rather than matched locally: it resolves the pane on
+    this node and checks the tmux server that issued it, so a pane with the
+    same id on another machine, or from an earlier tmux, never matches.
+    """
+    r = httpx.get(
+        f"{base_url()}/whoami", params={"tmux_pane": pane, "node": local_node()}, timeout=5
+    )
     if not r.is_success:
         return None
-    for recipient in r.json().get("recipients", []):
-        if recipient.get("tmux_pane") == pane:
-            return recipient.get("user_id")
-    return None
+    return r.json().get("user_id")
 
 
 def cmd_register(args: argparse.Namespace) -> int:
@@ -116,6 +121,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         return 2
     payload = {
         "tmux_pane": pane,
+        "node": local_node(),
         "recipient": args.to,
         "content": args.message,
     }
@@ -132,7 +138,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("error: could not detect tmux pane; run inside tmux", file=sys.stderr)
         return 2
     r = httpx.post(
-        f"{base_url()}/status", json={"tmux_pane": pane, "text": args.text}, timeout=5
+        f"{base_url()}/status", json={"tmux_pane": pane, "node": local_node(), "text": args.text}, timeout=5
     )
     print(r.text)
     return 0 if r.is_success else 1

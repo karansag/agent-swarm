@@ -54,9 +54,9 @@ def test_list_recipients(tmp_path):
 
 def test_register_replaces_existing_entry_for_same_pane(tmp_path):
     conn = db.connect(tmp_path / "t.sqlite")
-    db.register(conn, "a", "p1")
-    db.register(conn, "b", "p1")
-    assert db.lookup_user_by_pane(conn, "p1") == "b"
+    db.register(conn, "a", "p1", node="hub")
+    db.register(conn, "b", "p1", node="hub")
+    assert db.lookup_user_by_pane(conn, "hub", "p1") == "b"
     names = [r["user_id"] for r in db.list_recipients(conn)]
     assert names == ["b"]
 
@@ -147,7 +147,11 @@ def test_rename_recipient_moves_handle_and_references(tmp_path):
 
 def test_name_taken_by_other_distinguishes_self_from_peer(tmp_path):
     conn = db.connect(tmp_path / "t.sqlite")
-    db.register(conn, "jax", "0:0.0", agent_id="a1")
-    assert db.name_taken_by_other(conn, "jax", "a1", "0:0.0") is False
-    assert db.name_taken_by_other(conn, "jax", "a2", "0:1.0") is True
-    assert db.name_taken_by_other(conn, "unused", "a2", "0:1.0") is False
+    db.register(conn, "jax", "0:0.0", agent_id="a1", node="hub")
+    assert db.name_taken_by_other(conn, "jax", "a1", "hub", "0:0.0") is False
+    assert db.name_taken_by_other(conn, "jax", "a2", "hub", "0:1.0") is True
+    assert db.name_taken_by_other(conn, "unused", "a2", "hub", "0:1.0") is False
+    # Same pane id on another machine is a different agent.
+    db.register(conn, "pip", "0:5.0", node="hub")
+    assert db.name_taken_by_other(conn, "pip", None, "hub", "0:5.0") is False
+    assert db.name_taken_by_other(conn, "pip", None, "laptop", "0:5.0") is True

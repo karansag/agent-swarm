@@ -127,8 +127,8 @@ def register(
     # One agent per pane. A row holding the same id under an earlier tmux
     # server is a different pane, so it stays (offline) with its history.
     conn.execute(
-        "DELETE FROM recipients WHERE tmux_pane=? AND tmux_server IS ? AND user_id<>?",
-        (tmux_pane, tmux_server, user_id),
+        "DELETE FROM recipients WHERE node IS ? AND tmux_pane=? AND tmux_server IS ? AND user_id<>?",
+        (node, tmux_pane, tmux_server, user_id),
     )
     if agent_id:
         conn.execute(
@@ -185,22 +185,26 @@ def fill_missing_node(conn: sqlite3.Connection, node: str) -> int:
 
 @_serialized
 def name_taken_by_other(
-    conn: sqlite3.Connection, user_id: str, agent_id: str | None, tmux_pane: str
+    conn: sqlite3.Connection,
+    user_id: str,
+    agent_id: str | None,
+    node: str,
+    tmux_pane: str,
 ) -> bool:
     """True when `user_id` belongs to an agent other than this one.
 
-    Identity is the agent_id when we have one, else the pane, matching how
-    `register` resolves an existing handle.
+    Identity is the agent_id when we have one, else the pane on its node,
+    matching how `register` resolves an existing handle.
     """
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT agent_id, tmux_pane FROM recipients WHERE user_id=?", (user_id,)
+        "SELECT agent_id, node, tmux_pane FROM recipients WHERE user_id=?", (user_id,)
     ).fetchone()
     if row is None:
         return False
     if agent_id and row["agent_id"]:
         return row["agent_id"] != agent_id
-    return row["tmux_pane"] != tmux_pane
+    return row["node"] != node or row["tmux_pane"] != tmux_pane
 
 
 @_serialized
@@ -272,19 +276,24 @@ def lookup_pane(conn: sqlite3.Connection, user_id: str) -> str | None:
 
 @_serialized
 def lookup_user_by_pane(
-    conn: sqlite3.Connection, tmux_pane: str, tmux_server: str | None = None
+    conn: sqlite3.Connection, node: str, tmux_pane: str, tmux_server: str | None = None
 ) -> str | None:
-    """The agent bound to this pane id under this tmux server."""
+    """The agent bound to this pane id under this tmux server on this node."""
+    _ensure_columns(conn)
     row = conn.execute(
-        "SELECT user_id FROM recipients WHERE tmux_pane=? AND tmux_server IS ?",
-        (tmux_pane, tmux_server),
+        "SELECT user_id FROM recipients WHERE node=? AND tmux_pane=? AND tmux_server IS ?",
+        (node, tmux_pane, tmux_server),
     ).fetchone()
     return row["user_id"] if row else None
 
 
 @_serialized
 def lookup_user_by_restored_label(
-    conn: sqlite3.Connection, pane_label: str, flavor: str | None, tmux_server: str
+    conn: sqlite3.Connection,
+    node: str,
+    pane_label: str,
+    flavor: str | None,
+    tmux_server: str,
 ) -> str | None:
     """An agent from an earlier tmux server that sat at this same position.
 
@@ -294,10 +303,10 @@ def lookup_user_by_restored_label(
     qualify, never ones bound in the running server.
     """
     row = conn.execute(
-        "SELECT user_id FROM recipients WHERE pane_label=? AND flavor IS ? "
+        "SELECT user_id FROM recipients WHERE node=? AND pane_label=? AND flavor IS ? "
         "AND tmux_server IS NOT NULL AND tmux_server<>? AND tmux_server<>? "
         "ORDER BY registered_at DESC LIMIT 1",
-        (pane_label, flavor, tmux_server, UNBOUND),
+        (node, pane_label, flavor, tmux_server, UNBOUND),
     ).fetchone()
     return row["user_id"] if row else None
 
@@ -312,7 +321,7 @@ def legacy_pane_rows(conn: sqlite3.Connection) -> list[dict]:
     """Rows still addressed the old way (no tmux server recorded)."""
     _ensure_columns(conn)
     return [dict(r) for r in conn.execute(
-        "SELECT user_id, tmux_pane, flavor, registered_at FROM recipients "
+        "SELECT user_id, tmux_pane, flavor, node, registered_at FROM recipients "
         "WHERE tmux_server IS NULL"
     )]
 
