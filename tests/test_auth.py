@@ -172,3 +172,87 @@ def test_nodes_me_tells_a_caller_what_it_is(hub):
     token = enrol(hub, "macbook")
     assert remote(hub, token).get("/nodes/me").json() == {"kind": "node", "node": "macbook"}
     assert owner(hub).get("/nodes/me").json() == {"kind": "owner", "node": tmux.local_node()}
+
+
+def proxied(app, login=None, peer="127.0.0.1"):
+    """A request the way Tailscale Serve forwards it: from loopback, with
+    forwarding headers and, for a tailnet user, its identity."""
+    headers = {"X-Forwarded-For": "100.87.6.39", "X-Forwarded-Proto": "https"}
+    if login:
+        headers["Tailscale-User-Login"] = login
+    return TestClient(app, client=(peer, 40000), headers=headers)
+
+
+@pytest.fixture()
+def named_hub(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "ksagar1030@gmail.com")
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    monkeypatch.setattr(tmux, "resolve_pane", lambda t: (t, t))
+    monkeypatch.setattr(tmux, "pane_table", lambda: {})
+    return server.create_app(tmp_path / "db.sqlite", monitor=False)
+
+
+def test_a_named_tailnet_user_through_tailscale_serve_is_the_owner(named_hub):
+    hub = named_hub
+    me = proxied(hub, "ksagar1030@gmail.com")
+    assert me.get("/api/state").status_code == 200
+    assert me.get("/").status_code == 200
+    assert me.get("/nodes/me").json() == {"kind": "owner", "node": tmux.local_node()}
+    assert me.post("/nodes/macbook/token").status_code == 200
+
+
+def test_a_forwarded_request_without_an_identity_is_refused(named_hub):
+    hub = named_hub
+    r = proxied(hub).get("/api/state")
+    assert r.status_code == 401 and "without a Tailscale identity" in r.json()["detail"]["error"]
+    # The identity header means nothing from a peer that is not the loopback proxy.
+    assert proxied(hub, "ksagar1030@gmail.com", peer="100.64.0.9").get("/api/state").status_code == 401
+    # Plain loopback, not forwarded, is still the local owner.
+    assert owner(hub).get("/api/state").status_code == 200
+
+
+def test_any_vouched_login_is_the_owner_until_logins_are_named(hub):
+    # No AGENT_SWARM_OWNER_LOGINS: Serve is tailnet-only and vouches for the
+    # login, which on a single-user tailnet is the one person.
+    assert proxied(hub, "ksagar1030@gmail.com").get("/api/state").status_code == 200
+    assert proxied(hub, "ksagar1030@gmail.com").get("/nodes/me").json()["kind"] == "owner"
+    assert owner(hub).get("/api/state").status_code == 200
+
+
+def test_an_identity_header_alone_marks_a_proxied_request(hub, named_hub):
+    # Loopback with a login header but no forwarding header never counts as
+    # the plain local owner: it takes the proxied path and its rules.
+    bare = TestClient(hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "stranger@example.com"})
+    assert bare.get("/nodes/me").json() == {"kind": "owner", "node": tmux.local_node()}  # proxied path, no allowlist
+    named = TestClient(named_hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "ksagar1030@gmail.com"})
+    assert named.get("/nodes/me").json()["kind"] == "owner"
+    other = TestClient(named_hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "stranger@example.com"})
+    assert other.get("/api/state").status_code == 403
+
+
+def test_owner_logins_can_be_narrowed(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "ksagar1030@gmail.com, Other@Example.com")
+    app = server.create_app(tmp_path / "db.sqlite", monitor=False)
+    assert proxied(app, "ksagar1030@gmail.com").get("/api/state").status_code == 200
+    assert proxied(app, "other@example.com").get("/api/state").status_code == 200
+    r = proxied(app, "stranger@example.com").get("/api/state")
+    assert r.status_code == 403 and "not an owner login" in r.json()["detail"]["error"]
+
+
+def test_a_node_token_keeps_its_scope_through_the_proxy(named_hub):
+    hub = named_hub
+    token = enrol(hub, "macbook")
+    c = TestClient(
+        hub, client=("127.0.0.1", 40000),
+        headers={"Authorization": f"Bearer {token}", "X-Forwarded-For": "100.87.6.39",
+                 "Tailscale-User-Login": "ksagar1030@gmail.com"},
+    )
+    assert c.get("/nodes/me").json() == {"kind": "node", "node": "macbook"}
+    assert c.get("/api/state").status_code == 403
+
+
+def test_proxied_identity_still_works_when_loopback_trust_is_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "ksagar1030@gmail.com")
+    app = server.create_app(tmp_path / "db.sqlite", monitor=False, trust_loopback=False)
+    assert owner(app).get("/api/state").status_code == 401
+    assert proxied(app, "ksagar1030@gmail.com").get("/api/state").status_code == 200

@@ -226,7 +226,10 @@ tailscale serve --bg --https=8445 http://127.0.0.1:8765
 ```
 
 Then open `https://<machine-name>.<tailnet>.ts.net:8445/` from any
-tailnet device. Remove it with `tailscale serve --https=8445 off`.
+tailnet device. Remove it with `tailscale serve --https=8445 off`. Serve
+tells the hub who you are, and the hub treats you as the owner; on a
+shared tailnet, name who may with `AGENT_SWARM_OWNER_LOGINS` (see
+Security Model).
 
 ## Tasks
 
@@ -469,7 +472,8 @@ The server defaults are local-only:
 AGENT_SWARM_HOST=127.0.0.1          # 0.0.0.0 to accept nodes on the tailnet
 AGENT_SWARM_PORT=8765
 AGENT_SWARM_DB=~/.agent-swarm/db.sqlite
-AGENT_SWARM_TRUST_LOOPBACK=1        # 0 when a reverse proxy makes remote calls look local
+AGENT_SWARM_TRUST_LOOPBACK=1        # 0 to make even the hub's own loopback callers identify themselves
+AGENT_SWARM_OWNER_LOGINS=           # Tailscale logins allowed as owner via Serve; empty means any
 ```
 
 The CLI and the node daemon read `~/.agent-swarm/node.toml` (written by
@@ -668,9 +672,20 @@ That assumes ufw is enabled (`sudo ufw status` says active) and no
 earlier, broader allow rule matches first; rules added to an inactive
 firewall restrict nothing.
 
-Behind a reverse proxy every request looks local, so set
-`AGENT_SWARM_TRUST_LOOPBACK=0` there; an owner login for that case is
-not built yet, so the dashboard then has no way in until it is.
+Reaching the dashboard from another device goes through Tailscale
+Serve (see Remote access over Tailscale). The hub runs without
+proxy-header rewriting, so trust follows the real socket peer: Serve
+connects from loopback and adds a `Tailscale-User-Login` header, which
+it never lets a client supply, and a forwarded loopback request with
+that header is the owner. Serve is tailnet-only, so on a single-user
+tailnet that login is you; on a shared tailnet set
+`AGENT_SWARM_OWNER_LOGINS=you@example.com` to name who may act as
+owner. A forwarded request without an identity is refused, whatever
+proxy sent it; the identity header alone marks a request as proxied, so
+it never counts as the plain local owner; and the header means nothing
+from any other peer. Behind any other reverse proxy, set
+`AGENT_SWARM_TRUST_LOOPBACK=0` and put Tailscale Serve in front of it,
+or the dashboard has no way in.
 
 Delivery still means typing into a tmux pane. Anyone the hub trusts can
 put text in front of every agent on every enrolled machine.

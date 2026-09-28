@@ -68,10 +68,24 @@ STATUS_GUIDANCE = (
 @dataclass(frozen=True)
 class Principal:
     kind: str  # "owner" or "node"
-    node: str | None = None
+    node: str | None = None  # the node's name, or the Tailscale login an owner came in with
 
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+# Tailscale Serve proxies to the hub from loopback and adds these headers,
+# stripping any the client sent, so from the loopback peer they are the
+# proxy's word about who is on the other end.
+TAILSCALE_LOGIN_HEADER = "tailscale-user-login"
+FORWARDED_HEADERS = ("x-forwarded-for", "forwarded")
+
+
+def owner_logins() -> frozenset[str]:
+    """Tailscale logins allowed to act as the owner through the proxy. Empty
+    means any login Serve vouches for, which on a single-user tailnet is
+    the one person; name logins here on a shared tailnet."""
+    raw = os.environ.get("AGENT_SWARM_OWNER_LOGINS", "")
+    return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
 
 
 class RegisterReq(BaseModel):
@@ -531,14 +545,27 @@ def create_app(
 
     app = FastAPI(title="agent-swarm", version="0.1.0", lifespan=lifespan)
 
+    logins = owner_logins()
+
     @app.middleware("http")
     async def _authenticate(request: Request, call_next):
         """Attach a Principal, or refuse.
 
-        A bearer token names a node. Without one, only loopback is trusted,
-        and only while AGENT_SWARM_TRUST_LOOPBACK is not 0; behind a reverse
-        proxy every request looks local, so that trust must be switched off
-        there. Health stays open so a node can check the hub is up.
+        A bearer token names a node, wherever it comes from. Otherwise the
+        real socket peer decides (the server runs without proxy-header
+        rewriting, so it is never a forwarded address):
+
+        - loopback, not forwarded: the owner, while AGENT_SWARM_TRUST_LOOPBACK
+          is not 0 (the dashboard and CLI on the hub machine)
+        - loopback, forwarded by Tailscale Serve with its identity header:
+          the owner (any login unless AGENT_SWARM_OWNER_LOGINS names who).
+          Serve is tailnet-only and vouches for the login; Serve strips
+          client-supplied identity headers, so from loopback the header is
+          the proxy's word, and its presence alone marks a proxied request
+        - loopback, forwarded without an identity: refused, whatever the
+          proxy; an identity from a non-loopback peer is refused too
+
+        Health stays open so a node can check the hub is up.
         """
         if request.url.path == "/health":
             return await call_next(request)
@@ -551,7 +578,26 @@ def create_app(
                     status_code=401,
                 )
             request.state.principal = Principal("node", node)
-        elif trust_loopback and request.client and request.client.host in LOOPBACK_HOSTS:
+            return await call_next(request)
+        peer_is_loopback = bool(request.client) and request.client.host in LOOPBACK_HOSTS
+        login = request.headers.get(TAILSCALE_LOGIN_HEADER, "").strip().lower()
+        # An identity header is itself a sign of the proxy: it never falls
+        # through to the plain-loopback owner path.
+        proxied = bool(login) or any(h in request.headers for h in FORWARDED_HEADERS)
+        if peer_is_loopback and proxied:
+            if not login:
+                return JSONResponse(
+                    {"detail": {"error": "forwarded request without a Tailscale identity",
+                                "hint": "the hub accepts proxied requests only from Tailscale Serve"}},
+                    status_code=401,
+                )
+            if logins and login not in logins:
+                return JSONResponse(
+                    {"detail": {"error": f"{login} is not an owner login", "hint": "AGENT_SWARM_OWNER_LOGINS"}},
+                    status_code=403,
+                )
+            request.state.principal = Principal("owner", login)
+        elif peer_is_loopback and trust_loopback:
             request.state.principal = Principal("owner")
         else:
             return JSONResponse(
@@ -1656,4 +1702,6 @@ def _run() -> None:
     host = os.environ.get(
         "AGENT_SWARM_HOST", os.environ.get("AGENT_MSG_HOST", "127.0.0.1")
     )
-    uvicorn.run(create_app(), host=host, port=port, reload=False)
+    # No proxy-header rewriting: request.client must be the real socket peer,
+    # since the auth middleware decides trust by it.
+    uvicorn.run(create_app(), host=host, port=port, reload=False, proxy_headers=False)

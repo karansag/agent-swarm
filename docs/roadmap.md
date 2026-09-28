@@ -10,11 +10,11 @@ Codex, or otherwise). Last updated 2026-07-13.
   agent. This feeds the visualization above and the roster sublines. No
   separate LLM harness is needed; the agents are LLMs and can
   self-report.
-- **Owner login.** Nodes authenticate with tokens and everything else is
-  loopback-only, so a dashboard served through a reverse proxy
-  (`AGENT_SWARM_TRUST_LOOPBACK=0`) currently has no way in. Add a login
-  page that sets an HttpOnly cookie from an owner token, with Origin
-  checks on mutating requests.
+- **Owner login without Tailscale.** Through Tailscale Serve the owner is
+  identified by the login header Serve adds. Any other reverse proxy has
+  no way to identify the owner; a login page that sets an HttpOnly
+  cookie from an owner token, with Origin checks on mutating requests,
+  would cover it.
 - **Importing open tasks** from a machine that ran its own agent-swarm
   (`agent-swarm import-tasks`, see docs/cross-machine-design.md) is
   described but not built; re-file them by hand for now.
