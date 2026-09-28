@@ -323,11 +323,9 @@ class Executor:
             return protocol.result(op_id, r.status, r.error)
         if kind == "spawn":
             s = self.local.spawn(op_id, a.get("command"))
-            label = None
-            if s.pane:
-                resolved = self.local.resolve(s.pane)
-                label = resolved[1] if resolved else None
-            return protocol.result(op_id, s.status, s.error, pane=s.pane, label=label)
+            return protocol.result(
+                op_id, s.status, s.error, pane=s.pane, label=s.label, tmux_server=s.tmux_server
+            )
         if kind == "kill":
             r = self.local.kill(op_id, a["pane"], a.get("tmux_server"))
             return protocol.result(op_id, r.status, r.error)
@@ -341,10 +339,16 @@ class Executor:
             text, err = self.local.capture(a["pane"], a.get("tmux_server"))
             return protocol.result(op_id, "ok" if err is None else "failed", err, text=text)
         if kind == "resolve":
-            resolved = self.local.resolve(a["target"])
+            try:
+                resolved = self.local.resolve(a["target"])
+            except nodes.Unavailable as e:
+                return protocol.result(op_id, "failed", str(e))
             if resolved is None:
-                return protocol.result(op_id, "ok", None, pane=None, label=None)
-            return protocol.result(op_id, "ok", None, pane=resolved[0], label=resolved[1])
+                return protocol.result(op_id, "ok", None, pane=None, label=None, tmux_server=None)
+            return protocol.result(
+                op_id, "ok", None,
+                pane=resolved.pane, label=resolved.label, tmux_server=resolved.tmux_server,
+            )
         raise AssertionError(kind)
 
 

@@ -83,11 +83,15 @@ def test_local_node_reports_an_uncertain_paste_as_unknown(monkeypatch):
 
 def test_local_node_spawn_and_kill_return_results(monkeypatch):
     monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
-    monkeypatch.setattr(tmux, "spawn_window", lambda session=None, command=None: ("%9", None))
+    monkeypatch.setattr(
+        tmux, "spawn_window",
+        lambda session=None, command=None: (tmux.Created("%9", "agents:2.0", "srv-1"), None),
+    )
     monkeypatch.setattr(tmux, "kill_pane", lambda pane: (False, "no such pane"))
     node = nodes.LocalNode("here")
     spawned = node.spawn("op", "claude")
     assert spawned.ok and spawned.pane == "%9"
+    assert spawned.label == "agents:2.0" and spawned.tmux_server == "srv-1"
     monkeypatch.setattr(tmux, "spawn_window", lambda session=None, command=None: (None, "boom"))
     assert node.spawn("op", "claude") == nodes.Spawned("failed", None, "boom")
     assert node.kill("op", "%9", "srv-1") == nodes.Result("failed", "no such pane")
@@ -136,11 +140,11 @@ def test_local_node_carries_uncertain_spawn_and_kill(monkeypatch):
     monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
 
     def spawn_window(session=None, command=None):
-        raise tmux.Uncertain("launch command did not report back", "%4")
+        raise tmux.Uncertain("launch command did not report back", tmux.Created("%4", "agents:4.0", "srv-1"))
 
     monkeypatch.setattr(tmux, "spawn_window", spawn_window)
     assert nodes.LocalNode("here").spawn("op", "claude") == nodes.Spawned(
-        "unknown", "%4", "launch command did not report back"
+        "unknown", "%4", "launch command did not report back", label="agents:4.0", tmux_server="srv-1"
     )
 
     def kill_pane(pane):
@@ -148,3 +152,36 @@ def test_local_node_carries_uncertain_spawn_and_kill(monkeypatch):
 
     monkeypatch.setattr(tmux, "kill_pane", kill_pane)
     assert nodes.LocalNode("here").kill("op", "%4", "srv-1").status == "unknown"
+
+
+def test_local_node_resolve_pairs_the_pane_with_the_server_that_issued_it(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    monkeypatch.setattr(tmux, "resolve_pane", lambda t: ("%3", "a:0.1"))
+    assert nodes.LocalNode("here").resolve("a:0.1") == nodes.Resolved("%3", "a:0.1", "srv-1")
+    monkeypatch.setattr(tmux, "resolve_pane", lambda t: None)
+    assert nodes.LocalNode("here").resolve("nope") is None
+    # A restart during the look is not a pane on either server.
+    ids = iter(["srv-1", "srv-2"])
+    monkeypatch.setattr(tmux, "server_id", lambda: next(ids))
+    monkeypatch.setattr(tmux, "resolve_pane", lambda t: ("%0", "a:0.0"))
+    with pytest.raises(nodes.Unavailable):
+        nodes.LocalNode("here").resolve("a:0.0")
+
+
+def test_a_spawned_pane_keeps_the_server_that_created_it_across_a_restart(monkeypatch):
+    # The window was made on srv-1; tmux restarts right after, and %1 on the
+    # new server is an unrelated pane. Nothing must look it up again.
+    monkeypatch.setattr(
+        tmux, "spawn_window",
+        lambda session=None, command=None: (tmux.Created("%1", "agents:1.0", "srv-1"), None),
+    )
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-2")
+    looked = []
+    monkeypatch.setattr(tmux, "resolve_pane", lambda t: looked.append(t) or ("%1", "unrelated:0.0"))
+    spawned = nodes.LocalNode("here").spawn("op", "claude")
+    assert spawned == nodes.Spawned("ok", "%1", None, label="agents:1.0", tmux_server="srv-1")
+    assert looked == []
+    # And any later operation on it is refused by the server check.
+    assert nodes.LocalNode("here").kill("op", "%1", "srv-1").status == "failed"

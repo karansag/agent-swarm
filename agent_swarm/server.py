@@ -13,14 +13,15 @@ from pathlib import Path
 from typing import Literal
 
 import secrets
+import threading
 from dataclasses import dataclass
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import activity, attachments, db, names, nodes, panes, tmux
+from . import activity, attachments, db, names, nodes, panes, protocol, tmux
 
 log = logging.getLogger("agent_swarm.monitor")
 
@@ -580,6 +581,32 @@ def create_app(
             )
         return _node_or_422(node)
 
+    def _watch_list(node_name: str) -> list[dict]:
+        """The panes a node should capture every tick: its registered agents."""
+        return [
+            {"pane": r["tmux_pane"], "tmux_server": r.get("tmux_server")}
+            for r in db.list_recipients(conn)
+            if r.get("node") == node_name
+        ]
+
+    def _refresh_watch(node_name: str) -> None:
+        node = fleet.get(node_name)
+        if isinstance(node, nodes.RemoteNode):
+            node.set_watch(_watch_list(node_name))
+
+    # Registry membership changes from HTTP worker threads (rotate, revoke)
+    # and from the event loop (a node connecting); the lock keeps a token
+    # check and the publication it permits together.
+    fleet_lock = threading.Lock()
+
+    def _disconnect(name: str, reason: str) -> None:
+        """Drop a node from the registry, fencing its connection if it has one."""
+        with fleet_lock:
+            node = fleet.get(name)
+            if isinstance(node, nodes.RemoteNode):
+                node.fence(reason)
+            fleet.remove(name)
+
     def _own_row_or_403(request: Request, user_id: str) -> dict | None:
         """The recipient row, after checking a node token may touch it.
 
@@ -735,6 +762,7 @@ def create_app(
             node=node.name,
         )
         node.tag_pane(nodes.new_op_id(), pane, server, user_id)
+        _refresh_watch(node.name)
         registered = db.get_recipient(conn, user_id)
         peers = [r for r in _annotated_recipients() if r["user_id"] != user_id]
         return {
@@ -792,10 +820,15 @@ def create_app(
         the positional one still means what the client meant. Without tmux the
         target is kept as given, tied to no server.
         """
-        resolved = node.resolve(target)
+        try:
+            resolved = node.resolve(target)
+        except nodes.Unavailable as e:
+            raise HTTPException(status_code=503, detail={"error": str(e), "retry": True}) from e
         if resolved is None:
             return target, target, None
-        return resolved[0], resolved[1], node.server_id()
+        # The server id travels with the pane from the node's own look, never
+        # from an observation cached earlier.
+        return resolved.pane, resolved.label, resolved.tmux_server
 
     def _offline(
         r: dict, node: nodes.Node | None, snap: nodes.PaneSnapshot | None
@@ -928,15 +961,18 @@ def create_app(
             if gone or req.include_shells:
                 db.delete_recipient(conn, r["user_id"])
                 removed.append(r["user_id"])
+                _refresh_watch(r["node"])
             else:
                 kept_offline.append(r["user_id"])
         return {"ok": True, "removed": removed, "kept_offline": kept_offline}
 
     @app.delete("/recipients/{user_id}")
     def unregister(user_id: str, request: Request):
-        _own_row_or_403(request, user_id)
+        row = _own_row_or_403(request, user_id)
         if not db.delete_recipient(conn, user_id):
             raise HTTPException(status_code=404, detail="recipient not registered")
+        if row:
+            _refresh_watch(row["node"])
         return {"ok": True, "user_id": user_id}
 
     def _deliver_as(
@@ -1313,7 +1349,7 @@ def create_app(
             )
         pane = spawned.pane
         user_id = names.pick_unused(conn)
-        _, label, server = _pane_ref(pane, node)
+        label, server = spawned.label or pane, spawned.tmux_server
         db.register(
             conn,
             user_id,
@@ -1330,6 +1366,7 @@ def create_app(
         )
         node.tag_pane(nodes.new_op_id(), pane, server, user_id)
         node.rename_window(nodes.new_op_id(), pane, server, user_id)
+        _refresh_watch(node.name)
         return {
             "ok": True, "user_id": user_id, "tmux_pane": pane, "pane_label": label,
             "node": node.name,
@@ -1436,6 +1473,81 @@ def create_app(
             raise HTTPException(status_code=404, detail={"error": "unknown agent"})
         return {"ok": True, "recipient": recipient}
 
+    generations = iter(range(1, 1 << 62))
+
+    @app.websocket("/nodes/ws")
+    async def nodes_ws(ws: WebSocket):
+        """A node's connection. HTTP middleware does not see websockets, so
+        the token is checked here, on the handshake, before accepting."""
+        auth = ws.headers.get("authorization", "")
+        name = db.node_for_token(conn, auth[7:].strip()) if auth.lower().startswith("bearer ") else None
+        if name is None:
+            await ws.close(code=1008, reason="unknown or missing token")
+            return
+        await ws.accept()
+        try:
+            hello = await asyncio.wait_for(ws.receive_json(), timeout=15)
+        except (asyncio.TimeoutError, WebSocketDisconnect, ValueError):
+            await ws.close(code=1002, reason="expected hello")
+            return
+        if hello.get("type") != "hello" or hello.get("node") != name:
+            await ws.close(code=1008, reason="hello does not match the token's node")
+            return
+        if hello.get("protocol") != protocol.PROTOCOL:
+            await ws.close(code=1002, reason=f"protocol {hello.get('protocol')} not supported")
+            return
+        loop = asyncio.get_running_loop()
+        node = nodes.RemoteNode(
+            name, next(generations), loop, ws.send_json, ws.close, interval
+        )
+        node.hello(hello)
+        # The token was checked before the hello, which took time: a rotation
+        # or revocation since then must not let this connection in. The
+        # re-check and the publication are one step under the registry lock,
+        # so a rotation cannot slip between them.
+        # Nothing awaits inside the lock: a threading lock held across an
+        # await could block the loop that has to release it.
+        with fleet_lock:
+            admitted = db.node_for_token(conn, auth[7:].strip()) == name
+            if admitted:
+                # A newer connection replaces an older one from the same
+                # node; the older is fenced so nothing in flight on it can
+                # be believed.
+                previous = fleet.get(name)
+                if isinstance(previous, nodes.RemoteNode):
+                    previous.fence("replaced by a newer connection")
+                fleet.add(node)
+        if not admitted:
+            await ws.close(code=1008, reason="token no longer valid")
+            return
+        db.touch_node(conn, name, node.version, node.tmux_server, node.harnesses)
+        log.info("node %s connected (generation %d)", name, node.generation)
+        try:
+            await ws.send_json(
+                protocol.welcome(interval, _watch_list(name), node.generation, db.hub_id(conn))
+            )
+            observed = 0
+            while True:
+                frame = await ws.receive_json()
+                kind = frame.get("type")
+                if kind == "observe":
+                    node.observed(frame)
+                    observed += 1
+                    if observed % 12 == 1:  # about once a minute at the default interval
+                        db.touch_node(conn, name, tmux_server=node.tmux_server)
+                elif kind == "result":
+                    node.resolved(frame)
+        except WebSocketDisconnect:
+            pass
+        except Exception:  # noqa: BLE001 - a bad frame ends the connection, not the hub
+            log.exception("node %s connection failed", name)
+        finally:
+            node.fence("node disconnected")
+            with fleet_lock:
+                if fleet.get(name) is node:
+                    fleet.remove(name)
+            log.info("node %s disconnected (generation %d)", name, node.generation)
+
     @app.get("/nodes/me")
     def nodes_me(request: Request):
         """What the hub takes the caller for; `agent-swarm join` checks this."""
@@ -1462,6 +1574,8 @@ def create_app(
             )
         token = secrets.token_urlsafe(32)
         db.set_node_token(conn, name, token)
+        # A connection made with the old token does not outlive it.
+        _disconnect(name, "token rotated")
         return {"ok": True, "name": name, "token": token}
 
     @app.delete("/nodes/{name}")
@@ -1469,7 +1583,7 @@ def create_app(
         """Revoke a machine: its token stops working and it is disconnected."""
         if not db.delete_node(conn, name):
             raise HTTPException(status_code=404, detail={"error": "unknown node"})
-        fleet.remove(name)
+        _disconnect(name, "node revoked")
         return {"ok": True, "name": name}
 
     @app.get("/", response_class=HTMLResponse)
@@ -1492,9 +1606,13 @@ def create_app(
             )
         msgs = db.fetch_messages(conn, None, limit)
         msgs.reverse()  # oldest first for thread rendering
+        enrolled = db.list_nodes(conn)
+        for n in enrolled:
+            n["connected"] = n["name"] in fleet.names()
         return {
             "now": time.time(),
             "recipients": recipients,
+            "nodes": [{"name": fleet.local.name, "local": True, "connected": True}, *enrolled],
             "messages": msgs,
             "tasks": db.list_tasks(conn),
             "teams": db.list_teams(conn),

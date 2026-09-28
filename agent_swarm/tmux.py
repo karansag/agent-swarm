@@ -9,6 +9,7 @@ import shlex
 import socket
 import subprocess
 import time
+from typing import NamedTuple
 
 
 # Panes are addressed by tmux's pane id (%N), which never changes or gets
@@ -240,13 +241,23 @@ class Uncertain(Exception):
     be established. Never retry an operation that ended this way on its own:
     a message may already be in the pane, a window may already exist.
 
-    `pane` is set when the operation got far enough to know which pane it
-    was acting on (a spawn whose launch command timed out).
+    `created` is set when the operation got far enough to know which pane it
+    made (a spawn whose launch command timed out): a Created, with the server
+    that made it, so the pane is never rebound to whatever tmux runs later.
     """
 
-    def __init__(self, message: str, pane: str | None = None):
+    def __init__(self, message: str, created: "Created | None" = None):
         super().__init__(message)
-        self.pane = pane
+        self.created = created
+
+
+class Created(NamedTuple):
+    """A pane as reported by the command that created it: id, positional
+    label, and the tmux server that issued the id, all from one answer."""
+
+    pane: str
+    label: str
+    tmux_server: str
 
 
 def _error_text(e: Exception) -> str:
@@ -435,10 +446,11 @@ def spawn_launch_command(
 
 def spawn_window(
     session: str = AGENTS_SESSION, command: str | None = None
-) -> tuple[str | None, str | None]:
+) -> tuple[Created | None, str | None]:
     """Create a detached tmux window (and session if needed) and optionally
-    launch a command in it. Returns (pane_id, error_or_None); the id is %N."""
-    fmt = "#{pane_id}"
+    launch a command in it. Returns (Created, None) or (None, error) when
+    tmux answered; raises Uncertain when it did not report back."""
+    fmt = "#{pane_id}\t#S:#I.#P\t#{pid}:#{start_time}"
     try:
         has = subprocess.run(
             ["tmux", "has-session", "-t", session],
@@ -470,9 +482,11 @@ def spawn_window(
         return None, _error_text(e)  # tmux answered: nothing was created
     except (subprocess.SubprocessError, FileNotFoundError) as e:
         raise Uncertain(f"window creation did not report back: {_error_text(e)}") from e
-    pane = out.stdout.strip()
-    if not pane:
-        return None, "tmux did not report a pane id"
+    pane, _, rest = out.stdout.strip().partition("\t")
+    label, _, server = rest.partition("\t")
+    if not pane.startswith("%") or not server:
+        return None, "tmux did not report the new pane"
+    created = Created(pane, label or pane, server)
     if command:
         try:
             subprocess.run(
@@ -484,8 +498,8 @@ def spawn_window(
             )
         except (subprocess.SubprocessError, FileNotFoundError) as e:
             # The window exists; whether the harness started in it is unknown.
-            raise Uncertain(f"launch command did not report back: {_error_text(e)}", pane) from e
-    return pane, None
+            raise Uncertain(f"launch command did not report back: {_error_text(e)}", created) from e
+    return created, None
 
 
 def _tmux_out(*args: str, timeout: float = 2) -> str | None:

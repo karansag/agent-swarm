@@ -78,7 +78,8 @@ def client(tmp_path, monkeypatch):
 
     def fake_spawn_window(session=tmux.AGENTS_SESSION, command=None):
         spawns.append((session, command))
-        return f"agents:{len(spawns)}.0", None
+        pane = f"agents:{len(spawns)}.0"
+        return tmux.Created(pane, pane, "srv-1"), None
 
     monkeypatch.setattr(tmux, "spawn_window", fake_spawn_window)
     kills = []
@@ -1419,7 +1420,10 @@ def test_spawn_and_stop_report_unknown_outcomes_distinctly(client, monkeypatch):
     import subprocess
 
     def timed_out_launch(session=tmux.AGENTS_SESSION, command=None):
-        raise tmux.Uncertain("launch command did not report back: timed out", "agents:9.0")
+        raise tmux.Uncertain(
+            "launch command did not report back: timed out",
+            tmux.Created("agents:9.0", "agents:9.0", "srv-1"),
+        )
 
     monkeypatch.setattr(tmux, "spawn_window", timed_out_launch)
     r = client.post("/agents/spawn", json={"flavor": "claude"})

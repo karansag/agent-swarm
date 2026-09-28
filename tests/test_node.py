@@ -31,7 +31,8 @@ class FakeLocal(nodes.LocalNode):
 
     def resolve(self, target):
         self.calls.append(("resolve", target))
-        return self.results.get("resolve")
+        r = self.results.get("resolve")
+        return nodes.Resolved(r[0], r[1], self.server) if r else None
 
     def capture(self, pane, tmux_server):
         self.calls.append(("capture", pane, tmux_server))
@@ -72,18 +73,19 @@ def test_executor_runs_each_kind_and_reports_a_result(executor):
     assert r == protocol.result("m1", "ok")
     assert local.calls[-1][:4] == ("deliver", "m1", "%1", "srv-1")
     assert local.calls[-1][5]["flavor"] == "codex"
-    local.results["resolve"] = ("%7", "agents:3.0")
+    local.results["spawn"] = nodes.Spawned("ok", "%7", label="agents:3.0", tmux_server="srv-1")
     r = ex.run(protocol.command("s1", "spawn", 30, command="claude"), now)
-    assert r["status"] == "ok" and r["data"] == {"pane": "%7", "label": "agents:3.0"}
+    assert r["status"] == "ok" and r["data"] == {"pane": "%7", "label": "agents:3.0", "tmux_server": "srv-1"}
+    local.results["resolve"] = ("%7", "agents:3.0")
     assert ex.run(protocol.command("k1", "kill", 30, pane="%7", tmux_server="srv-1"), now)["status"] == "ok"
     assert ex.run(protocol.command("t1", "tag_pane", 30, pane="%7", tmux_server="srv-1", handle="otter"), now)["status"] == "ok"
     assert ex.run(protocol.command("w1", "rename_window", 30, pane="%7", tmux_server="srv-1", name="otter"), now)["status"] == "ok"
     r = ex.run(protocol.command("c1", "capture", 30, pane="%7", tmux_server="srv-1"), now)
     assert r["status"] == "ok" and r["data"] == {"text": "screen"}
     r = ex.run(protocol.command("r1", "resolve", 30, target="agents:3.0"), now)
-    assert r["data"] == {"pane": "%7", "label": "agents:3.0"}
+    assert r["data"] == {"pane": "%7", "label": "agents:3.0", "tmux_server": "srv-1"}
     local.results["resolve"] = None
-    assert ex.run(protocol.command("r2", "resolve", 30, target="nope"), now)["data"] == {"pane": None, "label": None}
+    assert ex.run(protocol.command("r2", "resolve", 30, target="nope"), now)["data"] == {"pane": None, "label": None, "tmux_server": None}
     assert ex.run({"op_id": "x", "kind": "reboot", "ttl": 1}, now)["status"] == "failed"
 
 

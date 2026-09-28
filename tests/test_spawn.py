@@ -162,13 +162,14 @@ def test_spawn_window_is_uncertain_when_tmux_does_not_report_back(monkeypatch):
 
     outcomes = iter([
         subprocess.CompletedProcess([], 0, "", ""),  # has-session
-        subprocess.CompletedProcess([], 0, "%7\n", ""),  # new-window
+        subprocess.CompletedProcess([], 0, "%7\tagents:3.0\t4242:1700000000\n", ""),  # new-window
         subprocess.TimeoutExpired("tmux", 5),  # send-keys
     ])
     monkeypatch.setattr(tmux.subprocess, "run", lambda cmd, **kw: _raise_or(next(outcomes)))
     with pytest.raises(tmux.Uncertain) as info:
         tmux.spawn_window(command="claude")
-    assert info.value.pane == "%7"
+    # The window's identity comes from the creating command itself.
+    assert info.value.created == tmux.Created("%7", "agents:3.0", "4242:1700000000")
     outcomes = iter([
         subprocess.CompletedProcess([], 0, "", ""),
         subprocess.CalledProcessError(1, "tmux", stderr="no space"),
@@ -180,3 +181,20 @@ def _raise_or(outcome):
     if isinstance(outcome, Exception):
         raise outcome
     return outcome
+
+
+def test_spawn_window_reports_the_pane_with_the_server_that_made_it(monkeypatch):
+    import subprocess
+
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),
+        subprocess.CompletedProcess([], 0, "%8\tagents:4.0\t4242:1700000000\n", ""),
+        subprocess.CompletedProcess([], 0, "", ""),
+    ])
+    monkeypatch.setattr(tmux.subprocess, "run", lambda cmd, **kw: _raise_or(next(outcomes)))
+    assert tmux.spawn_window(command="claude") == (tmux.Created("%8", "agents:4.0", "4242:1700000000"), None)
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),
+        subprocess.CompletedProcess([], 0, "garbage\n", ""),
+    ])
+    assert tmux.spawn_window(command="claude") == (None, "tmux did not report the new pane")
