@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub and Nodes · agent-swarm cross-machine design</title>
+<!-- Rendered companion to cross-machine-design.md. Regenerate when the markdown changes. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --ink: #1b2027;
+    --ink-2: #4a5361;
+    --rule: #d8dce3;
+    --hub: #245f52;
+    --hub-soft: #dfeee8;
+    --node: #a6591b;
+    --node-soft: #f6e6d6;
+    --code-bg: #eceef2;
+    --review: #5b4a8a;
+    --review-soft: #ebe6f5;
+    --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #13161b; --surface: #1b1f26; --ink: #e4e8ee; --ink-2: #a2abb8; --rule: #2e3540;
+      --hub: #7fc7ae; --hub-soft: #1e3a33; --node: #e5a15f; --node-soft: #3d2a18;
+      --code-bg: #232833; --review: #b7a6e3; --review-soft: #2a2438;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #13161b; --surface: #1b1f26; --ink: #e4e8ee; --ink-2: #a2abb8; --rule: #2e3540;
+    --hub: #7fc7ae; --hub-soft: #1e3a33; --node: #e5a15f; --node-soft: #3d2a18;
+    --code-bg: #232833; --review: #b7a6e3; --review-soft: #2a2438;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--serif); font-size: 17px; line-height: 1.55; padding-block: 48px 96px; padding-inline: 20px; }
+  main { max-width: 720px; margin: 0 auto; }
+  header { border-bottom: 1px solid var(--rule); padding-bottom: 24px; margin-bottom: 40px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 12px; }
+  h1 { font-family: var(--sans); font-weight: 600; font-size: 38px; line-height: 1.1; margin: 0 0 14px; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { font-size: 19px; color: var(--ink-2); margin: 0; max-width: 62ch; }
+  h2 { font-family: var(--sans); font-weight: 600; font-size: 24px; line-height: 1.2; margin: 56px 0 14px; text-wrap: balance; }
+  h2 .num { font-family: var(--mono); font-size: 13px; color: var(--ink-2); font-weight: 500; letter-spacing: .06em; display: block; margin-bottom: 4px; }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 18px; margin: 30px 0 10px; }
+  p { margin: 0 0 16px; max-width: 68ch; }
+  ul, ol { margin: 0 0 18px; padding-left: 22px; max-width: 68ch; }
+  li { margin-bottom: 8px; }
+  li::marker { color: var(--ink-2); }
+  code, pre { font-family: var(--mono); font-size: .86em; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 4px; overflow-x: auto; margin: 0 0 20px; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  .chosen { border-left: 3px solid var(--hub); padding: 6px 0 6px 16px; margin: 0 0 18px; }
+  .chosen .label { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--hub); display: block; margin-bottom: 4px; }
+  .chosen p { margin: 0; }
+  .review { border-left: 3px solid var(--review); background: var(--review-soft); padding: 10px 14px; margin: 0 0 18px; border-radius: 0 4px 4px 0; font-size: 15.5px; }
+  .review .label { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--review); display: block; margin-bottom: 4px; }
+  .review p { margin: 0; }
+  .alt { color: var(--ink-2); font-size: 16px; }
+  .alt b { font-family: var(--sans); font-weight: 600; color: var(--ink); }
+  figure { margin: 24px 0 28px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-family: var(--sans); font-size: 14px; color: var(--ink-2); margin-top: 8px; }
+  .tablewrap { overflow-x: auto; margin: 0 0 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--sans); font-weight: 600; font-size: 13px; letter-spacing: .03em; color: var(--ink-2); }
+  td:first-child { white-space: nowrap; }
+  .plan { counter-reset: step -1; list-style: none; padding: 0; }
+  .plan li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; margin-bottom: 16px; }
+  .plan li::before { counter-increment: step; content: counter(step); font-family: var(--mono); font-size: 13px; color: var(--hub); border: 1px solid var(--hub); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; margin-top: 2px; }
+  .plan b { font-family: var(--sans); font-weight: 600; }
+  @media (max-width: 480px) { h1 { font-size: 30px; } body { font-size: 16px; } }
+</style>
+<style>body { margin: 0; } img { max-width: 100%; }</style>
+</head>
+<body>
+<main>
+<header>
+  <p class="eyebrow">agent-swarm · design proposal · revised 2026-09-23 against master 9b6be27</p>
+  <h1>Hub and Nodes</h1>
+  <p class="lede">One agent-swarm server stays the source of truth. Every other machine runs a thin tmux daemon that dials in over the tailnet. Same commands, same handles, one dashboard. Reviewed by the hoopoe agent; its corrections are marked.</p>
+</header>
+
+<h2>What breaks today</h2>
+<p>agent-swarm is single-machine in every layer, and the assumption is load-bearing:</p>
+<ul>
+  <li>The server binds loopback and identifies an agent by its tmux pane id, such as <code>%12</code>, plus the local tmux server id. Both mean something only on the host running that tmux.</li>
+  <li><code>/send</code> resolves the sender from the caller's pane. A CLI on another machine has no way to say who it is.</li>
+  <li>Delivery, the activity monitor, peek, spawn, stop, and pane titles all shell out to the local <code>tmux</code> binary.</li>
+  <li>Image attachments are delivered as an absolute path on the server's disk, which a pane elsewhere cannot open.</li>
+  <li>The dashboard, task board, and teams read one SQLite file.</li>
+</ul>
+<p>The goal: agents in tmux panes on several machines register, message each other, share one task board and team structure, and appear on one dashboard, with the same commands and the same <code>[agent-msg from ...]</code> contract they use now.</p>
+
+<h3>What master already has</h3>
+<ul>
+  <li><b>Pane ids and tmux server ids</b> replaced positions this week. That is the right local half of a cross-machine address.</li>
+  <li><b>A host name</b> is sent with every registration but only used to build the handle. It is not stored. It becomes the <code>node</code> column.</li>
+  <li><b>Image attachments</b> landed, delivered as hub-local paths. Decision 6 answers that.</li>
+  <li><b>The in-session model picker was removed</b>, so there is no keystroke choreography left to move across the wire.</li>
+</ul>
+
+<h2>Prerequisite: bare handles</h2>
+<p>Agreed with hoopoe. Auto-assigned handles currently append harness, model line, and host, as in <code>hoopoe-codex-gpt5-karanslinux</code>. All three are mutable or better kept as columns, and the host is stored nowhere else. Hoopoe's own handle says gpt5 while it runs GPT-6.</p>
+<ul>
+  <li>Handles come from the pool bare; a numeric suffix only when the pool is exhausted. The 48-character requested-name limit stays so existing long handles remain legal.</li>
+  <li>The reported host is persisted as <code>node</code> and shown next to flavor and model in recipients, the protocol brief, and the dashboard card. It is never inferred from an old suffix.</li>
+  <li>The tag builder, model line parser, host tag, and the tag parameter on name picking are deleted.</li>
+  <li>No automatic renaming. Existing handles stay. Re-registering with <code>--name</code> is an explicit rename that rewrites message and task references. While suffixed handles exist, <code>foo-anything</code> reserves bare <code>foo</code>.</li>
+  <li>Existing rows get the hub's node name as a one-time local-data migration, justified by their local tmux ownership, not by parsing a suffix.</li>
+</ul>
+
+<h2><span class="num">Decision 1</span>Topology</h2>
+<div class="chosen"><span class="label">chosen</span><p>One hub, thin nodes. The server keeps handles, messages, tasks, teams, monitor state, and the dashboard. Every other machine runs <code>agent-swarm-node</code>, a small daemon from the same package that drives its local tmux and nothing else. The hub's own tmux is served in-process through the same interface. Run the hub on the machine that stays on; here that is karans-linux.</p></div>
+
+<figure>
+<svg viewBox="0 0 720 330" role="img" aria-label="Hub on karans-linux with its own panes; node daemon on karans-macbook-pro dials out to the hub over one websocket; a CLI on any pane sends to the hub">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink-2)"/></marker>
+  </defs>
+  <rect x="20" y="30" width="300" height="170" rx="6" fill="var(--hub-soft)" stroke="var(--hub)" stroke-width="1.5"/>
+  <text x="36" y="56" font-family="var(--sans)" font-size="15" font-weight="600" fill="var(--hub)">hub · karans-linux</text>
+  <text x="36" y="76" font-family="var(--mono)" font-size="12" fill="var(--ink-2)">agent-swarm-server · always on</text>
+  <text x="36" y="104" font-family="var(--serif)" font-size="13" fill="var(--ink)">SQLite: handles, messages, tasks,</text>
+  <text x="36" y="122" font-family="var(--serif)" font-size="13" fill="var(--ink)">teams, monitor state · dashboard at /</text>
+  <rect x="36" y="140" width="268" height="40" rx="4" fill="var(--surface)" stroke="var(--rule)"/>
+  <text x="48" y="157" font-family="var(--mono)" font-size="12" fill="var(--ink)">LocalNode · RemoteNode per socket</text>
+  <text x="48" y="173" font-family="var(--mono)" font-size="11" fill="var(--ink-2)">activity.step runs here for every node</text>
+
+  <rect x="400" y="30" width="300" height="170" rx="6" fill="var(--node-soft)" stroke="var(--node)" stroke-width="1.5"/>
+  <text x="416" y="56" font-family="var(--sans)" font-size="15" font-weight="600" fill="var(--node)">node · karans-macbook-pro</text>
+  <text x="416" y="76" font-family="var(--mono)" font-size="12" fill="var(--ink-2)">agent-swarm-node · same package</text>
+  <text x="416" y="104" font-family="var(--serif)" font-size="13" fill="var(--ink)">no listener, no state of its own</text>
+  <text x="416" y="122" font-family="var(--serif)" font-size="13" fill="var(--ink)">dials the hub, keeps one socket open</text>
+  <rect x="416" y="140" width="268" height="40" rx="4" fill="var(--surface)" stroke="var(--rule)"/>
+  <text x="428" y="157" font-family="var(--mono)" font-size="12" fill="var(--ink)">commands down · results up</text>
+  <text x="428" y="173" font-family="var(--mono)" font-size="11" fill="var(--ink-2)">observations up every tick · op ids, deadlines</text>
+
+  <line x1="398" y1="115" x2="322" y2="115" stroke="var(--ink-2)" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="360" y="105" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="var(--ink-2)">websocket</text>
+  <text x="360" y="132" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--ink-2)">node → hub, bearer token</text>
+
+  <line x1="170" y1="200" x2="170" y2="236" stroke="var(--ink-2)" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="182" y="222" font-family="var(--mono)" font-size="11" fill="var(--ink-2)">tmux</text>
+  <rect x="60" y="240" width="100" height="40" rx="4" fill="var(--surface)" stroke="var(--hub)"/>
+  <text x="110" y="258" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--ink)">otter</text>
+  <text x="110" y="272" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--ink-2)">%10</text>
+  <rect x="180" y="240" width="100" height="40" rx="4" fill="var(--surface)" stroke="var(--hub)"/>
+  <text x="230" y="258" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--ink)">tapir</text>
+  <text x="230" y="272" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--ink-2)">%58</text>
+
+  <line x1="550" y1="200" x2="550" y2="236" stroke="var(--ink-2)" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="562" y="222" font-family="var(--mono)" font-size="11" fill="var(--ink-2)">tmux</text>
+  <rect x="440" y="240" width="100" height="40" rx="4" fill="var(--surface)" stroke="var(--node)"/>
+  <text x="490" y="258" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--ink)">puffin</text>
+  <text x="490" y="272" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--ink-2)">%10</text>
+  <rect x="560" y="240" width="100" height="40" rx="4" fill="var(--surface)" stroke="var(--node)"/>
+  <text x="610" y="258" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--ink)">ibis</text>
+  <text x="610" y="272" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--ink-2)">%12</text>
+
+  <text x="360" y="316" text-anchor="middle" font-family="var(--mono)" font-size="11.5" fill="var(--ink-2)">any pane, any machine:  agent-swarm send --to puffin  →  hub records pending  →  node pastes into %10 (server id checked)</text>
+</svg>
+<figcaption>Pane ids repeat across machines, so an address is node, pane id, and tmux server id. Handles stay global because the hub assigns them from one pool.</figcaption>
+</figure>
+
+<p class="alt"><b>Hub drives remote tmux over SSH.</b> No daemon on nodes. The first draft overstated the case against it: SSH can invoke one remote helper that does paste, delay, submit, and verify locally, so four round trips per delivery are not inherent. It is not chosen because continuous monitoring, reconnect, spawn, and capability reporting all want a long-lived process, and it needs hub-to-node SSH keys next to the Tailscale identity that already exists. Because the hub reaches nodes through one interface, an SSH node can be added later.</p>
+<p class="alt"><b>Federated servers, one per machine.</b> Tasks, teams, queens, and dependency graphs live in one file, and the value of the tool is that the owner sees one board. Federation either replicates that state or elects one authoritative server, which is this design with more parts. Hoopoe agreed there is no case for it at this scope.</p>
+
+<h2><span class="num">Decision 2</span>Connection direction</h2>
+<div class="chosen"><span class="label">chosen</span><p>One outbound WebSocket from node to hub. Commands go down with an operation id and a deadline; results come back tagged with the id; observations stream up on the same socket. The socket is the heartbeat. Nodes never listen and never publish a callback address, auth is enforced only on the hub, and a laptop behind a network that blocks inbound connections still works.</p></div>
+<div class="review"><span class="label">changed in review</span><p>The first draft had the node run an HTTP listener that the hub called, with an announce-and-heartbeat dance to learn its address. Hoopoe preferred the socket: it removes the second listener, the second auth surface, and the callback bookkeeping, and gives one channel for everything. Cost accepted: the hub keeps per-node connection state and needs the protocol below.</p></div>
+<p>The socket protocol the implementation must specify:</p>
+<ul>
+  <li>Every command carries an op id, kind, absolute deadline on the hub clock, and arguments. A command whose deadline has passed when dequeued is dropped, so a laptop waking from sleep never executes an old paste.</li>
+  <li>Every result carries the op id and one of ok, failed with a reason, or unknown, meaning the node cannot say whether the side effect happened.</li>
+  <li>Bounded queues both ways. A full queue fails the oldest command as unknown rather than blocking.</li>
+  <li>Hello on connect: node name, protocol version, package version, tmux server id, harness binaries available.</li>
+  <li>Heartbeat with a timeout in both directions; reconnect with backoff on the node.</li>
+  <li>Connection generations. A new connection fences the old one, and results arriving on a fenced connection are discarded. On reconnect the hub re-snapshots the node's panes before marking its agents available.</li>
+  <li>A connected socket does not mean tmux is healthy. Every observation batch carries the tmux server id; a node whose tmux is gone says so and its agents read offline.</li>
+  <li>Mutating operations on one pane are serialized on the node, so a paste and a kill cannot interleave.</li>
+</ul>
+
+<h2><span class="num">Decision 3</span>Monitoring placement</h2>
+<div class="chosen"><span class="label">chosen</span><p>Node captures and streams; hub classifies. The node captures its registered panes on the hub's interval and sends observation batches up the socket: pane id, exists, foreground command, title, capture hash and text when changed, a sequence number, and the tmux server id. A batch goes every tick even when nothing changed, which is the liveness signal. The hub runs the activity classifier exactly as today. On reconnect the hub discards old observations and resets stale timers.</p></div>
+<p class="alt"><b>Run the classifier on the node</b> and push only status changes. Rejected for v1. The classifier changed this week; keeping it in one process avoids version and reset semantics across two, and the traffic saved is unmeasured. Revisit with measurements.</p>
+
+<h2><span class="num">Decision 4</span>Addressing</h2>
+<p>An agent's address is node, pane id, and tmux server id. The node name is <code>AGENT_SWARM_NODE</code> or the short hostname, sent by the CLI on register and send and stored on the recipient. Handles stay global and server-assigned from the one pool, so <code>puffin</code> means the same agent from every machine. A requested handle is a hub-wide claim: first registration wins regardless of node, and a later request for a taken, live handle gets a 409 naming the owning node.</p>
+<div class="review"><span class="label">added in review</span><p>Every pane operation carries the expected tmux server id, and the node checks it at execution time. Checking only at the hub allows a tmux restart between observation and delivery to target a reused pane id. Positional targets are resolved on the node named in the request, never against the hub's tmux, and the pane migration runs per node against that node's own snapshot. Every legacy row is hub-local by construction, so the migration's clock-based heuristic never has to compare clocks across machines. One tmux socket per node in v1.</p></div>
+<p>Schema: recipients gain <code>node</code>, and uniqueness becomes node plus pane id plus server id. Tasks gain a worktree node. Message delivery becomes a three-way status. A nodes table records name, token hash, last seen, version, tmux server, harnesses, and connection generation.</p>
+
+<h2><span class="num">Decision 5</span>Auth</h2>
+<p>Today there is no auth and the server binds loopback. Once the hub listens on the tailnet, anyone who reaches it can type into every registered pane on every machine, so the deferred tailnet-auth item stops being deferrable.</p>
+<div class="chosen"><span class="label">chosen</span><p>Per-node bearer tokens bound to node identity. <code>agent-swarm node-token &lt;name&gt;</code> on the hub creates or rotates a token, prints it once, and stores a hash. The node daemon and the CLI on that machine send it. The hub derives the node from the token and rejects a register or send whose claimed node differs, so one node cannot impersonate another. Revoking a laptop is deleting its row. Owner operations are authorized separately; a node token cannot act as the owner.</p></div>
+<div class="review"><span class="label">changed in review</span><p>Hoopoe found a contradiction in the first draft, which let announce overwrite an address while a second machine with the same name got a 409. Identity is now the token, not the name: the same token reconnecting fences the previous connection; a different token claiming an enrolled name is refused. It also caught that binding only the Tailscale IP drops the loopback listener the local dashboard uses, and that a reverse proxy makes remote requests look local.</p></div>
+<ul>
+  <li><b>Listeners.</b> The hub listens on loopback and its Tailscale IP. Binding all interfaces is acceptable only because every non-loopback request requires a token.</li>
+  <li><b>Loopback trust.</b> Tokenless loopback requests are trusted by default so the local dashboard keeps working. When <code>tailscale serve</code> or any proxy fronts the hub, the operator turns that trust off and the dashboard authenticates.</li>
+  <li><b>Browser login.</b> A login page posts an owner token and sets an HttpOnly, SameSite=Strict cookie. No token in a query string. Mutating dashboard requests check Origin.</li>
+</ul>
+<p class="alt"><b>One shared token.</b> Less to manage, but every laptop holds the hub's entire authority and a lost one means rotating every machine. <b>Tailscale identity headers or tsnet.</b> Not needed for v1 on a single-user tailnet; revisit if the tool ever serves more than one person.</p>
+
+<h2><span class="num">Decision 6</span>Attachments</h2>
+<div class="chosen"><span class="label">chosen</span><p>Structured attachment ids, rendered on the recipient node. A deliver command carries the text and a list of attachment ids; the hub does not format paths into the text. The node fetches each id it lacks from the hub's authenticated attachments endpoint, validates type, size, and content hash, writes atomically into its own cache, and only then renders the attached-image lines and pastes. A failed fetch means delivery has not started. The node keeps a file for at least the hub's retention window after last delivery, so an agent that opens the path minutes later still finds it.</p></div>
+<p class="alt"><b>A shared filesystem or rsync.</b> Rejected because it adds a setup step outside agent-swarm and breaks silently when missing.</p>
+
+<h2><span class="num">Decision 7</span>Spawn and repositories</h2>
+<p>Spawn takes a node and a structured request: harness, model, autonomy, and a working directory. The node validates the binary and directory before launching and returns a useful error otherwise. Available harnesses come from the node's hello, so the dashboard offers only what that node has.</p>
+<div class="review"><span class="label">changed in review</span><p>The first draft said a worktree's node can be read off the assignee. Reassignment or an agent moving nodes breaks that while the files stay put. Tasks now persist the worktree as node plus path, set from the updating agent's node. The queen prompt gains one sentence: a worker must push its branch and report the remote ref and commit when marking a task done, and the integrating agent fetches it. A local path alone is not a handoff.</p></div>
+
+<h2><span class="num">Decision 8</span>Delivery semantics</h2>
+<div class="review"><span class="label">review's top finding</span><p>Today the hub records a message after the tmux paste returns, in one process, so the window in which a message is delivered but unrecorded is microseconds. Across a network that window becomes ordinary: a node can paste and submit successfully and the result can be lost. That outcome is unknown, not failed, and replaying it would submit the message twice.</p></div>
+<ul>
+  <li>The hub records the message as pending <b>before</b> dispatch, and the message id is the command's op id.</li>
+  <li>The node keeps a bounded, durable record of recently executed mutating op ids. A repeated id returns the recorded result instead of running again.</li>
+  <li>Message status is delivered, failed, or unknown. Unknown shows on the dashboard with a resend control for the owner. The hub never replays an unknown mutation on its own. Read-only operations retry freely.</li>
+  <li>Exactly-once is not promised. A crash between the tmux side effect and recording its result stays ambiguous, and the design says so.</li>
+  <li>Unreachable and confirmed absent are distinct. The node reports that a pane is gone; the hub infers nothing from a dropped connection. Prune cannot delete a registration because of a network failure.</li>
+  <li>Dispatch handles failure immediately. Missed heartbeats set the dashboard's node status; a send to an agent on a node with no live socket fails at once.</li>
+</ul>
+
+<h2>The node daemon</h2>
+<p>On start it connects to the hub with its token, sends hello, then loops: execute commands from the socket, stream observations on the interval.</p>
+<div class="tablewrap">
+<table>
+  <tr><th>Command</th><th>Arguments</th><th>Notes</th></tr>
+  <tr><td><code>panes</code></td><td></td><td>pane id, label, command, title for every pane, plus tmux server id</td></tr>
+  <tr><td><code>resolve</code></td><td>target</td><td>positional or id target to a pane id on this node</td></tr>
+  <tr><td><code>capture</code></td><td>pane, tmux_server</td><td>dashboard peek</td></tr>
+  <tr><td><code>deliver</code></td><td>pane, tmux_server, text, attachments, prefix, submit key, flavor</td><td>paste, delay, submit, verify-retry, all local; dedup by op id</td></tr>
+  <tr><td><code>spawn</code></td><td>harness, model, autonomy, cwd</td><td>validates binary and cwd; returns pane id and label</td></tr>
+  <tr><td><code>kill</code>, <code>title</code>, <code>rename_window</code></td><td>pane, tmux_server, …</td><td></td></tr>
+</table>
+</div>
+<p>The hub side is a <code>Node</code> protocol with two implementations: a local one that calls the tmux module directly and always returns ok or failed, and a remote one that wraps a socket connection and can return unknown. A registry on app state maps names to nodes. Calling the server edits mechanical was optimistic, as hoopoe noted: results gain the unknown state, messages are recorded before dispatch rather than after, and every operation carries a server id. Expect a behavior-level pass over send, owner send, task notification, spawn, stop, prune, and the monitor tick.</p>
+
+<h2>Per-machine setup</h2>
+<p>The register skills work unchanged once each non-hub machine's shell profile points at the hub:</p>
+<pre><code>export AGENT_SWARM_URL=http://karans-linux:8765
+export AGENT_SWARM_TOKEN=&lt;from: agent-swarm node-token karans-macbook-pro&gt;
+# AGENT_SWARM_NODE defaults to the short hostname</code></pre>
+
+<h2>Failure behaviour</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Situation</th><th>Behaviour</th></tr>
+  <tr><td>Node down or laptop asleep</td><td>Socket drops; disconnected at once for dispatch, after the heartbeat timeout for the dashboard. Sends fail immediately with the node reason and are recorded. On reconnect the hub re-snapshots panes, then agents return with the same handles.</td></tr>
+  <tr><td>Hub down</td><td>Nothing works anywhere. Same as today; run the hub on the always-on box.</td></tr>
+  <tr><td>Hub restarts</td><td>Nodes reconnect with backoff. Commands in flight at that moment are unknown.</td></tr>
+  <tr><td>tmux restarts on a node</td><td>New server id in the next batch; rows bound to the old one read offline until re-registration. Commands carrying the old id are refused by the node.</td></tr>
+  <tr><td>Node crashes mid-paste</td><td>Result unknown; shown with a resend control; never replayed automatically.</td></tr>
+  <tr><td>Command dequeued after deadline</td><td>Dropped on the node; result failed, expired.</td></tr>
+  <tr><td>Pane gone on a live node</td><td>Node confirms absence; prune removes it. Prune never acts on a disconnected node's rows.</td></tr>
+  <tr><td>Attachment fetch fails</td><td>Delivery does not start; result failed with the reason.</td></tr>
+  <tr><td>Wrong, missing, or revoked token</td><td>401 naming the variable; a revoked node's socket is closed.</td></tr>
+  <tr><td>Different token claims an enrolled name</td><td>Refused; rotate the token or rename the node.</td></tr>
+</table>
+</div>
+
+<h2>Implementation plan</h2>
+<p>Each step leaves the single-machine path working and the tests green.</p>
+<ol class="plan">
+  <li><span><b>Bare handles and the node column.</b> Prerequisite, one commit. Delete the handle tag code, persist node, migrate existing rows to the hub node, show it in recipients, protocol brief, and dashboard card.</span></li>
+  <li><span><b>Node interface and delivery semantics, local only.</b> Protocol, local node, registry, nodes table, worktree node, three-way message status, record-before-dispatch. Route every tmux call through the registry. Tests cover the unknown path.</span></li>
+  <li><span><b>Node daemon and socket transport.</b> The daemon, the socket protocol with op ids, deadlines, fencing, hello, heartbeat, and observation batches; the remote node; per-node tokens with claim validation; attachment fetch with dedup. Tested in-process with tmux monkeypatched, including deadline expiry, duplicate op ids, and reconnect fencing.</span></li>
+  <li><span><b>Dashboard.</b> Node names, node strip, spawn node select and cwd, unknown-message marker and resend, login page and loopback trust switch.</span></li>
+  <li><span><b>Docs.</b> A "Multiple machines" README section, agent prompt note that peers may be elsewhere and paths are per node, upgrading entry, roadmap item closed.</span></li>
+</ol>
+<p>Rough size: about 600 lines for the daemon and interface together, a 250-line server diff, 100 across db and client, 150 in the web app. Four focused sessions; the socket protocol and its tests are the bulk.</p>
+
+<h2>Verification</h2>
+<ul>
+  <li>Scratch hub here on a spare port with a scratch database, scratch node on the MacBook over the tailnet, one Claude pane on each. Register both, send both directions, confirm the paste lands and submits remotely, confirm the dashboard shows both with node names and live peek.</li>
+  <li>Paste an image into the remote agent's chat; confirm the path is on the MacBook and the agent can open it.</li>
+  <li>Kill the node daemon mid-delivery; confirm the message shows unknown, is not replayed on reconnect, and resend works once.</li>
+  <li>Sleep the MacBook with a send queued: the dashboard shows the node disconnected and the send has failed. Wake it: the queued command is expired, not executed, and the agent returns with the same handle.</li>
+  <li>Restart tmux on the MacBook; confirm its agents read offline with the stale-server reason and a delivery carrying the old server id is refused.</li>
+  <li>Spawn a Codex agent on the remote node into a chosen directory and stop it.</li>
+</ul>
+</main>
+
+</body>
+</html>
