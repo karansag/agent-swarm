@@ -165,6 +165,12 @@
   button.queen-agent:disabled { opacity: .6; cursor: wait; }
 
   /* team boxes in the sidebar */
+  .nodes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .node-chip { font-size: 10px; color: var(--cream-dim); border: 1px solid var(--line); border-radius: 10px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 5px; }
+  .node-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cream-dim); opacity: .4; }
+  .node-chip.on .dot { background: var(--honey); opacity: 1; }
+  .node-chip.off { opacity: .6; }
+  .node-chip .you { color: var(--honey-dim); }
   .teambox { border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-bottom: 10px; }
   .teambox.over { border-color: var(--honey); background: rgba(242,169,59,.05); }
   .teamhead { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 7px; }
@@ -457,6 +463,10 @@
   .msg.pending .bubble { opacity: .6; }
   .msg.failed .bubble { border-style: dashed; border-color: var(--alert); }
   .msg.failed .tag .ctx { color: var(--alert); }
+  .msg.unknown .bubble { border-style: dashed; border-color: var(--honey); }
+  .msg.unknown .tag .ctx { color: var(--honey); }
+  .msg .resend { font-size: 10px; padding: 0 6px; margin-left: 4px; border: 1px solid var(--honey-dim); border-radius: 8px; background: transparent; color: var(--honey); cursor: pointer; }
+  .msg .resend:disabled { opacity: .5; cursor: default; }
   .msg.from-owner .bubble { border-color: var(--honey-dim); background: rgba(242,169,59,.14); }
   .owner-name { color: var(--honey); font-weight: 700; }
 

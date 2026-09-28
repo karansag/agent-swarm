@@ -1449,3 +1449,13 @@ def test_spawn_and_stop_report_unknown_outcomes_distinctly(client, monkeypatch):
     monkeypatch.setattr(tmux, "kill_pane", kill_timed_out)
     r = client.post(f"/agents/{user}/stop")
     assert r.status_code == 502 and r.json()["detail"]["status"] == "unknown"
+
+
+def test_portal_shows_machines_and_unknown_deliveries():
+    portal = portal_source()
+    # Messages are judged by their status, never by the delivered flag.
+    assert 'm.status === "unknown"' in portal and "m.delivered ?" not in portal
+    # An unknown outcome is resent only on purpose, as a new message.
+    assert "may already have it" in portal and "send again" in portal
+    # Machines: a strip of nodes and a spawn target.
+    assert "function NodeStrip" in portal and 'title="machine"' in portal and "body.node = node" in portal
