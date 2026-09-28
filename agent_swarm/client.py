@@ -220,6 +220,8 @@ def cmd_task_update(args: argparse.Namespace) -> int:
         payload["assignee"] = args.assignee
     if args.worktree is not None:
         payload["worktree"] = args.worktree
+        # A path is only meaningful on the machine it is on.
+        payload["worktree_node"] = local_node()
     if args.depends_on is not None:
         payload["depends_on"] = _parse_deps(args.depends_on)
     if args.note is not None:

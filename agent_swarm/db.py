@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content     TEXT NOT NULL,
     ts          REAL NOT NULL,
     delivered   INTEGER NOT NULL DEFAULT 0,
-    delivery_error TEXT
+    delivery_error TEXT,
+    status      TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_recipient_ts
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     assignee    TEXT,
     status      TEXT NOT NULL DEFAULT 'open',
     worktree    TEXT,
+    worktree_node TEXT,
     note        TEXT,
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
@@ -190,21 +192,28 @@ def name_taken_by_other(
     agent_id: str | None,
     node: str,
     tmux_pane: str,
+    tmux_server: str | None,
 ) -> bool:
     """True when `user_id` belongs to an agent other than this one.
 
-    Identity is the agent_id when we have one, else the pane on its node,
-    matching how `register` resolves an existing handle.
+    Identity is the agent_id when we have one, else the pane on its node
+    under the tmux server that issued it, matching how `register` resolves
+    an existing handle.
     """
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT agent_id, node, tmux_pane FROM recipients WHERE user_id=?", (user_id,)
+        "SELECT agent_id, node, tmux_pane, tmux_server FROM recipients WHERE user_id=?",
+        (user_id,),
     ).fetchone()
     if row is None:
         return False
     if agent_id and row["agent_id"]:
         return row["agent_id"] != agent_id
-    return row["node"] != node or row["tmux_pane"] != tmux_pane
+    return (
+        row["node"] != node
+        or row["tmux_pane"] != tmux_pane
+        or row["tmux_server"] != tmux_server
+    )
 
 
 @_serialized
@@ -260,9 +269,16 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN team_id INTEGER")
     if "note" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN note TEXT")
+    if "worktree_node" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN worktree_node TEXT")
     msg_cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     if "attachments" not in msg_cols:
         conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT")
+    if "status" not in msg_cols:
+        # No default on purpose: a row an older server writes during an
+        # upgrade has NULL here, and _message reads its flag instead. A
+        # default of 'pending' would make such rows look in flight.
+        conn.execute("ALTER TABLE messages ADD COLUMN status TEXT")
     conn.commit()
 
 
@@ -520,6 +536,7 @@ def update_task(
     worktree: str | None | object = _UNSET,
     team_id: int | None | object = _UNSET,
     note: str | None | object = _UNSET,
+    worktree_node: str | None | object = _UNSET,
 ) -> dict | None:
     task = get_task(conn, task_id)
     if task is None:
@@ -540,15 +557,23 @@ def update_task(
             task["assignee"] = None
     if worktree is not _UNSET:
         task["worktree"] = worktree
+    # A path only means something on the machine it is on; the two are set
+    # and cleared together.
+    if worktree_node is not _UNSET:
+        task["worktree_node"] = worktree_node
+    if task["worktree"] is None:
+        task["worktree_node"] = None
     if note is not _UNSET:
         task["note"] = note
     conn.execute(
-        "UPDATE tasks SET status=?, assignee=?, team_id=?, worktree=?, note=?, updated_at=? WHERE id=?",
+        "UPDATE tasks SET status=?, assignee=?, team_id=?, worktree=?, worktree_node=?, note=?, "
+        "updated_at=? WHERE id=?",
         (
             task["status"],
             task["assignee"],
             task["team_id"],
             task["worktree"],
+            task["worktree_node"],
             task["note"],
             time.time(),
             task_id,
@@ -658,6 +683,9 @@ def set_agent_team(
     return get_recipient(conn, user_id)
 
 
+MESSAGE_STATUSES = ("pending", "delivered", "failed", "unknown")
+
+
 @_serialized
 def record_message(
     conn: sqlite3.Connection,
@@ -665,26 +693,77 @@ def record_message(
     recipient: str,
     context: str | None,
     content: str,
-    delivered: bool,
-    delivery_error: str | None,
+    status: str,
+    delivery_error: str | None = None,
     attachments: list[str] | None = None,
 ) -> int:
+    """Store a message. `status` is one of MESSAGE_STATUSES.
+
+    A message bound for a pane is recorded as pending before dispatch and
+    settled with set_message_status afterwards, so the row exists even when
+    the outcome is lost. `delivered` is kept as the flag form of the status.
+    """
+    if status not in MESSAGE_STATUSES:
+        raise ValueError(f"invalid message status: {status}")
     cur = conn.execute(
-        "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error, attachments) "
-        "VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error, "
+        "attachments, status) VALUES(?,?,?,?,?,?,?,?,?)",
         (
             sender,
             recipient,
             context,
             content,
             time.time(),
-            1 if delivered else 0,
+            1 if status == "delivered" else 0,
             delivery_error,
             json.dumps(attachments) if attachments else None,
+            status,
         ),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+@_serialized
+def abandon_pending_messages(conn: sqlite3.Connection, reason: str) -> int:
+    """Mark every pending message unknown.
+
+    Called once at startup, when no delivery can be in flight: a row still
+    pending was dispatched by a server that stopped before recording the
+    result. The paste may or may not have happened, so it is unknown and is
+    never replayed. Returns the number of rows changed.
+    """
+    cur = conn.execute(
+        "UPDATE messages SET status='unknown', delivered=0, delivery_error=? WHERE status='pending'",
+        (reason,),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+@_serialized
+def fill_missing_worktree_node(conn: sqlite3.Connection, node: str) -> int:
+    """Stamp `node` on worktree paths recorded before nodes were. Every such
+    path was recorded by an agent on this server's own machine."""
+    cur = conn.execute(
+        "UPDATE tasks SET worktree_node=? WHERE worktree IS NOT NULL AND worktree_node IS NULL",
+        (node,),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+@_serialized
+def set_message_status(
+    conn: sqlite3.Connection, message_id: int, status: str, delivery_error: str | None = None
+) -> None:
+    if status not in MESSAGE_STATUSES:
+        raise ValueError(f"invalid message status: {status}")
+    conn.execute(
+        "UPDATE messages SET status=?, delivered=?, delivery_error=? WHERE id=?",
+        (status, 1 if status == "delivered" else 0, delivery_error, message_id),
+    )
+    conn.commit()
 
 
 @_serialized
@@ -727,4 +806,8 @@ def attachment_last_used(conn: sqlite3.Connection) -> dict[str, float]:
 def _message(row: sqlite3.Row) -> dict:
     msg = dict(row)
     msg["attachments"] = json.loads(msg["attachments"]) if msg.get("attachments") else []
+    if msg.get("status") is None:
+        # Written by a server from before statuses, which recorded a message
+        # only after delivery: the flag is the whole story.
+        msg["status"] = "delivered" if msg["delivered"] else "failed"
     return msg

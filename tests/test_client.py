@@ -196,9 +196,11 @@ def test_cmd_task_update_records_worktree(monkeypatch, capsys):
 
     assert client.cmd_task_update(args) == 0
     assert captured["url"].endswith("/tasks/7")
+    # A path only means something on the machine it is on.
     assert captured["json"] == {
         "status": "picked_up",
         "worktree": "/tmp/repo-task-7",
+        "worktree_node": tmux.local_node(),
     }
     assert capsys.readouterr().out == '{"ok": true}\n'
 

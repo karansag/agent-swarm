@@ -164,6 +164,11 @@ class TaskUpdateReq(BaseModel):
     status: Literal["open", "picked_up", "done"] | None = None
     assignee: str | None = None
     worktree: str | None = Field(default=None, min_length=1)
+    worktree_node: str | None = Field(
+        default=None,
+        description="Machine the worktree path is on. The CLI sends its own node; "
+        "omitted means the server's own.",
+    )
     team_id: int | None = None
     depends_on: list[int] | None = None
     note: str | None = Field(
@@ -343,8 +348,19 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     # here; others come and go with their connection.
     fleet = nodes.NodeRegistry(nodes.LocalNode(tmux.local_node()))
     # Rows from before nodes were recorded were all registered against this
-    # server's own tmux, so they belong to this machine.
+    # server's own tmux, so they belong to this machine; likewise worktree
+    # paths recorded before they carried a node.
     db.fill_missing_node(conn, fleet.local.name)
+    db.fill_missing_worktree_node(conn, fleet.local.name)
+    # Nothing is in flight at startup, so a pending message was dispatched
+    # by a server that stopped before recording its result: unknown. This
+    # holds only while one hub process uses the database; a second one
+    # starting alongside would mark the first's in-flight rows.
+    abandoned = db.abandon_pending_messages(
+        conn, "the server stopped before the delivery result was recorded"
+    )
+    if abandoned:
+        log.warning("%d message(s) left pending by the previous run are now unknown", abandoned)
     attachments_root = Path(db_path).expanduser().resolve().parent / "attachments"
 
     # Per-agent activity state, mutated by the monitor loop and read by
@@ -366,15 +382,28 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     async def _monitor_tick():
         _migrate_legacy_panes()
         recipients = db.list_recipients(conn)
-        # One look at each node's tmux per tick. A node the server cannot
-        # reach leaves its agents stopped rather than failing the tick.
-        snaps: dict[str, nodes.PaneSnapshot | None] = {}
-        for name in {r["node"] for r in recipients}:
-            node = fleet.get(name)
-            snaps[name] = await asyncio.to_thread(node.snapshot) if node else None
+        # One look at each node's tmux per tick, all nodes at once. The node
+        # object is held for the whole tick so a reconnect mid-tick cannot
+        # swap it out; a node that fails to answer, or is not connected,
+        # leaves its agents stopped rather than failing the tick.
+        held = {name: fleet.get(name) for name in {r["node"] for r in recipients}}
+
+        async def _observe(node: nodes.Node | None) -> nodes.PaneSnapshot | None:
+            if node is None:
+                return None
+            try:
+                return await asyncio.to_thread(node.snapshot)
+            except nodes.Unavailable as e:
+                log.warning("node %s could not be observed: %s", node.name, e)
+                return None
+            except Exception:
+                log.exception("snapshot of node %s failed", node.name)
+                return None
+
+        snaps = dict(zip(held, await asyncio.gather(*(_observe(n) for n in held.values()))))
         observations = []
         for r in recipients:
-            pane, snap = r["tmux_pane"], snaps[r["node"]]
+            pane, node, snap = r["tmux_pane"], held[r["node"]], snaps[r["node"]]
             # An id from an earlier tmux server now names some other pane.
             alive = (
                 snap is not None and pane in snap.live and _stale(r, snap.server) is None
@@ -385,8 +414,13 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 topic = tmux.title_summary(snap.title(pane) or "")
                 if topic:
                     db.record_summary(conn, r["user_id"], topic, "title")
-                # Subprocess capture must not block the event loop.
-                text, err = await asyncio.to_thread(fleet.get(r["node"]).capture, pane)
+                # Subprocess capture must not block the event loop, and one
+                # pane's failure must not end the tick for the others.
+                try:
+                    text, err = await asyncio.to_thread(node.capture, pane, r.get("tmux_server"))
+                except Exception:
+                    log.exception("capture of %s on %s failed", pane, node.name)
+                    text, err = None, "capture failed"
                 capture = text if err is None else None
             observations.append(
                 activity.Observation(r["user_id"], r.get("flavor"), alive, capture)
@@ -399,8 +433,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 recipient=OWNER,
                 context="attention",
                 content=f"needs attention: {note.detail}",
-                delivered=True,
-                delivery_error=None,
+                status="delivered",
             )
 
     retention_days = float(
@@ -507,7 +540,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             # A handle whose agent is offline can be reclaimed, so a restarted
             # agent gets its name and history back from a new pane.
             if (
-                db.name_taken_by_other(conn, requested, req.agent_id, node.name, pane)
+                db.name_taken_by_other(
+                    conn, requested, req.agent_id, node.name, pane, server
+                )
                 and _is_alive(requested)
             ):
                 raise HTTPException(
@@ -565,7 +600,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             # re-registers from another machine moves with its handle.
             node=node.name,
         )
-        node.tag_pane(pane, user_id)
+        node.tag_pane(nodes.new_op_id(), pane, server, user_id)
         registered = db.get_recipient(conn, user_id)
         peers = [r for r in _annotated_recipients() if r["user_id"] != user_id]
         return {
@@ -602,9 +637,19 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         """The node holding a registered agent's pane, or None if unreachable."""
         return fleet.get(r.get("node"))
 
+    def _try_snapshot(node: nodes.Node | None) -> nodes.PaneSnapshot | None:
+        """A node's snapshot, or None when it is absent or cannot observe
+        its tmux right now. None means nothing is known, not nothing there."""
+        if node is None:
+            return None
+        try:
+            return node.snapshot()
+        except nodes.Unavailable as e:
+            log.warning("node %s could not be observed: %s", node.name, e)
+            return None
+
     def _snapshot_named(name: str | None) -> nodes.PaneSnapshot | None:
-        node = fleet.get(name)
-        return node.snapshot() if node else None
+        return _try_snapshot(fleet.get(name))
 
     def _pane_ref(target: str, node: nodes.Node) -> tuple[str, str, str | None]:
         """(pane id, session:window.pane label, tmux server) for a pane target.
@@ -618,9 +663,13 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             return target, target, None
         return resolved[0], resolved[1], node.server_id()
 
-    def _offline(r: dict, snap: nodes.PaneSnapshot | None) -> str | None:
-        if snap is None:
+    def _offline(
+        r: dict, node: nodes.Node | None, snap: nodes.PaneSnapshot | None
+    ) -> str | None:
+        if node is None:
             return f"recipient offline: node {r['node']} is not connected"
+        if snap is None:
+            return f"recipient offline: node {r['node']} cannot observe its tmux right now"
         return tmux.offline_reason(
             r["tmux_pane"], snap.existing, snap.live, stale=_stale(r, snap.server)
         )
@@ -641,10 +690,13 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     def _annotated_recipients() -> list[dict]:
         _migrate_legacy_panes()
         rows = db.list_recipients(conn)
-        snaps = {name: _snapshot_named(name) for name in {r["node"] for r in rows}}
+        held = {name: fleet.get(name) for name in {r["node"] for r in rows}}
+        snaps = {name: _try_snapshot(node) for name, node in held.items()}
         for r in rows:
             snap = snaps[r["node"]]
-            r["offline_reason"] = _offline(r, snap)
+            # Only an observed node can confirm a pane is gone or a shell.
+            r["observed"] = snap is not None
+            r["offline_reason"] = _offline(r, held[r["node"]], snap)
             r["alive"] = r["offline_reason"] is None
             # Show where the pane is right now; fall back to where it last was.
             if r["alive"] and snap.label(r["tmux_pane"]):
@@ -664,8 +716,8 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         rows = [r for r in db.legacy_pane_rows(conn) if r["node"] == fleet.local.name]
         if not rows:
             return
-        snap = fleet.local.snapshot()
-        if snap.server is None:
+        snap = _try_snapshot(fleet.local)
+        if snap is None or snap.server is None:
             return  # no tmux right now; try again on a later call
         for d in panes.plan(rows, snap.table, snap.server_start):
             row = next(r for r in rows if r["user_id"] == d.user_id)
@@ -679,15 +731,21 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 db.bind_pane(conn, d.user_id, row["tmux_pane"], db.UNBOUND, row["tmux_pane"])
             log.info("pane migration: %s -> %s (%s)", d.user_id, d.pane_id or "offline", d.reason)
 
-    def _refuse_if_offline(
+    def _reach(
         sender: str, recipient: dict, context, content, files: list[str] | None = None
-    ) -> None:
-        reason = _offline(recipient, _snapshot_named(recipient["node"]))
+    ) -> nodes.Node:
+        """The node to deliver through, or a 409 recording why not.
+
+        The node object is returned rather than looked up again afterwards,
+        so the delivery goes to the connection that was just checked.
+        """
+        node = _node_of(recipient)
+        reason = _offline(recipient, node, _try_snapshot(node))
         if reason is None:
-            return
+            return node
         mid = db.record_message(
             conn, sender, recipient["user_id"], context, content,
-            delivered=False, delivery_error=reason, attachments=files,
+            status="failed", delivery_error=reason, attachments=files,
         )
         raise HTTPException(
             status_code=409,
@@ -726,9 +784,10 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         for r in _annotated_recipients():
             if r["alive"]:
                 continue
-            # Unreachable is not gone: only a node can confirm its pane is
-            # missing, so an agent on a disconnected node is always kept.
-            if _node_of(r) is None:
+            # Unobserved is not gone: only a node that answered can confirm
+            # a pane is missing, so an agent on a node that is disconnected
+            # or could not read its tmux is always kept.
+            if not r["observed"]:
                 kept_offline.append(r["user_id"])
                 continue
             gone = "no longer exists" in r["offline_reason"]
@@ -768,7 +827,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 recipient_id,
                 context,
                 content,
-                delivered=False,
+                status="failed",
                 delivery_error="recipient not registered",
                 attachments=files,
             )
@@ -780,20 +839,53 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                     "message_id": mid,
                 },
             )
-        _refuse_if_offline(OWNER, recipient, context, content, files)
-        body = tmux.format_message(OWNER, context, _with_attachments(content, files))
-        ok, err = _node_of(recipient).deliver(
-            recipient["tmux_pane"],
-            body,
-            message_prefix=recipient.get("message_prefix"),
-            submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
-            flavor=recipient.get("flavor"),
-        )
+        node = _reach(OWNER, recipient, context, content, files)
+        mid, status, err = _dispatch(node, OWNER, recipient, context, content, files)
+        return {
+            "ok": status == "delivered", "status": status,
+            "message_id": mid, "delivery_error": err,
+        }
+
+    # Node result -> message status.
+    MESSAGE_STATUS = {"ok": "delivered", "failed": "failed", "unknown": "unknown"}
+
+    def _dispatch(
+        node: nodes.Node,
+        sender: str,
+        recipient: dict,
+        context: str | None,
+        content: str,
+        files: list[str] | None = None,
+    ) -> tuple[int, str, str | None]:
+        """Record a message, then paste it into the recipient's pane.
+
+        The row exists before the paste, with the message id as the
+        operation id, so a result that never comes back leaves a message
+        marked unknown rather than a paste with no record. Unknown is never
+        retried here: the agent may already have it.
+        """
+        files = files or []
         mid = db.record_message(
-            conn, OWNER, recipient_id, context, content, delivered=ok,
-            delivery_error=err, attachments=files,
+            conn, sender, recipient["user_id"], context, content,
+            status="pending", attachments=files,
         )
-        return {"ok": ok, "message_id": mid, "delivery_error": err}
+        body = tmux.format_message(sender, context, _with_attachments(content, files))
+        try:
+            result = node.deliver(
+                str(mid),
+                recipient["tmux_pane"],
+                recipient.get("tmux_server"),
+                body,
+                message_prefix=recipient.get("message_prefix"),
+                submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
+                flavor=recipient.get("flavor"),
+            )
+        except Exception as e:  # noqa: BLE001 - anything at all after dispatch is unknown
+            log.exception("delivery of message %d to %s raised", mid, recipient["user_id"])
+            result = nodes.Result("unknown", f"{type(e).__name__}: {e}")
+        status = MESSAGE_STATUS[result.status]
+        db.set_message_status(conn, mid, status, result.error)
+        return mid, status, result.error
 
     @app.post("/send")
     def send(req: SendReq):
@@ -812,16 +904,10 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             # Messages to the human are recorded for the dashboard, not
             # injected into a pane.
             mid = db.record_message(
-                conn,
-                sender,
-                OWNER,
-                req.context,
-                req.content,
-                delivered=True,
-                delivery_error=None,
+                conn, sender, OWNER, req.context, req.content, status="delivered"
             )
-            return {"ok": True, "message_id": mid, "delivered_to_pane": None,
-                    "delivery_error": None}
+            return {"ok": True, "status": "delivered", "message_id": mid,
+                    "delivered_to_pane": None, "delivery_error": None}
         recipient = db.get_recipient(conn, req.recipient)
         if recipient is None:
             mid = db.record_message(
@@ -830,7 +916,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 req.recipient,
                 req.context,
                 req.content,
-                delivered=False,
+                status="failed",
                 delivery_error="recipient not registered",
             )
             raise HTTPException(
@@ -841,26 +927,11 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                     "message_id": mid,
                 },
             )
-        _refuse_if_offline(sender, recipient, req.context, req.content)
-        body = tmux.format_message(sender, req.context, req.content)
-        ok, err = _node_of(recipient).deliver(
-            recipient["tmux_pane"],
-            body,
-            message_prefix=recipient.get("message_prefix"),
-            submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
-            flavor=recipient.get("flavor"),
-        )
-        mid = db.record_message(
-            conn,
-            sender,
-            req.recipient,
-            req.context,
-            req.content,
-            delivered=ok,
-            delivery_error=err,
-        )
+        node = _reach(sender, recipient, req.context, req.content)
+        mid, status, err = _dispatch(node, sender, recipient, req.context, req.content)
         return {
-            "ok": ok,
+            "ok": status == "delivered",
+            "status": status,
             "message_id": mid,
             "delivered_to_pane": recipient["tmux_pane"],
             "delivery_error": err,
@@ -1057,6 +1128,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             kwargs["team_id"] = req.team_id
         if "worktree" in req.model_fields_set:
             kwargs["worktree"] = req.worktree
+            kwargs["worktree_node"] = req.worktree_node or fleet.local.name
         if "note" in req.model_fields_set:
             kwargs["note"] = (req.note or "").strip() or None
         if "depends_on" in req.model_fields_set:
@@ -1089,12 +1161,19 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         spec = tmux.HARNESS_SPAWN.get(req.flavor)
         model = req.model if (spec and req.model in spec.models) else None
         node = _node_or_422(req.node)
-        pane, err = node.spawn(command)
-        if pane is None:
+        spawned = node.spawn(nodes.new_op_id(), command)
+        if spawned.pane is None:
+            # Unknown with no pane: nothing to register, and a retry could
+            # leave a second window behind, so the caller decides.
             raise HTTPException(
-                status_code=500,
-                detail={"error": "could not create tmux window", "detail": err},
+                status_code=502 if spawned.status == "unknown" else 500,
+                detail={
+                    "error": "could not create tmux window",
+                    "status": spawned.status,
+                    "detail": spawned.error,
+                },
             )
+        pane = spawned.pane
         user_id = names.pick_unused(conn)
         _, label, server = _pane_ref(pane, node)
         db.register(
@@ -1111,11 +1190,15 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             pane_label=label,
             node=node.name,
         )
-        node.tag_pane(pane, user_id)
-        node.rename_window(pane, user_id)
+        node.tag_pane(nodes.new_op_id(), pane, server, user_id)
+        node.rename_window(nodes.new_op_id(), pane, server, user_id)
         return {
             "ok": True, "user_id": user_id, "tmux_pane": pane, "pane_label": label,
             "node": node.name,
+            # "unknown": the window exists and is registered, but whether the
+            # harness launched in it did not report back.
+            "launch": "ok" if spawned.ok else spawned.status,
+            "launch_error": spawned.error,
             "flavor": req.flavor, "model": model, "autonomy": req.autonomy,
         }
 
@@ -1131,7 +1214,12 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 status_code=409,
                 detail={"error": f"node {recipient['node']} is not connected"},
             )
-        snap = node.snapshot()
+        snap = _try_snapshot(node)
+        if snap is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": f"node {recipient['node']} cannot be observed right now"},
+            )
         # A pane that is gone, or that only holds a bare shell, has no agent
         # to stop; leave the shell (and the registration) alone.
         if _stale(recipient, snap.server) or pane not in snap.live:
@@ -1139,11 +1227,15 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 "ok": True, "user_id": user_id, "tmux_pane": pane,
                 "already_stopped": True,
             }
-        ok, err = node.kill(pane)
-        if not ok:
+        killed = node.kill(nodes.new_op_id(), pane, recipient.get("tmux_server"))
+        if not killed.ok:
             raise HTTPException(
-                status_code=500,
-                detail={"error": "could not stop tmux pane", "detail": err},
+                status_code=502 if killed.status == "unknown" else 500,
+                detail={
+                    "error": "could not stop tmux pane",
+                    "status": killed.status,
+                    "detail": killed.error,
+                },
             )
         return {
             "ok": True, "user_id": user_id, "tmux_pane": pane,
@@ -1242,8 +1334,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         if node is None:
             text, err, label = None, f"node {recipient['node']} is not connected", None
         else:
-            text, err = node.capture(recipient["tmux_pane"])
-            label = node.snapshot().label(recipient["tmux_pane"])
+            text, err = node.capture(recipient["tmux_pane"], recipient.get("tmux_server"))
+            snap = _try_snapshot(node)
+            label = snap.label(recipient["tmux_pane"]) if snap else None
         return {
             "user_id": user_id,
             "tmux_pane": recipient["tmux_pane"],
@@ -1255,11 +1348,13 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     return app
 
 
-app = create_app()
-
-
 def _run() -> None:
-    """Console-script entry: `agent-swarm-server` starts uvicorn on 127.0.0.1:8765."""
+    """Console-script entry: `agent-swarm-server` starts uvicorn on 127.0.0.1:8765.
+
+    The app is built here, not at import: building it opens the database and
+    runs the startup reconciliation, which must happen in the one process
+    that serves it, never in a test or a tool that merely imports this module.
+    """
     import uvicorn
 
     port = int(
@@ -1268,4 +1363,4 @@ def _run() -> None:
     host = os.environ.get(
         "AGENT_SWARM_HOST", os.environ.get("AGENT_MSG_HOST", "127.0.0.1")
     )
-    uvicorn.run("agent_swarm.server:app", host=host, port=port, reload=False)
+    uvicorn.run(create_app(), host=host, port=port, reload=False)

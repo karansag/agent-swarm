@@ -233,6 +233,26 @@ def _await_submit(pane: str, timeout: float) -> bool:
             return False
 
 
+class Uncertain(Exception):
+    """An operation's side effect may have happened; whether it did could not
+    be established. Never retry an operation that ended this way on its own:
+    a message may already be in the pane, a window may already exist.
+
+    `pane` is set when the operation got far enough to know which pane it
+    was acting on (a spawn whose launch command timed out).
+    """
+
+    def __init__(self, message: str, pane: str | None = None):
+        super().__init__(message)
+        self.pane = pane
+
+
+def _error_text(e: Exception) -> str:
+    if isinstance(e, subprocess.CalledProcessError):
+        return (e.stderr or "").strip() or str(e)
+    return str(e)
+
+
 def deliver(
     pane: str,
     text: str,
@@ -245,7 +265,12 @@ def deliver(
     The text goes in as a bracketed paste (tmux only adds the paste markers when
     the pane's application has enabled them), so TUIs that detect typing bursts
     as pastes — Codex in particular — receive one atomic paste event and the
-    following submit key is unambiguous. Returns (ok, error_message_or_None).
+    following submit key is unambiguous.
+
+    Returns (ok, error) only when the outcome is certain: loading the buffer
+    failed, or tmux refused the paste, so nothing reached the pane. Once the
+    paste may have happened, any error raises Uncertain instead: a timeout
+    on the paste itself, or anything wrong with the submit key afterwards.
     """
     injected = f"{message_prefix or ''}{text}"
     buf = f"agent-swarm-{os.getpid()}-{time.monotonic_ns()}"
@@ -254,10 +279,19 @@ def deliver(
             ["tmux", "load-buffer", "-b", buf, "-"],
             input=injected, capture_output=True, text=True, check=True, timeout=5,
         )
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        return False, _error_text(e)
+    try:
         subprocess.run(
             ["tmux", "paste-buffer", "-p", "-d", "-b", buf, "-t", pane],
             capture_output=True, text=True, check=True, timeout=5,
         )
+    except subprocess.CalledProcessError as e:
+        # tmux answered and said no (bad target, no such buffer): no paste.
+        return False, _error_text(e)
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        raise Uncertain(f"paste did not report back: {_error_text(e)}") from e
+    try:
         time.sleep(max(0.05, submit_delay_for_flavor(flavor)))
         subprocess.run(
             ["tmux", "send-keys", "-t", pane, submit_key],
@@ -269,10 +303,8 @@ def deliver(
                 ["tmux", "send-keys", "-t", pane, submit_key],
                 capture_output=True, text=True, check=True, timeout=5,
             )
-    except subprocess.CalledProcessError as e:
-        return False, e.stderr.strip() or str(e)
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return False, str(e)
+        raise Uncertain(f"pasted, but the submit key failed: {_error_text(e)}") from e
     return True, None
 
 
@@ -412,6 +444,9 @@ def spawn_window(
             text=True,
             timeout=2,
         )
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        return None, _error_text(e)
+    try:
         if has.returncode != 0:
             out = subprocess.run(
                 ["tmux", "new-session", "-d", "-s", session,
@@ -429,10 +464,15 @@ def spawn_window(
                 check=True,
                 timeout=5,
             )
-        pane = out.stdout.strip()
-        if not pane:
-            return None, "tmux did not report a pane id"
-        if command:
+    except subprocess.CalledProcessError as e:
+        return None, _error_text(e)  # tmux answered: nothing was created
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        raise Uncertain(f"window creation did not report back: {_error_text(e)}") from e
+    pane = out.stdout.strip()
+    if not pane:
+        return None, "tmux did not report a pane id"
+    if command:
+        try:
             subprocess.run(
                 ["tmux", "send-keys", "-t", pane, command, "C-m"],
                 capture_output=True,
@@ -440,11 +480,10 @@ def spawn_window(
                 check=True,
                 timeout=5,
             )
-        return pane, None
-    except subprocess.CalledProcessError as e:
-        return None, e.stderr.strip() or str(e)
-    except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return None, str(e)
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            # The window exists; whether the harness started in it is unknown.
+            raise Uncertain(f"launch command did not report back: {_error_text(e)}", pane) from e
+    return pane, None
 
 
 def _tmux_out(*args: str, timeout: float = 2) -> str | None:
@@ -573,7 +612,8 @@ def offline_reason(
 
 
 def kill_pane(pane: str) -> tuple[bool, str | None]:
-    """Kill a tmux pane. Returns (ok, error_message_or_None)."""
+    """Kill a tmux pane. Returns (ok, error_message_or_None) when tmux
+    answered; raises Uncertain when it did not, since the pane may be gone."""
     try:
         subprocess.run(
             ["tmux", "kill-pane", "-t", pane],
@@ -583,9 +623,9 @@ def kill_pane(pane: str) -> tuple[bool, str | None]:
             timeout=3,
         )
     except subprocess.CalledProcessError as e:
-        return False, e.stderr.strip() or str(e)
+        return False, _error_text(e)
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return False, str(e)
+        raise Uncertain(f"kill did not report back: {_error_text(e)}") from e
     return True, None
 
 

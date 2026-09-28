@@ -228,8 +228,9 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 
 - `GET  /health` — sanity check.
 - `POST /register` — body:
-  `{tmux_pane, agent_id?, requested_user?, model?, flavor?, instructions?,
-  message_prefix?, submit_key?}`.
+  `{tmux_pane, node?, agent_id?, requested_user?, model?, flavor?, instructions?,
+  message_prefix?, submit_key?}`. `node` is the machine the pane is on; the
+  CLI sends it for you.
   Response includes the `user_id` and a `protocol_brief` string.
   `requested_user` asks for a specific handle: it is granted when free,
   400 when malformed or reserved, and 409 when another agent holds it.
@@ -237,13 +238,16 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
   chose). An already-registered agent that requests a different handle is
   renamed, and the response reports `renamed_from`.
 - `GET  /recipients` — list registered agents.
-- `POST /send` — body: `{tmux_pane, recipient, content, context?}`.
-  Returns `{ok, message_id, delivered_to_pane, delivery_error}`.
+- `POST /send` — body: `{tmux_pane, node?, recipient, content, context?}`.
+  Returns `{ok, status, message_id, delivered_to_pane, delivery_error}`.
+  `status` is `delivered`, `failed`, or `unknown`; unknown means the paste
+  may have landed but its result was lost, so do not resend on your own.
 - `GET  /messages?user=<handle>&limit=<n>` — recent traffic.
   **For history/audit only — not for inbox polling.** Delivery is push.
 - `GET  /tasks` — list tasks, including worktree paths and `depends_on`.
 - `POST /tasks` — body: `{title, description?, assignee?, team_id?, depends_on?}`.
-- `PATCH /tasks/<id>` — body: `{status?, assignee?, worktree?, team_id?, depends_on?}`.
+- `PATCH /tasks/<id>` — body: `{status?, assignee?, worktree?, worktree_node?, team_id?, depends_on?, note?}`.
+  A worktree path is recorded with the machine it is on; the CLI fills that in.
   Assignee and team are mutually exclusive; setting one clears the other.
 - `GET  /teams` / `POST /teams` / `PATCH /teams/<id>` / `DELETE /teams/<id>` —
   team management; `PATCH` with `{queen, objective?}` crowns a queen and

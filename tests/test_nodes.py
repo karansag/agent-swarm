@@ -3,25 +3,94 @@
 from agent_swarm import nodes, tmux
 
 
-def test_local_node_snapshot_reads_tmux_at_call_time(monkeypatch):
+def test_local_node_snapshot_derives_everything_from_one_pane_read(monkeypatch):
     node = nodes.LocalNode("here")
-    monkeypatch.setattr(tmux, "server_id", lambda: "srv-9")
-    monkeypatch.setattr(tmux, "server_start_time", lambda: 42.0)
-    monkeypatch.setattr(tmux, "list_panes", lambda: {"%1", "%2"})
-    monkeypatch.setattr(tmux, "live_agent_panes", lambda: {"%1"})
+    monkeypatch.setattr(tmux, "server_id", lambda: "1234:42")
     monkeypatch.setattr(
         tmux, "pane_table",
-        lambda: {"%1": {"label": "a:0.0", "command": "claude", "title": "✳ topic"}},
+        lambda: {
+            "%1": {"label": "a:0.0", "command": "claude", "title": "✳ topic"},
+            "%2": {"label": "a:0.1", "command": "bash", "title": ""},
+        },
     )
     snap = node.snapshot()
-    assert snap.server == "srv-9"
+    assert snap.server == "1234:42"
     assert snap.server_start == 42.0
     assert snap.existing == {"%1", "%2"}
     assert snap.live == {"%1"}
     assert snap.label("%1") == "a:0.0"
     assert snap.title("%1") == "✳ topic"
-    assert snap.label("%2") is None
-    assert node.server_id() == "srv-9"
+    assert snap.label("%3") is None
+    assert node.server_id() == "1234:42"
+
+
+def test_local_node_snapshot_rereads_when_tmux_restarts_mid_read(monkeypatch):
+    # Server id before and after the pane read must agree; otherwise the
+    # panes belong to one server and the identity to another.
+    ids = iter(["1:1", "2:2", "2:2", "2:2"])
+    tables = iter([{"%0": {"label": "old", "command": "claude", "title": ""}},
+                   {"%0": {"label": "new", "command": "bash", "title": ""}}])
+    monkeypatch.setattr(tmux, "server_id", lambda: next(ids))
+    monkeypatch.setattr(tmux, "pane_table", lambda: next(tables))
+    snap = nodes.LocalNode("here").snapshot()
+    assert snap.server == "2:2"
+    assert snap.label("%0") == "new"
+    assert snap.live == frozenset()
+
+
+def test_local_node_refuses_a_pane_from_an_earlier_tmux(monkeypatch):
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-2")
+    calls = []
+    monkeypatch.setattr(tmux, "deliver", lambda *a, **k: calls.append(a) or (True, None))
+    monkeypatch.setattr(tmux, "capture_pane", lambda pane: calls.append(pane) or ("x", None))
+    monkeypatch.setattr(tmux, "kill_pane", lambda pane: calls.append(pane) or (True, None))
+    monkeypatch.setattr(tmux, "tag_pane", lambda pane, h: calls.append(pane) or (True, None))
+    monkeypatch.setattr(tmux, "rename_window", lambda pane, n: calls.append(pane) or (True, None))
+    node = nodes.LocalNode("here")
+    result = node.deliver("op", "%1", "srv-1", "hello")
+    assert result.status == "failed" and "srv-1 is gone" in result.error
+    assert node.capture("%1", "srv-1")[0] is None
+    assert node.kill("op", "%1", "srv-1").status == "failed"
+    assert node.tag_pane("op", "%1", "srv-1", "otter").status == "failed"
+    assert node.rename_window("op", "%1", "srv-1", "otter").status == "failed"
+    assert calls == []
+    # The current server, or no expectation at all, goes through.
+    assert node.deliver("op", "%1", "srv-2", "hello").ok
+    assert node.deliver("op", "%1", None, "hello").ok
+    assert len(calls) == 2
+
+
+def test_local_node_snapshot_gives_up_after_two_restarts(monkeypatch):
+    import pytest
+
+    ids = iter(["1:1", "2:2", "2:2", "3:3"])
+    monkeypatch.setattr(tmux, "server_id", lambda: next(ids))
+    monkeypatch.setattr(tmux, "pane_table", lambda: {"%0": {"label": "x", "command": "claude", "title": ""}})
+    with pytest.raises(nodes.Unavailable):
+        nodes.LocalNode("here").snapshot()
+
+
+def test_local_node_reports_an_uncertain_paste_as_unknown(monkeypatch):
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+
+    def deliver(*a, **k):
+        raise tmux.Uncertain("pasted, but the submit key failed: timed out")
+
+    monkeypatch.setattr(tmux, "deliver", deliver)
+    result = nodes.LocalNode("here").deliver("op", "%1", "srv-1", "hi")
+    assert result.status == "unknown" and "submit key" in result.error
+
+
+def test_local_node_spawn_and_kill_return_results(monkeypatch):
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    monkeypatch.setattr(tmux, "spawn_window", lambda session=None, command=None: ("%9", None))
+    monkeypatch.setattr(tmux, "kill_pane", lambda pane: (False, "no such pane"))
+    node = nodes.LocalNode("here")
+    spawned = node.spawn("op", "claude")
+    assert spawned.ok and spawned.pane == "%9"
+    monkeypatch.setattr(tmux, "spawn_window", lambda session=None, command=None: (None, "boom"))
+    assert node.spawn("op", "claude") == nodes.Spawned("failed", None, "boom")
+    assert node.kill("op", "%9", "srv-1") == nodes.Result("failed", "no such pane")
 
 
 def test_local_node_delivers_through_tmux(monkeypatch):
@@ -32,10 +101,11 @@ def test_local_node_delivers_through_tmux(monkeypatch):
             calls.append((pane, text, message_prefix, submit_key, flavor)) or (True, None)
         ),
     )
-    ok, err = nodes.LocalNode("here").deliver(
-        "%3", "hello", message_prefix="/queue ", submit_key="Enter", flavor="codex"
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    result = nodes.LocalNode("here").deliver(
+        "7", "%3", "srv-1", "hello", message_prefix="/queue ", submit_key="Enter", flavor="codex"
     )
-    assert (ok, err) == (True, None)
+    assert result == nodes.Result("ok", None) and result.ok
     assert calls == [("%3", "hello", "/queue ", "Enter", "codex")]
 
 
@@ -52,3 +122,29 @@ def test_registry_always_keeps_the_local_node():
     fleet.remove("laptop")
     fleet.remove("hub")
     assert fleet.names() == ["hub"]
+
+
+def test_registry_refuses_a_node_claiming_the_local_name():
+    import pytest
+
+    fleet = nodes.NodeRegistry(nodes.LocalNode("hub"))
+    with pytest.raises(ValueError):
+        fleet.add(nodes.LocalNode("hub"))
+
+
+def test_local_node_carries_uncertain_spawn_and_kill(monkeypatch):
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+
+    def spawn_window(session=None, command=None):
+        raise tmux.Uncertain("launch command did not report back", "%4")
+
+    monkeypatch.setattr(tmux, "spawn_window", spawn_window)
+    assert nodes.LocalNode("here").spawn("op", "claude") == nodes.Spawned(
+        "unknown", "%4", "launch command did not report back"
+    )
+
+    def kill_pane(pane):
+        raise tmux.Uncertain("kill did not report back")
+
+    monkeypatch.setattr(tmux, "kill_pane", kill_pane)
+    assert nodes.LocalNode("here").kill("op", "%4", "srv-1").status == "unknown"

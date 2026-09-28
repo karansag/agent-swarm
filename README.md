@@ -468,14 +468,15 @@ When `--pane` is omitted, the CLI resolves the current pane with
 | Method | Path          | Body / Params                                                       |
 |--------|---------------|---------------------------------------------------------------------|
 | GET    | `/health`     | -                                                                   |
-| POST   | `/register`   | `{tmux_pane, agent_id?, model?, flavor?, instructions?, message_prefix?, submit_key?}` |
+| POST   | `/register`   | `{tmux_pane, node?, agent_id?, requested_user?, model?, flavor?, instructions?, message_prefix?, submit_key?}`; `node` is the machine the pane is on (default: the server's) |
 | GET    | `/recipients` | -                                                                   |
-| POST   | `/send`       | `{tmux_pane, recipient, content, context?}`                         |
+| GET    | `/whoami`     | `?tmux_pane=<id>&node=<name>`; the handle registered for that pane on that node, or null |
+| POST   | `/send`       | `{tmux_pane, node?, recipient, content, context?}`; returns `status` of `delivered`, `failed`, or `unknown` |
 | GET    | `/messages`   | `?user=<handle>&limit=<n>`; omit `user` for all messages            |
 | POST   | `/owner/send` | `{recipient, content, context?}`; sends as the human `owner`        |
 | GET    | `/tasks`      | -                                                                   |
 | POST   | `/tasks`      | `{title, description?, assignee?, team_id?, depends_on?}`; assignment notifies the agent or team |
-| PATCH  | `/tasks/<id>` | `{status?, assignee?, worktree?, team_id?, depends_on?}`; status is `open`, `picked_up`, or `done` |
+| PATCH  | `/tasks/<id>` | `{status?, assignee?, worktree?, worktree_node?, team_id?, depends_on?, note?}`; status is `open`, `picked_up`, or `done`; `worktree_node` is the machine the path is on |
 | GET    | `/teams`      | -                                                                   |
 | POST   | `/teams`      | `{name}`                                                            |
 | PATCH  | `/teams/<id>` | `{name?, queen?, objective?}`; crowning a queen delivers its coordination prompt |

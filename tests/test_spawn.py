@@ -106,3 +106,77 @@ def test_harness_accepts_probes_the_binary(monkeypatch):
     assert tmux.harness_accepts("fakeharness", "--new") is True  # cached
     assert calls == [["fakeharness", "--new", "--help"], ["fakeharness", "--old", "--help"]]
     tmux.harness_accepts.cache_clear()
+
+
+def _run_sequence(monkeypatch, outcomes):
+    """Fake subprocess.run for tmux.deliver: one outcome per tmux call, in order."""
+    import subprocess
+
+    calls = []
+    outcomes = iter(outcomes)
+
+    def run(cmd, **kw):
+        calls.append(cmd[1])
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tmux.subprocess, "run", run)
+    monkeypatch.setattr(tmux.time, "sleep", lambda s: None)
+    monkeypatch.setattr(tmux, "_await_submit", lambda pane, timeout: True)
+    return calls
+
+
+def test_deliver_is_failed_only_while_nothing_reached_the_pane(monkeypatch):
+    import subprocess
+
+    calls = _run_sequence(monkeypatch, [subprocess.CalledProcessError(1, "tmux", stderr="no server")])
+    assert tmux.deliver("%1", "hi") == (False, "no server")
+    assert calls == ["load-buffer"]
+    calls = _run_sequence(monkeypatch, [None, subprocess.CalledProcessError(1, "tmux", stderr="can't find pane")])
+    assert tmux.deliver("%1", "hi") == (False, "can't find pane")
+    assert calls == ["load-buffer", "paste-buffer"]
+
+
+def test_deliver_is_uncertain_once_the_paste_may_have_landed(monkeypatch):
+    import subprocess
+
+    import pytest
+
+    _run_sequence(monkeypatch, [None, subprocess.TimeoutExpired("tmux", 5)])
+    with pytest.raises(tmux.Uncertain, match="paste did not report back"):
+        tmux.deliver("%1", "hi")
+    _run_sequence(monkeypatch, [None, None, subprocess.TimeoutExpired("tmux", 5)])
+    with pytest.raises(tmux.Uncertain, match="submit key failed"):
+        tmux.deliver("%1", "hi")
+    calls = _run_sequence(monkeypatch, [None, None, None])
+    assert tmux.deliver("%1", "hi") == (True, None)
+    assert calls == ["load-buffer", "paste-buffer", "send-keys"]
+
+
+def test_spawn_window_is_uncertain_when_tmux_does_not_report_back(monkeypatch):
+    import subprocess
+
+    import pytest
+
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),  # has-session
+        subprocess.CompletedProcess([], 0, "%7\n", ""),  # new-window
+        subprocess.TimeoutExpired("tmux", 5),  # send-keys
+    ])
+    monkeypatch.setattr(tmux.subprocess, "run", lambda cmd, **kw: _raise_or(next(outcomes)))
+    with pytest.raises(tmux.Uncertain) as info:
+        tmux.spawn_window(command="claude")
+    assert info.value.pane == "%7"
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),
+        subprocess.CalledProcessError(1, "tmux", stderr="no space"),
+    ])
+    assert tmux.spawn_window(command="claude") == (None, "no space")
+
+
+def _raise_or(outcome):
+    if isinstance(outcome, Exception):
+        raise outcome
+    return outcome
