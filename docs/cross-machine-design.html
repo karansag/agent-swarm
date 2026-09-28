@@ -81,9 +81,9 @@
 <body>
 <main>
 <header>
-  <p class="eyebrow">agent-swarm · design proposal · revised 2026-09-28 against master 9b6be27</p>
+  <p class="eyebrow">agent-swarm · design, implemented on master 2026-09-28</p>
   <h1>Hub and Nodes</h1>
-  <p class="lede">One agent-swarm server stays the source of truth. Every other machine runs a thin tmux daemon that dials in over the tailnet. Same commands, same handles, one dashboard. Reviewed by the hoopoe agent; its corrections are marked.</p>
+  <p class="lede">One agent-swarm server stays the source of truth. Every other machine runs a thin tmux daemon that dials in over the tailnet. Same commands, same handles, one dashboard. Reviewed by the hoopoe agent at every step; its corrections are marked. Where the code went its own way: the node's session fence is a local object rather than the hub's generation number, a spawned pane carries the server that created it from the creation command, a node token may only touch agents on its own machine, and task notifications from agents go out in the agent's name. Not built: the owner login for reverse-proxy dashboards and the task importer.</p>
 </header>
 
 <h2>What breaks today</h2>

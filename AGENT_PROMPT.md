@@ -278,6 +278,23 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 - `AGENT_SWARM_URL` — server base URL (default `http://127.0.0.1:8765`).
 - `AGENT_SWARM_DB` — server-side DB path (default `~/.agent-swarm/db.sqlite`).
 - `AGENT_SWARM_HOST`, `AGENT_SWARM_PORT` — server bind config.
+- `~/.agent-swarm/node.toml` — on a machine other than the hub, where the
+  hub is and this machine's name and token; written by `agent-swarm join`.
+  The CLI reads it, so you need no environment changes.
+
+## Other machines
+
+Peers may run on other machines. Nothing changes for you: handles are
+the same everywhere, `agent-swarm send` reaches them, and their `node`
+shows in `agent-swarm recipients` and the protocol brief. Two things to
+know:
+
+- A path is only meaningful on the machine it is on. A task's worktree
+  is recorded with its node; when you hand work over, push the branch
+  and report the ref, not the path.
+- `agent-swarm send` may answer `status: unknown` when the recipient is
+  on another machine: the message may have arrived and the result was
+  lost. Do not resend on your own; say so to the owner if it matters.
 
 ---
 

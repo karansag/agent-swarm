@@ -1,9 +1,15 @@
 # Cross-machine agents: hub and node design
 
-Status: proposal, revised 2026-09-28 against master `9b6be27` after
-review by the hoopoe agent. Nothing here is implemented yet. Each
-decision records what was chosen, the alternatives weighed, and what
-changed in review.
+Status: implemented on master as of 2026-09-28 (steps 0 to 3 of the
+plan below; step 4 is this documentation). Each decision records what
+was chosen, the alternatives weighed, and what changed in review by the
+hoopoe agent, which also reviewed every commit. Where the code differs
+from the text below, the code won: the node's session fence is a local
+object rather than the hub's generation number, a spawned pane carries
+the server that created it from the creation command itself, a node
+token may only touch agents on its own machine, and task notifications
+from agents go out in the agent's name. Not built: the owner login for
+reverse-proxy dashboards and `import-tasks`; see docs/roadmap.md.
 
 ## The problem
 

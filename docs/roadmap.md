@@ -10,9 +10,14 @@ Codex, or otherwise). Last updated 2026-07-13.
   agent. This feeds the visualization above and the roster sublines. No
   separate LLM harness is needed; the agents are LLMs and can
   self-report.
-- **Tailnet auth.** The dashboard can be served across a tailnet, but doing so
-  exposes the full agent-swarm API (send, register, tasks, and spawn), not just
-  read views. Add an auth gate or read-only mode before sharing it.
+- **Owner login.** Nodes authenticate with tokens and everything else is
+  loopback-only, so a dashboard served through a reverse proxy
+  (`AGENT_SWARM_TRUST_LOOPBACK=0`) currently has no way in. Add a login
+  page that sets an HttpOnly cookie from an owner token, with Origin
+  checks on mutating requests.
+- **Importing open tasks** from a machine that ran its own agent-swarm
+  (`agent-swarm import-tasks`, see docs/cross-machine-design.md) is
+  described but not built; re-file them by hand for now.
 
 ## Conventions for this repo
 

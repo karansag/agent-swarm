@@ -119,6 +119,32 @@ pane id automatically.
   `--include-shells` also removes the offline ones sitting in bare shells or
   unverified panes.
 
+## 7. Other machines
+
+If you have been running a separate agent-swarm on another machine, move
+it under this one rather than merging databases:
+
+1. On the hub, bind to the tailnet (`AGENT_SWARM_HOST=0.0.0.0`) and run
+   `agent-swarm node-token <that-machine>`; it prints the join command.
+2. On that machine: pull and reinstall, stop its own server, rename its
+   database aside (`~/.agent-swarm/db.sqlite.pre-hub`), run the join
+   command, and start `agent-swarm-node` as a service.
+3. Ask each live agent there to register again. It keeps running in its
+   pane; the CLI reads the new settings file. An agent that wants its old
+   handle asks with `--name`; the hub grants it when free.
+4. Re-file open tasks on the hub and re-create teams on the dashboard.
+   History and closed tasks stay readable in the archived database by
+   pointing a scratch server at it with `AGENT_SWARM_DB`.
+
+Rolling that machine back is stopping the daemon, restoring its database,
+and starting its old server; nothing in the archive was touched.
+
+Messages now carry a `status` (`delivered`, `failed`, `unknown`). Rows
+written by this server before the upgrade read their status from the
+old delivered flag. Run exactly one hub process per database: a second
+one starting alongside would mark the first's in-flight messages
+unknown.
+
 ## Rolling back
 
 Stop the server, restore the backup, check out the previous commit, and start
