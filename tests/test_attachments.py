@@ -207,7 +207,7 @@ def test_retention_settings_of_zero_keep_everything(tmp_path, monkeypatch):
         lambda: {"0:0.0": {"label": "0:0.0", "command": "claude", "title": ""}},
     )
     monkeypatch.setattr(tmux, "tag_pane", lambda *a: (True, None))
-    c = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False))
+    c = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False), client=("127.0.0.1", 50000))
     user = register(c)
     image = send_image(c, user)
     age_file(image["path"], 400)

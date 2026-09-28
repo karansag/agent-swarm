@@ -88,10 +88,12 @@ def infer_flavor(model: str | None) -> str:
 def local_node() -> str:
     """This machine's node name, as agents report it and the server stores it.
 
-    AGENT_SWARM_NODE wins so a machine whose hostname is long or ambiguous can
-    present a better one; the short hostname is the default.
+    AGENT_SWARM_NODE wins, then the name in ~/.agent-swarm/node.toml, then the
+    short hostname. See agent_swarm.config.
     """
-    return os.environ.get("AGENT_SWARM_NODE") or socket.gethostname().split(".")[0]
+    from . import config
+
+    return config.load().node
 
 
 def submit_key_for_flavor(flavor: str | None) -> str:

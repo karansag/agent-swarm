@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS teams (
     created_at  REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS nodes (
+    name        TEXT PRIMARY KEY,
+    token_hash  TEXT,
+    created_at  REAL NOT NULL,
+    last_seen   REAL,
+    version     TEXT,
+    tmux_server TEXT,
+    harnesses   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS task_deps (
     task_id     INTEGER NOT NULL,
     depends_on  INTEGER NOT NULL,
@@ -811,3 +821,76 @@ def _message(row: sqlite3.Row) -> dict:
         # only after delivery: the flag is the whole story.
         msg["status"] = "delivered" if msg["delivered"] else "failed"
     return msg
+
+
+# ---- nodes: the other machines enrolled with this hub ----------------------
+
+
+def hash_token(token: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@_serialized
+def set_node_token(conn: sqlite3.Connection, name: str, token: str) -> None:
+    """Enrol a node, or rotate its token. Only the hash is kept."""
+    now = time.time()
+    conn.execute(
+        "INSERT INTO nodes(name, token_hash, created_at) VALUES(?,?,?) "
+        "ON CONFLICT(name) DO UPDATE SET token_hash=excluded.token_hash",
+        (name, hash_token(token), now),
+    )
+    conn.commit()
+
+
+@_serialized
+def node_for_token(conn: sqlite3.Connection, token: str) -> str | None:
+    """The node a bearer token belongs to, or None."""
+    row = conn.execute(
+        "SELECT name FROM nodes WHERE token_hash=?", (hash_token(token),)
+    ).fetchone()
+    return row["name"] if row else None
+
+
+@_serialized
+def touch_node(
+    conn: sqlite3.Connection,
+    name: str,
+    version: str | None = None,
+    tmux_server: str | None = None,
+    harnesses: list[str] | None = None,
+) -> None:
+    """Record what a node last told us about itself, and when."""
+    conn.execute(
+        "UPDATE nodes SET last_seen=?, version=COALESCE(?, version), "
+        "tmux_server=COALESCE(?, tmux_server), harnesses=COALESCE(?, harnesses) WHERE name=?",
+        (
+            time.time(),
+            version,
+            tmux_server,
+            json.dumps(harnesses) if harnesses is not None else None,
+            name,
+        ),
+    )
+    conn.commit()
+
+
+@_serialized
+def list_nodes(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT name, created_at, last_seen, version, tmux_server, harnesses FROM nodes ORDER BY name"
+    ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["harnesses"] = json.loads(d["harnesses"]) if d.get("harnesses") else []
+        result.append(d)
+    return result
+
+
+@_serialized
+def delete_node(conn: sqlite3.Connection, name: str) -> bool:
+    cur = conn.execute("DELETE FROM nodes WHERE name=?", (name,))
+    conn.commit()
+    return cur.rowcount > 0

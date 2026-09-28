@@ -89,7 +89,7 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(tmux, "kill_pane", fake_kill_pane)
     app = server.create_app(tmp_path / "db.sqlite", monitor=False)
-    c = TestClient(app)
+    c = TestClient(app, client=("127.0.0.1", 50000))
     c._calls = calls
     c._spawns = spawns
     c._kills = kills
@@ -1221,7 +1221,7 @@ def test_rows_from_before_nodes_belong_to_this_machine(tmp_path):
     conn.commit()
     conn.close()
     app = server.create_app(tmp_path / "old.sqlite", monitor=False)
-    rows = TestClient(app).get("/recipients").json()["recipients"]
+    rows = TestClient(app, client=("127.0.0.1", 50000)).get("/recipients").json()["recipients"]
     assert rows[0]["node"] == tmux.local_node()
 
 
@@ -1354,7 +1354,7 @@ def test_messages_left_pending_by_a_previous_run_become_unknown(tmp_path):
     done = db.record_message(conn, "owner", "otter", None, "landed", "delivered")
     conn.close()
     app = server.create_app(tmp_path / "old.sqlite", monitor=False)
-    by_id = {m["id"]: m for m in TestClient(app).get("/messages").json()["messages"]}
+    by_id = {m["id"]: m for m in TestClient(app, client=("127.0.0.1", 50000)).get("/messages").json()["messages"]}
     assert by_id[stuck]["status"] == "unknown"
     assert "stopped before" in by_id[stuck]["delivery_error"]
     assert by_id[done]["status"] == "delivered"
@@ -1405,7 +1405,7 @@ def test_worktree_paths_from_before_nodes_belong_to_this_machine(tmp_path):
     conn.commit()
     conn.close()
     app = server.create_app(tmp_path / "old.sqlite", monitor=False)
-    t = TestClient(app).get("/tasks").json()["tasks"][0]
+    t = TestClient(app, client=("127.0.0.1", 50000)).get("/tasks").json()["tasks"][0]
     assert t["worktree_node"] == tmux.local_node()
 
 

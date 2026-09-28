@@ -81,7 +81,7 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setattr(tmux, "kill_pane", kill_pane)
     monkeypatch.setattr(tmux, "rename_window", lambda *a: (True, None))
     monkeypatch.setattr(tmux, "tag_pane", lambda *a: (True, None))
-    t.client = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False))
+    t.client = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False), client=("127.0.0.1", 50000))
     t.db_path = tmp_path / "db.sqlite"
     return t
 
