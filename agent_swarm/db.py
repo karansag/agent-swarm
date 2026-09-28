@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS teams (
     created_at  REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS nodes (
     name        TEXT PRIMARY KEY,
     token_hash  TEXT,
@@ -824,6 +829,21 @@ def _message(row: sqlite3.Row) -> dict:
 
 
 # ---- nodes: the other machines enrolled with this hub ----------------------
+
+
+@_serialized
+def hub_id(conn: sqlite3.Connection) -> str:
+    """A random id minted once per database. Nodes scope their record of
+    executed commands by it, since message ids restart with a new database."""
+    import uuid
+
+    row = conn.execute("SELECT value FROM meta WHERE key='hub_id'").fetchone()
+    if row:
+        return row["value"]
+    value = uuid.uuid4().hex
+    conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('hub_id', ?)", (value,))
+    conn.commit()
+    return conn.execute("SELECT value FROM meta WHERE key='hub_id'").fetchone()["value"]
 
 
 def hash_token(token: str) -> str:

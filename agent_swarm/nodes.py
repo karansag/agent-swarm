@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from . import tmux
@@ -111,6 +112,7 @@ class Node(Protocol):
         tmux_server: str | None,
         text: str,
         *,
+        attachments: list[str] = (),
         message_prefix: str | None = None,
         submit_key: str = tmux.DEFAULT_SUBMIT_KEY,
         flavor: str | None = None,
@@ -138,8 +140,17 @@ class LocalNode:
     that monkeypatch the tmux module keep working through the node.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, attachments_root: Path | None = None):
         self.name = name
+        # Where attachments live on this machine. Delivery is text-only, so
+        # an attachment reaches an agent as a path it can open; the path has
+        # to be one on the machine the pane is on.
+        self.attachments_root = attachments_root
+
+    def render_attachments(self, text: str, paths: list[str]) -> str:
+        """The message text plus one line per attached image, as a local path."""
+        lines = [f"[attached image: {p}]" for p in paths]
+        return "\n\n".join(part for part in (text, "\n".join(lines)) if part)
 
     def snapshot(self) -> PaneSnapshot:
         # One read of the pane table, bracketed by the server id, so a tmux
@@ -186,12 +197,18 @@ class LocalNode:
         tmux_server: str | None,
         text: str,
         *,
+        attachments: list[str] = (),
         message_prefix: str | None = None,
         submit_key: str = tmux.DEFAULT_SUBMIT_KEY,
         flavor: str | None = None,
     ) -> Result:
         if stale := _stale_server(tmux_server):
             return Result("failed", stale)
+        if attachments:
+            root = self.attachments_root
+            text = self.render_attachments(
+                text, [str(root / name) if root else name for name in attachments]
+            )
         # tmux.deliver is several subprocesses. It reports failure only while
         # nothing has reached the pane; once the paste may have landed it
         # raises Uncertain, which is exactly the unknown outcome.

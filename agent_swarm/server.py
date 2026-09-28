@@ -378,7 +378,8 @@ def create_app(
         trust_loopback = os.environ.get("AGENT_SWARM_TRUST_LOOPBACK", "1") != "0"
     # Every machine whose tmux this server can drive. The local one is always
     # here; others come and go with their connection.
-    fleet = nodes.NodeRegistry(nodes.LocalNode(tmux.local_node()))
+    attachments_root = Path(db_path).expanduser().resolve().parent / "attachments"
+    fleet = nodes.NodeRegistry(nodes.LocalNode(tmux.local_node(), attachments_root))
     # Rows from before nodes were recorded were all registered against this
     # server's own tmux, so they belong to this machine; likewise worktree
     # paths recorded before they carried a node.
@@ -393,7 +394,6 @@ def create_app(
     )
     if abandoned:
         log.warning("%d message(s) left pending by the previous run are now unknown", abandoned)
-    attachments_root = Path(db_path).expanduser().resolve().parent / "attachments"
 
     # Per-agent activity state, mutated by the monitor loop and read by
     # /api/state. Keyed by user_id; see agent_swarm.activity.step for the shape.
@@ -939,13 +939,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="recipient not registered")
         return {"ok": True, "user_id": user_id}
 
-    def _with_attachments(content: str, files: list[str]) -> str:
-        """Message text plus one line per attached image, as a path the agent can open."""
-        lines = [
-            f"[attached image: {attachments_root / name}]" for name in files
-        ]
-        return "\n\n".join(part for part in (content, "\n".join(lines)) if part)
-
     def _deliver_as(
         sender: str,
         recipient_id: str,
@@ -1009,13 +1002,16 @@ def create_app(
             conn, sender, recipient["user_id"], context, content,
             status="pending", attachments=files,
         )
-        body = tmux.format_message(sender, context, _with_attachments(content, files))
+        # Attachment names travel as names; the node renders them as paths on
+        # the machine the pane is on, fetching them from the hub if remote.
+        body = tmux.format_message(sender, context, content)
         try:
             result = node.deliver(
                 str(mid),
                 recipient["tmux_pane"],
                 recipient.get("tmux_server"),
                 body,
+                attachments=files,
                 message_prefix=recipient.get("message_prefix"),
                 submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
                 flavor=recipient.get("flavor"),
