@@ -85,79 +85,13 @@ def infer_flavor(model: str | None) -> str:
     return DEFAULT_FLAVOR
 
 
-# Named model lines, which identify a model far better than its family does.
-# Checked before the generic fallback so "claude-opus-4-7" reads as "opus"
-# rather than the redundant "claude".
-_MODEL_LINE_KEYWORDS = [
-    "opus", "sonnet", "haiku", "fable",  # claude lines
-    "sol", "terra", "luna",  # codex model codenames
-    "gemini",
-]
-
-
-def model_line(model: str | None) -> str | None:
-    """Short name for a model label's specific line, e.g. "claude-opus-4-7" -> "opus"."""
-    if not model:
-        return None
-    label = model.lower()
-    for kw in _MODEL_LINE_KEYWORDS:
-        if _has_label_token(label, kw):
-            return kw
-    # Unnamed line: use the leading family token with its major version, so
-    # "gpt-5-codex" -> "gpt5" stays distinct from a later "gpt-6-codex".
-    match = re.match(r"[^a-z]*([a-z]+)[^0-9a-z]*(\d+)?", label)
-    if not match:
-        return None
-    family, version = match.group(1), match.group(2)
-    return f"{family}{version}" if version else family
-
-
-def local_host() -> str:
-    """This machine's short name, as agents should report it.
+def local_node() -> str:
+    """This machine's node name, as agents report it and the server stores it.
 
     AGENT_SWARM_NODE wins so a machine whose hostname is long or ambiguous can
-    present a better one; cross-machine setups rely on the same override.
+    present a better one; the short hostname is the default.
     """
     return os.environ.get("AGENT_SWARM_NODE") or socket.gethostname().split(".")[0]
-
-
-def host_tag(host: str | None) -> str | None:
-    """Short handle-safe token for a machine name, e.g. "karans-linux.local" -> "karanslinux".
-
-    Only the first DNS label is kept, then everything outside [a-z0-9] is
-    dropped rather than turned into a hyphen: the handle already uses hyphens
-    to separate its parts, so a host must not be able to add more of them.
-    """
-    if not host:
-        return None
-    label = host.strip().lower().split(".")[0]
-    token = re.sub(r"[^a-z0-9]", "", label)
-    return token[:12] or None
-
-
-def handle_tag(
-    flavor: str | None, model: str | None, host: str | None = None
-) -> str | None:
-    """Suffix identifying an agent, e.g. ("claude", "opus", "karans-linux") -> "claude-opus-karanslinux".
-
-    Auto-assigned handles append this to an animal name so agents drawing from
-    the same pool are told apart by what they actually are and where they run.
-    The harness leads because it is always known and decides delivery; the
-    model line follows only when it adds something the harness does not, so a
-    bare "claude-code" stays "claude" rather than "claude-claude"; the host
-    trails as the "where", and is omitted when the agent did not report one.
-    """
-    harness = (flavor or "").lower() or None
-    line = model_line(model)
-    if harness is None:
-        parts = [line]
-    elif line is None or line == harness or line.startswith(harness):
-        parts = [harness]
-    else:
-        parts = [harness, line]
-    parts.append(host_tag(host))
-    kept = [p for p in parts if p]
-    return "-".join(kept) if kept else None
 
 
 def submit_key_for_flavor(flavor: str | None) -> str:

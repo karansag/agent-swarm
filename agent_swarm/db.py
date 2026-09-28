@@ -121,6 +121,7 @@ def register(
     submit_key: str | None = None,
     tmux_server: str | None = None,
     pane_label: str | None = None,
+    node: str | None = None,
 ) -> None:
     _ensure_columns(conn)
     # One agent per pane. A row holding the same id under an earlier tmux
@@ -137,12 +138,13 @@ def register(
     conn.execute(
         "INSERT INTO recipients("
         "user_id, tmux_pane, agent_id, model, flavor, instructions, message_prefix, submit_key, registered_at, "
-        "tmux_server, pane_label"
-        ") VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+        "tmux_server, pane_label, node"
+        ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(user_id) DO UPDATE SET "
         "tmux_pane=excluded.tmux_pane, "
         "tmux_server=excluded.tmux_server, "
         "pane_label=excluded.pane_label, "
+        "node=COALESCE(excluded.node, recipients.node), "
         "agent_id=COALESCE(excluded.agent_id, recipients.agent_id), "
         "model=COALESCE(excluded.model, recipients.model), "
         "flavor=COALESCE(excluded.flavor, recipients.flavor), "
@@ -162,9 +164,23 @@ def register(
             time.time(),
             tmux_server,
             pane_label,
+            node,
         ),
     )
     conn.commit()
+
+
+@_serialized
+def fill_missing_node(conn: sqlite3.Connection, node: str) -> int:
+    """Stamp `node` on rows registered before nodes were recorded.
+
+    Every such row was registered against this server's own tmux, so it
+    belongs to this machine. Returns the number of rows updated.
+    """
+    _ensure_columns(conn)
+    cur = conn.execute("UPDATE recipients SET node=? WHERE node IS NULL", (node,))
+    conn.commit()
+    return cur.rowcount
 
 
 @_serialized
@@ -229,6 +245,10 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
     for col in ("tmux_server", "pane_label"):
         if col not in cols:
             conn.execute(f"ALTER TABLE recipients ADD COLUMN {col} TEXT")
+    # node is the machine the agent's pane lives on. Metadata for now; the
+    # server fills it for rows that predate the column (fill_missing_node).
+    if "node" not in cols:
+        conn.execute("ALTER TABLE recipients ADD COLUMN node TEXT")
     task_cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     if "worktree" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN worktree TEXT")
@@ -326,7 +346,7 @@ def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | No
 def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT user_id, tmux_pane, tmux_server, pane_label, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients WHERE user_id=?",
         (user_id,),
     ).fetchone()
@@ -337,7 +357,7 @@ def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
 def list_recipients(conn: sqlite3.Connection) -> list[dict]:
     _ensure_columns(conn)
     rows = conn.execute(
-        "SELECT user_id, tmux_pane, tmux_server, pane_label, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients ORDER BY user_id"
     ).fetchall()
     return [dict(r) for r in rows]

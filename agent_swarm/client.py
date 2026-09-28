@@ -28,7 +28,7 @@ from urllib.parse import quote
 import httpx
 
 from . import tmux
-from .tmux import current_pane, local_host
+from .tmux import current_pane, local_node
 
 
 def base_url() -> str:
@@ -79,7 +79,7 @@ def cmd_register(args: argparse.Namespace) -> int:
             "error: could not detect tmux pane; pass --pane explicitly", file=sys.stderr
         )
         return 2
-    payload: dict = {"tmux_pane": pane, "host": local_host()}
+    payload: dict = {"tmux_pane": pane, "node": local_node()}
     if args.name:
         payload["requested_user"] = args.name
     if args.agent_id:
@@ -236,7 +236,8 @@ def cmd_whoami(_: argparse.Namespace) -> int:
     in_pane = tmux.process_in_pane(pane) if pane else None
     print(
         json.dumps(
-            {"user": user, "pane": pane, "in_pane": in_pane, "server": base_url()}, indent=2
+            {"user": user, "pane": pane, "in_pane": in_pane, "node": local_node(), "server": base_url()},
+            indent=2,
         )
     )
     return 0

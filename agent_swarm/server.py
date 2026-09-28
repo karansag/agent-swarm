@@ -81,10 +81,11 @@ class RegisterReq(BaseModel):
         default=None,
         description="Optional delivery flavor; controls default submit key behavior.",
     )
-    host: str | None = Field(
+    node: str | None = Field(
         default=None,
-        description="Machine the agent runs on, used in the assigned handle. "
-        "The client sends $AGENT_SWARM_NODE or the short hostname.",
+        description="Machine the agent's pane lives on; the CLI sends "
+        "$AGENT_SWARM_NODE or its short hostname. Recorded as metadata and "
+        "defaults to the server's own machine.",
     )
     instructions: str | None = Field(
         default=None,
@@ -256,6 +257,8 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
             tags.append(f"flavor={p['flavor']}")
         if p.get("model"):
             tags.append(p["model"])
+        if p.get("node"):
+            tags.append(f"node={p['node']}")
         if p.get("agent_id"):
             tags.append(f"agent={p['agent_id']}")
         if p.get("submit_key"):
@@ -322,6 +325,9 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
 
 def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
     conn = db.connect(db_path)
+    # Rows from before nodes were recorded were all registered against this
+    # server's own tmux, so they belong to this machine.
+    db.fill_missing_node(conn, tmux.local_node())
     attachments_root = Path(db_path).expanduser().resolve().parent / "attachments"
 
     # Per-agent activity state, mutated by the monitor loop and read by
@@ -508,12 +514,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
         else:
             # A brand new registration has no stored flavor to fall back on,
             # so what the agent just told us is the whole picture.
-            user_id = names.pick_unused(
-                conn,
-                tmux.handle_tag(
-                    req.flavor or tmux.infer_flavor(req.model), req.model, req.host
-                ),
-            )
+            user_id = names.pick_unused(conn)
         # A re-register that omits both model and flavor must not downgrade a
         # known harness to 'generic': the write COALESCEs, but only over NULL,
         # so fall back to what is already stored before defaulting.
@@ -534,6 +535,9 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             submit_key,
             tmux_server=server,
             pane_label=label,
+            # A re-register that omits the node keeps the stored one; only a
+            # brand new row defaults to this machine.
+            node=req.node or (current or {}).get("node") or tmux.local_node(),
         )
         tmux.tag_pane(pane, user_id)
         registered = db.get_recipient(conn, user_id)
@@ -543,6 +547,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             "user_id": user_id,
             "tmux_pane": pane,
             "pane_label": label,
+            "node": registered["node"] if registered else req.node,
             "agent_id": registered["agent_id"] if registered else req.agent_id,
             "model": registered["model"] if registered else req.model,
             "flavor": registered["flavor"] if registered else flavor,
@@ -1016,10 +1021,7 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
                 status_code=500,
                 detail={"error": "could not create tmux window", "detail": err},
             )
-        # A spawned agent always lands in a pane on the server's own machine.
-        user_id = names.pick_unused(
-            conn, tmux.handle_tag(req.flavor, model, tmux.local_host())
-        )
+        user_id = names.pick_unused(conn)
         _, label, server = _pane_ref(pane)
         db.register(
             conn,
@@ -1033,6 +1035,8 @@ def create_app(db_path: Path = DB_PATH, monitor: bool = True) -> FastAPI:
             tmux.submit_key_for_flavor(req.flavor),
             tmux_server=server,
             pane_label=label,
+            # A spawned agent always lands in a pane on the server's own machine.
+            node=tmux.local_node(),
         )
         tmux.tag_pane(pane, user_id)
         tmux.rename_window(pane, user_id)

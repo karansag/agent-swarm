@@ -64,7 +64,7 @@ curl http://127.0.0.1:8765/health     # "db" should be the file you expect
 agent-swarm recipients
 ```
 
-Two things happen on first start:
+Three things happen on first start:
 
 - **Agents move to tmux pane ids.** Registrations used to store a position
   (`session:window.pane`), which tmux reuses and renumbers. They now store the
@@ -80,6 +80,22 @@ Two things happen on first start:
 
   If tmux isn't running when the server starts, the conversion waits and runs
   on the first request after tmux is back.
+
+- **Handles are bare names again.** New registrations and spawns get a
+  plain pool name (`otter`), not `otter-codex-gpt5-karanslinux`. What an
+  agent is and where it runs are recorded on its row instead: the
+  dashboard card, `agent-swarm recipients`, and the protocol brief show a
+  `node` next to flavor and model. Existing handles are left exactly as
+  they are; an agent that wants a shorter one re-registers with
+  `--name`, which renames it and carries its history over. While an old
+  suffixed handle exists, its bare animal is not handed out to anyone
+  else. Rows from before this change are stamped with this machine's
+  node name.
+
+  The registration request field `host` is now `node`, and the server
+  rejects unknown fields, so an older `agent-swarm` CLI gets a 422 from a
+  newer server (and vice versa). Upgrade the CLI and the server together;
+  `uv tool install --editable .` does both from one checkout.
 
 - **The daily cleanup runs.** Messages older than 60 days, and images whose
   newest message is older than 30 days, are deleted. Set

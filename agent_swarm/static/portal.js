@@ -7469,9 +7469,10 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       <div class="tech" title=${[
 		flavor,
 		r.model,
+		r.node,
 		r.pane_label,
 		r.tmux_pane
-	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
+	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`}${r.node && m$1` · <span class="node">${r.node}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
@@ -8292,7 +8293,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          <${ModelLabel} r=${r} refresh=${refresh} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} />${r.node && m$1` · on <b>${r.node}</b>`} · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? m$1` <span class="attn">${detail}</span>` : ""}

@@ -1,9 +1,9 @@
-"""Tests for the cute-name pool and its model-tag suffixing."""
+"""Tests for the handle pool."""
 
 import random
 import sqlite3
 
-from agent_swarm import names, tmux
+from agent_swarm import names
 
 
 def _conn():
@@ -16,53 +16,47 @@ def _take(conn, user_id):
     conn.execute("INSERT INTO recipients (user_id) VALUES (?)", (user_id,))
 
 
-def test_pick_unused_without_tag_returns_bare_animal_name():
-    conn = _conn()
-    name = names.pick_unused(conn)
-    assert name in names.POOL
-
-
-def test_pick_unused_with_tag_combines_animal_and_tag():
-    conn = _conn()
-    name = names.pick_unused(conn, "opus")
-    animal, _, tag = name.partition("-")
-    assert animal in names.POOL
-    assert tag == "opus"
+def test_pick_unused_returns_a_bare_pool_name():
+    assert names.pick_unused(_conn()) in names.POOL
 
 
 def test_pick_unused_avoids_names_already_taken():
     conn = _conn()
-    _take(conn, "otter-opus")
-    name = names.pick_unused(conn, "opus", rng=random.Random(0))
-    assert name != "otter-opus"
+    for animal in names.POOL[:-1]:
+        _take(conn, animal)
+    assert names.pick_unused(conn) == names.POOL[-1]
 
 
-def test_same_animal_can_be_reused_under_a_different_tag():
+def test_legacy_suffixed_handle_reserves_its_bare_name():
+    # Handles issued by earlier versions carried model and host suffixes.
+    # While one exists, its animal is off the table so "otter" and
+    # "otter-opus" never coexist.
     conn = _conn()
-    _take(conn, "otter-opus")
-    # "otter" itself, and "otter" under a different tag, are still free.
-    assert names.pick_unused(conn) is not None
-    name = names.pick_unused(conn, "sonnet", rng=random.Random(0))
-    assert not name.endswith("-opus")
+    for animal in names.POOL[:-2]:
+        _take(conn, animal)
+    penultimate, last = names.POOL[-2], names.POOL[-1]
+    _take(conn, f"{penultimate}-codex-gpt5-karanslinux")
+    assert names.pick_unused(conn) == last
 
 
 def test_every_generated_handle_can_be_requested_back():
     # An agent that loses its pane reclaims its handle with `register --name`,
-    # which runs it through normalize_requested. The longest handle the
-    # generator can produce must therefore still be a legal request.
+    # which runs it through normalize_requested, so nothing generated may be
+    # an illegal request. Legacy suffixed handles were up to 35 characters.
     conn = _conn()
-    longest_animal = max(names.POOL, key=len)
-    tag = tmux.handle_tag("claude", "claude-fable-5-1", "karans-linux")
-    generated = names.pick_unused(conn, tag)
+    generated = names.pick_unused(conn, rng=random.Random(0))
     assert names.normalize_requested(generated) == generated
-    assert names.normalize_requested(f"{longest_animal}-{tag}")
+    assert names.normalize_requested("salamander-claude-fable-karanslinux")
 
 
 def test_pick_unused_falls_back_to_numeric_suffix_when_pool_exhausted():
     conn = _conn()
     for animal in names.POOL:
-        _take(conn, f"{animal}-opus")
-    name = names.pick_unused(conn, "opus", rng=random.Random(1))
+        _take(conn, animal)
+    name = names.pick_unused(conn, rng=random.Random(1))
     base, _, suffix = name.rpartition("-")
+    assert base in names.POOL
     assert suffix == "2"
-    assert base.endswith("-opus")
+    _take(conn, name)
+    again = names.pick_unused(conn, rng=random.Random(1))
+    assert again == f"{base}-3"

@@ -171,8 +171,8 @@ def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
     )
 
     assert client.cmd_register(args) == 0
-    # The host travels with every registration; it names the assigned handle.
-    assert captured["json"] == {"tmux_pane": "session-a:9.0", "host": "testbox"}
+    # The node travels with every registration and is stored on the row.
+    assert captured["json"] == {"tmux_pane": "session-a:9.0", "node": "testbox"}
     assert capsys.readouterr().out == '{"ok": true}\n'
 
 
@@ -255,7 +255,7 @@ def test_cmd_register_sends_requested_name(monkeypatch, capsys):
     assert client.cmd_register(args) == 0
     assert captured["json"] == {
         "tmux_pane": "session-a:9.0",
-        "host": "testbox",
+        "node": "testbox",
         "requested_user": "jax",
     }
     capsys.readouterr()

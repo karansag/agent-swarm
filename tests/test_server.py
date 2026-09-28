@@ -130,10 +130,9 @@ def test_register_without_user_id_assigns_cute_name(client):
     assert r.status_code == 200
     body = r.json()
     assert body["assigned"] is True
-    animal, _, tag = body["user_id"].partition("-")
-    assert animal in names.POOL
-    # Harness first, then the model line it does not already imply.
-    assert tag == "claude-opus"
+    # A bare pool name: what the agent is and where it runs are columns.
+    assert body["user_id"] in names.POOL
+    assert body["node"] == tmux.local_node()
     assert body["agent_id"] == "00000000-0000-4000-8000-000000000001"
     assert body["model"] == "claude-opus-4-7"
     assert body["flavor"] == "claude"
@@ -1076,3 +1075,67 @@ def test_unregister_forgets_summaries(client):
     assert client.delete("/recipients/jax").status_code == 200
     client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
     assert client.get("/api/state").json()["recipients"][0]["summaries"] == []
+
+
+def test_register_records_the_node_and_keeps_it_across_reregistration(client):
+    r = client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "agent_id": "a-node", "node": "macbook"},
+    )
+    assert r.status_code == 200
+    assert r.json()["node"] == "macbook"
+    user = r.json()["user_id"]
+    # A re-register that omits the node keeps what is stored, and never
+    # derives one from the handle.
+    r = client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "a-node"})
+    assert r.json()["user_id"] == user
+    assert r.json()["node"] == "macbook"
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
+    assert row["node"] == "macbook"
+    brief = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["protocol_brief"]
+    assert f"{user} (" in brief and "node=macbook" in brief
+
+
+def test_register_without_a_node_records_this_machine(client):
+    r = client.post("/register", json={"tmux_pane": "0:0.0"})
+    assert r.json()["node"] == tmux.local_node()
+
+
+def test_spawn_assigns_a_bare_name_on_this_machine(client):
+    from agent_swarm import names
+
+    r = client.post("/agents/spawn", json={"flavor": "codex", "model": "gpt-5.6-terra"})
+    assert r.status_code == 200
+    user = r.json()["user_id"]
+    assert user in names.POOL
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
+    assert row["node"] == tmux.local_node()
+    assert row["model"] == "gpt-5.6-terra"
+
+
+def test_legacy_suffixed_handles_reserve_their_bare_name_over_http(client, monkeypatch):
+    from agent_swarm import names
+
+    # Every pool name but two is taken; one of the two survives only as a
+    # legacy suffixed handle, so the other must be the one handed out.
+    monkeypatch.setattr(names, "POOL", ["otter", "ferret"])
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "otter-codex-gpt5-karanslinux"})
+    assert client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"] == "ferret"
+    # Both bases are taken now, so exhaustion suffixes whichever base the
+    # RNG picks; either is correct as long as neither bare name is reused.
+    r = client.post("/agents/spawn", json={"flavor": "claude"})
+    assert r.status_code == 200
+    assert r.json()["user_id"] in {"otter-2", "ferret-2"}
+
+
+def test_rows_from_before_nodes_belong_to_this_machine(tmp_path):
+    from agent_swarm import db
+
+    conn = db.connect(tmp_path / "old.sqlite")
+    db.register(conn, "otter", "%1", tmux_server="srv-1", pane_label="0:0.0")
+    conn.execute("UPDATE recipients SET node=NULL")
+    conn.commit()
+    conn.close()
+    app = server.create_app(tmp_path / "old.sqlite", monitor=False)
+    rows = TestClient(app).get("/recipients").json()["recipients"]
+    assert rows[0]["node"] == tmux.local_node()
