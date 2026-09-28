@@ -81,7 +81,7 @@
 <body>
 <main>
 <header>
-  <p class="eyebrow">agent-swarm · design proposal · revised 2026-09-23 against master 9b6be27</p>
+  <p class="eyebrow">agent-swarm · design proposal · revised 2026-09-28 against master 9b6be27</p>
   <h1>Hub and Nodes</h1>
   <p class="lede">One agent-swarm server stays the source of truth. Every other machine runs a thin tmux daemon that dials in over the tailnet. Same commands, same handles, one dashboard. Reviewed by the hoopoe agent; its corrections are marked.</p>
 </header>
@@ -241,10 +241,23 @@
 <p>The hub side is a <code>Node</code> protocol with two implementations: a local one that calls the tmux module directly and always returns ok or failed, and a remote one that wraps a socket connection and can return unknown. A registry on app state maps names to nodes. Calling the server edits mechanical was optimistic, as hoopoe noted: results gain the unknown state, messages are recorded before dispatch rather than after, and every operation carries a server id. Expect a behavior-level pass over send, owner send, task notification, spawn, stop, prune, and the monitor tick.</p>
 
 <h2>Per-machine setup</h2>
-<p>The register skills work unchanged once each non-hub machine's shell profile points at the hub:</p>
-<pre><code>export AGENT_SWARM_URL=http://karans-linux:8765
-export AGENT_SWARM_TOKEN=&lt;from: agent-swarm node-token karans-macbook-pro&gt;
-# AGENT_SWARM_NODE defaults to the short hostname</code></pre>
+<p>The CLI and the node daemon read one per-machine config file, written once:</p>
+<pre><code>agent-swarm join http://karans-linux:8765 --token &lt;from: agent-swarm node-token karans-macbook-pro&gt;
+# writes ~/.agent-swarm/node.toml: hub url, token, node name (short hostname unless --node)</code></pre>
+<p>Environment variables override the file when set, and the loopback default applies when neither exists, so a single-machine install needs no file. A file rather than shell-profile exports because an agent already running in a tmux pane inherited its environment at launch and cannot pick up new exports; its harness runs the register command as a subprocess, which reads the file. That is what makes migration a re-register rather than a restart. The bundled register skills work unchanged.</p>
+
+<h2>Migrating existing machines</h2>
+<p>Two kinds of machine exist today, and the hub cannot tell which from outside because a local server binds loopback.</p>
+<p><b>Agents in tmux, no server of its own.</b> Nothing to migrate. Install the package, run <code>agent-swarm join</code>, start the node daemon, and have each agent register with the hub. Each gets a handle from the hub pool.</p>
+<p><b>A machine running its own agent-swarm server.</b> It has its own handles, messages, tasks, teams, and attachments. Its agents were registered by a stable agent id the hub has never seen, so re-registration creates a fresh hub row with no clash, and registering twice returns the same hub handle. The old database is archived, not merged:</p>
+<ol>
+  <li>On the hub, once the naming prerequisite and the first two implementation steps are deployed: <code>agent-swarm node-token karans-macbook-pro</code>.</li>
+  <li>On the machine: pull, reinstall, stop its server, rename its database to <code>db.sqlite.pre-hub</code>, run <code>agent-swarm join</code> with the token, start <code>agent-swarm-node</code> as a launchd or systemd user service.</li>
+  <li>Ask each live agent to register. It keeps running in its pane; the CLI reads the new config file. An agent that wants its old handle asks for it with <code>--name</code>; the hub grants it when free and refuses it when a live hub agent holds it, in which case the agent takes the assigned one. The protocol brief lists its peers under their hub handles.</li>
+  <li>Open tasks are the one thing worth carrying over. <code>agent-swarm import-tasks db.sqlite.pre-hub --node karans-macbook-pro</code> creates them on the hub with new ids, keeps title, description, status, worktree with its node, and dependencies, and sets the assignee only when an agent has re-registered under the same handle. Task numbers inside old message text are not rewritten; they refer to the archive.</li>
+  <li>Teams are few; re-create them on the dashboard. Message history and closed tasks stay in the archive, readable any time by pointing a scratch server at it.</li>
+</ol>
+<p>Rollback on that machine is stopping the node daemon, restoring the archived database, and starting its old server; nothing in the archive was modified. Why not merge the databases: handle, task id, and team id collisions would each need rewriting across messages and task references, and the text of old messages cannot be rewritten reliably. The live board is what matters, and open tasks carry it.</p>
 
 <h2>Failure behaviour</h2>
 <div class="tablewrap">
