@@ -124,7 +124,9 @@ pane id automatically.
 If you have been running a separate agent-swarm on another machine, move
 it under this one rather than merging databases:
 
-1. On the hub, bind to the tailnet (`AGENT_SWARM_HOST=0.0.0.0`) and run
+1. On the hub, listen beyond loopback (`AGENT_SWARM_HOST=0.0.0.0`, with
+   the firewall rule from the README's Security Model so only loopback
+   and the Tailscale interface reach port 8765) and run
    `agent-swarm node-token <that-machine>`; it prints the join command.
 2. On that machine: pull and reinstall, stop its own server, rename its
    database aside (`~/.agent-swarm/db.sqlite.pre-hub`), run the join
@@ -133,11 +135,25 @@ it under this one rather than merging databases:
    pane; the CLI reads the new settings file. An agent that wants its old
    handle asks with `--name`; the hub grants it when free.
 4. Re-file open tasks on the hub and re-create teams on the dashboard.
-   History and closed tasks stay readable in the archived database by
-   pointing a scratch server at it with `AGENT_SWARM_DB`.
+   History and closed tasks stay readable in the archived database: copy
+   it first (`sqlite3 db.sqlite.pre-hub ".backup /tmp/archive.sqlite"`)
+   and point a scratch server at the copy with `AGENT_SWARM_DB`. Starting
+   a server migrates and reconciles whatever database it is given and
+   its cleanup loop deletes old rows, so never point one at the archive
+   itself.
 
-Rolling that machine back is stopping the daemon, restoring its database,
-and starting its old server; nothing in the archive was touched.
+Rolling that machine back: stop the daemon, remove
+`~/.agent-swarm/node.toml` (and any `AGENT_SWARM_URL`, `AGENT_SWARM_NODE`,
+or `AGENT_SWARM_TOKEN` in the shell profile), restore its database, start
+its old server, and check `agent-swarm whoami` shows
+`http://127.0.0.1:8765`. The join is otherwise still in force: the CLI
+would keep talking to the hub with the node token. Nothing in the
+archive was touched.
+
+The CLI and the server must be upgraded together: the CLI now asks the
+server's `/whoami` endpoint for its identity, so a new CLI against a
+server still running old code cannot send at all. Restart the server
+right after pulling.
 
 Messages now carry a `status` (`delivered`, `failed`, `unknown`). Rows
 written by this server before the upgrade read their status from the

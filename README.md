@@ -289,8 +289,10 @@ hub on the machine that stays on.
 On the hub:
 
 ```bash
-# Listen on the tailnet as well as loopback. Loopback callers are the
-# owner; every other caller needs a node token.
+# Listen on every interface, loopback included; loopback callers are the
+# owner, every other caller needs a node token. This is NOT limited to the
+# tailnet: restrict port 8765 to loopback and the Tailscale interface with
+# the host firewall before doing it (see Security Model).
 AGENT_SWARM_HOST=0.0.0.0 agent-swarm-server
 
 # Enrol a machine. Prints its token once, and the join command to run there.
@@ -331,10 +333,16 @@ What changes when a paste crosses the network:
   restarted mid-paste). The server never resends an unknown message on
   its own; the dashboard marks it and offers "send again", which posts
   a new message. Read `status`, not `ok` alone, from `/send`.
-- A node executes each command with a side effect at most once, even
-  if the hub resends it after a reconnect, and refuses a command that
-  waited past its time to live (a laptop waking with a queue behind
-  it) or that arrived under a connection that has since ended.
+- A node remembers the commands with side effects it has executed, by
+  hub and operation id, for 24 hours; a command the hub resends within
+  that window gets the recorded result instead of running again, one
+  left in flight by a node restart becomes unknown and is not run while
+  that record lasts, and the hub never resends unknown or expired
+  commands on its own. The guarantee is that window: a deliberate resend
+  after the record is pruned runs again. A
+  command that waited past its time to live (a laptop waking with a
+  queue behind it), or that arrived under a connection that has since
+  ended, is refused before it touches tmux.
 - Attachments travel by name; the node fetches each from the hub,
   verifies it against its hash, caches it, and pastes a path on its own
   disk.
@@ -644,12 +652,25 @@ stored hashed, rotated or revoked at will, and checked again after a
 node's hello so a revocation during the handshake still bites.
 
 With the default bind of `127.0.0.1` nothing is reachable from outside.
-Binding `0.0.0.0` on a tailnet is the intended multi-machine setup:
-Tailscale's own ACLs are the outer wall and the token is the inner one.
-Do not expose the hub on an untrusted network. Behind a reverse proxy
-every request looks local, so set `AGENT_SWARM_TRUST_LOOPBACK=0` there;
-an owner login for that case is not built yet, so the dashboard then
-has no way in until it is.
+For other machines the hub has to listen beyond loopback, and the owner
+path needs loopback to stay, so the multi-machine setup is
+`AGENT_SWARM_HOST=0.0.0.0` plus a host firewall that admits port 8765
+only from loopback and the Tailscale interface. `0.0.0.0` on its own
+listens on every IPv4 interface, LAN and public ones included, and
+Tailscale's ACLs say nothing about those. On Linux with ufw:
+
+```bash
+sudo ufw allow in on tailscale0 to any port 8765 proto tcp
+sudo ufw deny in to any port 8765 proto tcp        # everything else; loopback is never filtered
+```
+
+That assumes ufw is enabled (`sudo ufw status` says active) and no
+earlier, broader allow rule matches first; rules added to an inactive
+firewall restrict nothing.
+
+Behind a reverse proxy every request looks local, so set
+`AGENT_SWARM_TRUST_LOOPBACK=0` there; an owner login for that case is
+not built yet, so the dashboard then has no way in until it is.
 
 Delivery still means typing into a tmux pane. Anyone the hub trusts can
 put text in front of every agent on every enrolled machine.

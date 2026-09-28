@@ -1453,9 +1453,26 @@ def test_spawn_and_stop_report_unknown_outcomes_distinctly(client, monkeypatch):
 
 def test_portal_shows_machines_and_unknown_deliveries():
     portal = portal_source()
-    # Messages are judged by their status, never by the delivered flag.
+    # Messages are judged by their status, never by the delivered flag, and
+    # the composer reads the answer's status rather than trusting HTTP 200.
     assert 'm.status === "unknown"' in portal and "m.delivered ?" not in portal
+    assert "deliveryOutcome(r.ok, body)" in portal and 'throw new Error("delivery failed")' not in portal
     # An unknown outcome is resent only on purpose, as a new message.
     assert "may already have it" in portal and "send again" in portal
     # Machines: a strip of nodes and a spawn target.
-    assert "function NodeStrip" in portal and 'title="machine"' in portal and "body.node = node" in portal
+    assert "function NodeStrip" in portal and 'title="machine"' in portal and "body.node = target.node" in portal
+
+
+def test_dashboard_decisions_pass_their_own_tests():
+    """The dashboard's pure decisions (delivery outcome, spawn target) are
+    tested by Node's test runner; run them here so one suite covers both."""
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    proc = subprocess.run(
+        ["node", "--test", *sorted(str(p) for p in (WEB_ROOT / "test").glob("*.test.js"))],
+        cwd=WEB_ROOT.parent, capture_output=True, text=True, timeout=120
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr

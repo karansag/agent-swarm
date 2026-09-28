@@ -17,6 +17,7 @@ import {
   focusHash,
   patchTask,
 } from "./shared.js";
+import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
 import { HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { renderMarkdown } from "./markdown.js";
@@ -223,38 +224,54 @@ function SpawnControl({ refresh, nodes }) {
     return () => { live = false; };
   }, []);
 
-  // A remote machine offers only the harness binaries it reported.
-  const remote = (nodes || []).find(n => !n.local && n.name === node);
-  const offered = remote ? harnesses.filter(h => (remote.harnesses || []).includes(h.flavor)) : harnesses;
+  // Where this spawn would go. A picked machine that has gone away or
+  // disconnected stays picked and blocks the form; it is never swapped for
+  // the hub behind the user's back.
+  const target = spawnTarget(nodes, node, harnesses);
+  const offered = target.harnesses || [];
   const models = (offered.find(h => h.flavor === flavor) || {}).models || [];
   const pickFlavor = (f) => { setFlavor(f); setModel(DEFAULT_MODEL); };
   const pickNode = (n) => {
     setNode(n);
-    const r = (nodes || []).find(x => x.name === n);
-    if (r && !r.local && r.harnesses && !r.harnesses.includes(flavor)) pickFlavor(r.harnesses[0] || flavor);
+    const next = spawnTarget(nodes, n, harnesses);
+    if (next.ok && next.harnesses.length && !next.harnesses.some(h => h.flavor === flavor)) pickFlavor(next.harnesses[0].flavor);
   };
-  const connected = (nodes || []).filter(n => n.connected);
+  const enrolled = nodes || [];
+  const choices = enrolled.some(n => n.name === node) || !node
+    ? enrolled : enrolled.concat([{ name: node, connected: false, gone: true }]);
 
   const spawn = async (e) => {
     e.preventDefault();
+    if (!target.ok) { setErr(target.reason); return; }
     setBusy(true);
     setErr("");
     const body = { flavor, model: model === DEFAULT_MODEL ? null : model, autonomy };
-    if (node && remote) body.node = node;
-    const r = await fetch("/agents/spawn", {
-      method: "POST", headers: JSONH, body: JSON.stringify(body),
-    });
-    if (!r.ok) setErr("spawn failed");
-    setBusy(false);
-    refresh();
+    if (target.remote) body.node = target.node;
+    try {
+      const r = await fetch("/agents/spawn", {
+        method: "POST", headers: JSONH, body: JSON.stringify(body),
+      });
+      let payload = null;
+      try { payload = await r.json(); } catch { payload = null; }
+      const outcome = spawnOutcome(r.ok, payload);
+      if (outcome.status === "failed") setErr(`spawn failed: ${outcome.reason}`);
+      else if (outcome.status === "unknown") setErr(`spawn outcome unknown: ${outcome.reason}${outcome.user ? ` (registered as ${outcome.user})` : ""}`);
+      else if (outcome.status === "uncertain") setErr(`spawn not confirmed: ${outcome.reason}; check the roster`);
+    } catch (err) {
+      setErr(`not confirmed: ${unansweredOutcome(err).reason}`);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
   };
 
-  const flavors = offered.length ? offered.map(h => h.flavor) : [flavor];
+  const flavors = offered.length ? offered.map(h => h.flavor) : [];
   return html`<form class="spawn" onSubmit=${spawn}>
-    ${connected.length > 1 && html`<select title="machine" value=${node} onChange=${e => pickNode(e.target.value)}>
-      ${connected.map(n => html`<option key=${n.name} value=${n.local ? "" : n.name}>${n.local ? `${n.name} (hub)` : n.name}</option>`)}
+    ${(enrolled.length > 1 || node) && html`<select title="machine" value=${node} onChange=${e => pickNode(e.target.value)}>
+      ${choices.map(n => html`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
     </select>`}
-    <select title="harness" value=${flavor} onChange=${e => pickFlavor(e.target.value)}>
+    ${!target.ok && html`<span class="spawn-note">${target.reason}. Pick a connected machine.</span>`}
+    <select title="harness" value=${flavor} onChange=${e => pickFlavor(e.target.value)} disabled=${!target.ok}>
       ${flavors.map(f => html`<option key=${f} value=${f}>${f}</option>`)}
     </select>
     <select title="model" value=${model} onChange=${e => setModel(e.target.value)}
@@ -266,7 +283,7 @@ function SpawnControl({ refresh, nodes }) {
       <option value="auto">permissions: auto</option>
       <option value="supervised">permissions: ask first</option>
     </select>
-    <button class="act" type="submit" disabled=${busy}>${busy ? "spawning…" : "spawn agent"}</button>
+    <button class="act" type="submit" disabled=${busy || !target.ok}>${busy ? "spawning…" : "spawn agent"}</button>
     ${err && html`<span style="color:var(--alert); font-size:11px">${err}</span>`}
   </form>`;
 }
@@ -353,20 +370,31 @@ function NewTeam({ refresh }) {
 // knowing the agent may already have the first.
 function Resend({ m, refresh }) {
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
   const resend = async () => {
     if (!window.confirm(
       "The outcome of this message is unknown: the agent may already have it. Send it again as a new message?"
     )) return;
     setBusy(true);
-    await fetch("/owner/send", {
-      method: "POST", headers: JSONH,
-      body: JSON.stringify({ recipient: m.recipient, content: m.content, context: m.context, attachments: m.attachments || [] }),
-    });
-    setBusy(false);
-    refresh();
+    setNote("");
+    try {
+      const r = await fetch("/owner/send", {
+        method: "POST", headers: JSONH,
+        body: JSON.stringify({ recipient: m.recipient, content: m.content, context: m.context, attachments: m.attachments || [] }),
+      });
+      let body = null;
+      try { body = await r.json(); } catch { body = null; }
+      const outcome = deliveryOutcome(r.ok, body);
+      if (outcome.status !== "delivered") setNote(`${outcome.status}: ${outcome.reason}`);
+    } catch (err) {
+      setNote(`not confirmed: ${unansweredOutcome(err).reason}`);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
   };
   return html`<button type="button" class="resend" disabled=${busy} onClick=${resend}
-    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>`;
+    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && html` <span class="ctx">${note}</span>`}`;
 }
 
 // Where agents run. Shown once more than one machine is enrolled.
@@ -713,22 +741,38 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     // composer, and that one has to show the result and get the draft back.
     const report = (detail) => pendingSends.dispatchEvent(
       new CustomEvent("outcome", { detail: { draftKey, ...detail } }));
+    const keepDraft = () => {
+      try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* best effort */ }
+    };
+    let outcome;
     try {
       const r = await fetch("/owner/send", {
         method: "POST", headers: JSONH,
         body: JSON.stringify({ recipient, content, context: pending.context, attachments: images }),
       });
-      if (!r.ok) throw new Error("delivery failed");
-      report({ status: "delivered" });
-    } catch {
-      try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* best effort */ }
-      report({ status: "delivery failed — draft kept", draft });
-    } finally {
-      // Swap the placeholder for the server's copy in one step, no flicker.
-      await refresh();
-      pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
-      setSending(false);
+      let body = null;
+      try { body = await r.json(); } catch { body = null; }
+      outcome = deliveryOutcome(r.ok, body);
+    } catch (err) {
+      outcome = unansweredOutcome(err);
     }
+    if (outcome.status === "delivered") {
+      report({ status: "delivered" });
+    } else if (outcome.status === "unknown") {
+      // The paste may have landed. No draft comes back: resending is a
+      // deliberate act on the marked message, not a reflex.
+      report({ status: `outcome unknown: ${outcome.reason}. The agent may have it; see the marked message.` });
+    } else if (outcome.status === "uncertain") {
+      keepDraft();
+      report({ status: `not confirmed: ${outcome.reason}. It may have arrived; draft kept`, draft });
+    } else {
+      keepDraft();
+      report({ status: `delivery failed: ${outcome.reason}. Draft kept`, draft });
+    }
+    // Swap the placeholder for the server's copy in one step, no flicker.
+    await refresh();
+    pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
+    setSending(false);
   };
   const clearDraft = () => {
     setText("");

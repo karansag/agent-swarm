@@ -638,6 +638,127 @@ function Avatar({ name, size }) {
   </div>`;
 }
 //#endregion
+//#region web/src/outcome.js
+function structured(body) {
+	return body !== null && typeof body === "object" && !Array.isArray(body);
+}
+function deliveryOutcome(httpOk, body) {
+	if (!structured(body)) return {
+		status: "uncertain",
+		reason: "the server's answer could not be read"
+	};
+	const b = body;
+	if (b.status === "delivered") return {
+		status: "delivered",
+		reason: null
+	};
+	if (b.status === "unknown") return {
+		status: "unknown",
+		reason: b.delivery_error || "result lost"
+	};
+	if (b.status === "failed") return {
+		status: "failed",
+		reason: b.delivery_error || "delivery failed"
+	};
+	const detail = structured(b.detail) ? b.detail : {};
+	if (detail.status === "unknown") return {
+		status: "unknown",
+		reason: detail.error || detail.detail || "result lost"
+	};
+	if (!httpOk && (detail.error || b.error)) return {
+		status: "failed",
+		reason: detail.error || b.error
+	};
+	return {
+		status: "uncertain",
+		reason: "the server's answer was not recognised"
+	};
+}
+function unansweredOutcome(err) {
+	return {
+		status: "uncertain",
+		reason: err && err.message || "no answer from the server"
+	};
+}
+function spawnTarget(nodes, selected, harnesses) {
+	const all = Array.isArray(nodes) ? nodes : [];
+	all.find((n) => n.local);
+	if (!selected) return {
+		ok: true,
+		remote: false,
+		node: null,
+		harnesses,
+		reason: null
+	};
+	const n = all.find((x) => x.name === selected);
+	if (!n) return {
+		ok: false,
+		remote: true,
+		node: selected,
+		harnesses: [],
+		reason: `${selected} is no longer enrolled`
+	};
+	if (n.local) return {
+		ok: true,
+		remote: false,
+		node: null,
+		harnesses,
+		reason: null
+	};
+	if (!n.connected) return {
+		ok: false,
+		remote: true,
+		node: selected,
+		harnesses: [],
+		reason: `${selected} is not connected`
+	};
+	const offered = (harnesses || []).filter((h) => (n.harnesses || []).includes(h.flavor));
+	if (offered.length === 0) return {
+		ok: false,
+		remote: true,
+		node: selected,
+		harnesses: [],
+		reason: `${selected} reports no spawnable harness`
+	};
+	return {
+		ok: true,
+		remote: true,
+		node: selected,
+		harnesses: offered,
+		reason: null
+	};
+}
+function spawnOutcome(httpOk, body) {
+	if (!structured(body)) return {
+		status: "uncertain",
+		reason: "the server's answer could not be read"
+	};
+	const b = body;
+	if (b.launch === "ok" && b.user_id) return {
+		status: "ok",
+		reason: null,
+		user: b.user_id
+	};
+	if (b.launch === "unknown") return {
+		status: "unknown",
+		reason: b.launch_error || "the launch command did not report back",
+		user: b.user_id
+	};
+	const detail = structured(b.detail) ? b.detail : {};
+	if (detail.status === "unknown") return {
+		status: "unknown",
+		reason: detail.detail || detail.error || "no report"
+	};
+	if (!httpOk && (detail.status === "failed" || detail.error || detail.detail || b.error)) return {
+		status: "failed",
+		reason: detail.detail || detail.error || b.error || "spawn failed"
+	};
+	return {
+		status: "uncertain",
+		reason: "the server's answer was not recognised"
+	};
+}
+//#endregion
 //#region web/src/hive.js
 var TASK_CELL_RADIUS = 18;
 var TASK_CELL_CLEARANCE = 22;
@@ -7587,8 +7708,8 @@ function SpawnControl({ refresh, nodes }) {
 			live = false;
 		};
 	}, []);
-	const remote = (nodes || []).find((n) => !n.local && n.name === node);
-	const offered = remote ? harnesses.filter((h) => (remote.harnesses || []).includes(h.flavor)) : harnesses;
+	const target = spawnTarget(nodes, node, harnesses);
+	const offered = target.harnesses || [];
 	const models = (offered.find((h) => h.flavor === flavor) || {}).models || [];
 	const pickFlavor = (f) => {
 		setFlavor(f);
@@ -7596,12 +7717,21 @@ function SpawnControl({ refresh, nodes }) {
 	};
 	const pickNode = (n) => {
 		setNode(n);
-		const r = (nodes || []).find((x) => x.name === n);
-		if (r && !r.local && r.harnesses && !r.harnesses.includes(flavor)) pickFlavor(r.harnesses[0] || flavor);
+		const next = spawnTarget(nodes, n, harnesses);
+		if (next.ok && next.harnesses.length && !next.harnesses.some((h) => h.flavor === flavor)) pickFlavor(next.harnesses[0].flavor);
 	};
-	const connected = (nodes || []).filter((n) => n.connected);
+	const enrolled = nodes || [];
+	const choices = enrolled.some((n) => n.name === node) || !node ? enrolled : enrolled.concat([{
+		name: node,
+		connected: false,
+		gone: true
+	}]);
 	const spawn = async (e) => {
 		e.preventDefault();
+		if (!target.ok) {
+			setErr(target.reason);
+			return;
+		}
 		setBusy(true);
 		setErr("");
 		const body = {
@@ -7609,21 +7739,37 @@ function SpawnControl({ refresh, nodes }) {
 			model: model === DEFAULT_MODEL ? null : model,
 			autonomy
 		};
-		if (node && remote) body.node = node;
-		if (!(await fetch("/agents/spawn", {
-			method: "POST",
-			headers: JSONH,
-			body: JSON.stringify(body)
-		})).ok) setErr("spawn failed");
-		setBusy(false);
-		refresh();
+		if (target.remote) body.node = target.node;
+		try {
+			const r = await fetch("/agents/spawn", {
+				method: "POST",
+				headers: JSONH,
+				body: JSON.stringify(body)
+			});
+			let payload = null;
+			try {
+				payload = await r.json();
+			} catch {
+				payload = null;
+			}
+			const outcome = spawnOutcome(r.ok, payload);
+			if (outcome.status === "failed") setErr(`spawn failed: ${outcome.reason}`);
+			else if (outcome.status === "unknown") setErr(`spawn outcome unknown: ${outcome.reason}${outcome.user ? ` (registered as ${outcome.user})` : ""}`);
+			else if (outcome.status === "uncertain") setErr(`spawn not confirmed: ${outcome.reason}; check the roster`);
+		} catch (err) {
+			setErr(`not confirmed: ${unansweredOutcome(err).reason}`);
+		} finally {
+			setBusy(false);
+			refresh();
+		}
 	};
-	const flavors = offered.length ? offered.map((h) => h.flavor) : [flavor];
+	const flavors = offered.length ? offered.map((h) => h.flavor) : [];
 	return m$1`<form class="spawn" onSubmit=${spawn}>
-    ${connected.length > 1 && m$1`<select title="machine" value=${node} onChange=${(e) => pickNode(e.target.value)}>
-      ${connected.map((n) => m$1`<option key=${n.name} value=${n.local ? "" : n.name}>${n.local ? `${n.name} (hub)` : n.name}</option>`)}
+    ${(enrolled.length > 1 || node) && m$1`<select title="machine" value=${node} onChange=${(e) => pickNode(e.target.value)}>
+      ${choices.map((n) => m$1`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
     </select>`}
-    <select title="harness" value=${flavor} onChange=${(e) => pickFlavor(e.target.value)}>
+    ${!target.ok && m$1`<span class="spawn-note">${target.reason}. Pick a connected machine.</span>`}
+    <select title="harness" value=${flavor} onChange=${(e) => pickFlavor(e.target.value)} disabled=${!target.ok}>
       ${flavors.map((f) => m$1`<option key=${f} value=${f}>${f}</option>`)}
     </select>
     <select title="model" value=${model} onChange=${(e) => setModel(e.target.value)}
@@ -7635,7 +7781,7 @@ function SpawnControl({ refresh, nodes }) {
       <option value="auto">permissions: auto</option>
       <option value="supervised">permissions: ask first</option>
     </select>
-    <button class="act" type="submit" disabled=${busy}>${busy ? "spawning…" : "spawn agent"}</button>
+    <button class="act" type="submit" disabled=${busy || !target.ok}>${busy ? "spawning…" : "spawn agent"}</button>
     ${err && m$1`<span style="color:var(--alert); font-size:11px">${err}</span>`}
   </form>`;
 }
@@ -7715,24 +7861,39 @@ function NewTeam({ refresh }) {
 }
 function Resend({ m, refresh }) {
 	const [busy, setBusy] = d(false);
+	const [note, setNote] = d("");
 	const resend = async () => {
 		if (!window.confirm("The outcome of this message is unknown: the agent may already have it. Send it again as a new message?")) return;
 		setBusy(true);
-		await fetch("/owner/send", {
-			method: "POST",
-			headers: JSONH,
-			body: JSON.stringify({
-				recipient: m.recipient,
-				content: m.content,
-				context: m.context,
-				attachments: m.attachments || []
-			})
-		});
-		setBusy(false);
-		refresh();
+		setNote("");
+		try {
+			const r = await fetch("/owner/send", {
+				method: "POST",
+				headers: JSONH,
+				body: JSON.stringify({
+					recipient: m.recipient,
+					content: m.content,
+					context: m.context,
+					attachments: m.attachments || []
+				})
+			});
+			let body = null;
+			try {
+				body = await r.json();
+			} catch {
+				body = null;
+			}
+			const outcome = deliveryOutcome(r.ok, body);
+			if (outcome.status !== "delivered") setNote(`${outcome.status}: ${outcome.reason}`);
+		} catch (err) {
+			setNote(`not confirmed: ${unansweredOutcome(err).reason}`);
+		} finally {
+			setBusy(false);
+			refresh();
+		}
 	};
 	return m$1`<button type="button" class="resend" disabled=${busy} onClick=${resend}
-    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>`;
+    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && m$1` <span class="ctx">${note}</span>`}`;
 }
 function NodeStrip({ nodes, recipients }) {
 	if (!nodes || nodes.length < 2) return null;
@@ -8092,8 +8253,14 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 			draftKey,
 			...detail
 		} }));
+		const keepDraft = () => {
+			try {
+				localStorage.setItem(draftKey, JSON.stringify(draft));
+			} catch {}
+		};
+		let outcome;
 		try {
-			if (!(await fetch("/owner/send", {
+			const r = await fetch("/owner/send", {
 				method: "POST",
 				headers: JSONH,
 				body: JSON.stringify({
@@ -8102,21 +8269,35 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 					context: pending.context,
 					attachments: images
 				})
-			})).ok) throw new Error("delivery failed");
-			report({ status: "delivered" });
-		} catch {
+			});
+			let body = null;
 			try {
-				localStorage.setItem(draftKey, JSON.stringify(draft));
-			} catch {}
+				body = await r.json();
+			} catch {
+				body = null;
+			}
+			outcome = deliveryOutcome(r.ok, body);
+		} catch (err) {
+			outcome = unansweredOutcome(err);
+		}
+		if (outcome.status === "delivered") report({ status: "delivered" });
+		else if (outcome.status === "unknown") report({ status: `outcome unknown: ${outcome.reason}. The agent may have it; see the marked message.` });
+		else if (outcome.status === "uncertain") {
+			keepDraft();
 			report({
-				status: "delivery failed — draft kept",
+				status: `not confirmed: ${outcome.reason}. It may have arrived; draft kept`,
 				draft
 			});
-		} finally {
-			await refresh();
-			pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
-			setSending(false);
+		} else {
+			keepDraft();
+			report({
+				status: `delivery failed: ${outcome.reason}. Draft kept`,
+				draft
+			});
 		}
+		await refresh();
+		pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
+		setSending(false);
 	};
 	const clearDraft = () => {
 		setText("");
