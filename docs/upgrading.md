@@ -128,19 +128,34 @@ it under this one rather than merging databases:
    the firewall rule from the README's Security Model so only loopback
    and the Tailscale interface reach port 8765) and run
    `agent-swarm node-token <that-machine>`; it prints the join command.
-2. On that machine: pull and reinstall, stop its own server, rename its
-   database aside (`~/.agent-swarm/db.sqlite.pre-hub`), run the join
-   command, and start `agent-swarm-node` as a service.
-3. Ask each live agent there to register again. It keeps running in its
-   pane; the CLI reads the new settings file. An agent that wants its old
-   handle asks with `--name`; the hub grants it when free.
-4. Re-file open tasks on the hub and re-create teams on the dashboard.
-   History and closed tasks stay readable in the archived database: copy
-   it first (`sqlite3 db.sqlite.pre-hub ".backup /tmp/archive.sqlite"`)
-   and point a scratch server at the copy with `AGENT_SWARM_DB`. Starting
-   a server migrates and reconciles whatever database it is given and
-   its cleanup loop deletes old rows, so never point one at the archive
-   itself.
+2. On that machine: pull and reinstall, then write its agents, teams, and
+   tasks out: `agent-swarm export --out ~/swarm-bundle.json` (add
+   `--with-messages` to carry history too). The export never writes to
+   the database it reads. Then stop its own server, rename its database
+   aside (`~/.agent-swarm/db.sqlite.pre-hub`), run the join command, and
+   start `agent-swarm-node` as a service.
+3. Copy the bundle to the hub (`tailscale file cp`, `scp`), and there:
+
+   ```bash
+   agent-swarm import ~/swarm-bundle.json --node <that-machine> --dry-run
+   agent-swarm import ~/swarm-bundle.json --node <that-machine>
+   ```
+
+   The dry run reports what would happen and writes nothing: which
+   handles keep their names, which are renamed around a clash, which
+   teams arrive under a new name, and anything it could not resolve.
+   Importing the same export twice is refused.
+4. Ask each live agent there to register again. It keeps running in its
+   pane; the CLI reads the new settings file. The import prints the line
+   for each one, and an agent that reports a stable id reclaims its
+   handle by itself. Until then its handle is held for it, and its tasks
+   and history are already on the hub under that name.
+5. Closed tasks and old history stay in the archived database. To read
+   them, copy it first (`sqlite3 db.sqlite.pre-hub ".backup
+   /tmp/archive.sqlite"`) and point a scratch server at the copy with
+   `AGENT_SWARM_DB`. Starting a server migrates and reconciles whatever
+   database it is given and its cleanup loop deletes old rows, so never
+   point one at the archive itself.
 
 Rolling that machine back: stop the daemon, remove
 `~/.agent-swarm/node.toml` (and any `AGENT_SWARM_URL`, `AGENT_SWARM_NODE`,

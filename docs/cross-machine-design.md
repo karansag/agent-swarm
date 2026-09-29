@@ -452,16 +452,19 @@ hub handle. The old database is archived, not merged:
    it when a live hub agent already holds it, in which case the agent
    takes the assigned one. The register response's protocol brief
    lists its peers under their hub handles.
-4. Open tasks are the one thing worth carrying over. `agent-swarm
-   import-tasks db.sqlite.pre-hub --node karans-macbook-pro` creates
-   them on the hub with new ids, keeps title, description, status,
-   worktree (with `worktree_node` set), and dependencies, and sets the
-   assignee only when an agent has re-registered under the same
-   handle. Task numbers in old message text are not rewritten; they
-   refer to the archive.
-5. Teams are few; re-create them on the dashboard. Message history and
-   closed tasks stay in the archive, readable any time by pointing a
-   scratch server at it with `AGENT_SWARM_DB`.
+4. `agent-swarm export` on that machine writes its agents, teams, and
+   tasks (and, with `--with-messages`, its history) to a JSON bundle,
+   reading its database without writing to it. `agent-swarm import
+   BUNDLE --node <machine>` on the hub takes them in as one
+   transaction: agents arrive as reservations holding their handles
+   until they register, clashing handles and team names are imported
+   under fresh ones with every reference remapped, tasks keep their
+   status, notes, and dependencies under new ids, and worktree paths
+   keep the machine they are on. A dry run reports all of it first, and
+   importing the same export twice is refused.
+5. Message history is optional and arrives as history: never delivered
+   again, tagged `imported`, with attachments left behind and noted.
+   Task numbers inside old message text refer to the old board.
 
 Rollback on that machine is stopping the node daemon, restoring the
 archived database, and starting its old server; nothing in the

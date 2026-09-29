@@ -28,8 +28,9 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
-from . import tmux
-from . import config
+from pathlib import Path
+
+from . import bundle, config, tmux
 from .tmux import current_pane, local_node
 
 
@@ -319,6 +320,57 @@ def cmd_nodes(_: argparse.Namespace) -> int:
     return 0 if r.is_success else 1
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Write this machine's agents, teams, and tasks out as a bundle.
+
+    Reads the database without writing to it, so it is safe against a live
+    server's file or an archived copy.
+    """
+    path = args.db or os.environ.get("AGENT_SWARM_DB", "~/.agent-swarm/db.sqlite")
+    try:
+        conn = bundle.open_readonly(path)
+        data = bundle.read(conn, with_messages=args.with_messages)
+    except bundle.Invalid as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    text = json.dumps(data, indent=1)
+    counts = {k: len(data[k]) for k in ("agents", "teams", "tasks", "messages")}
+    if args.out and args.out != "-":
+        out = Path(args.out).expanduser()
+        out.write_text(text)
+        print(json.dumps({"out": str(out), "source": data["source"]["id"], **counts}, indent=2))
+    else:
+        print(text)
+        print(json.dumps({"source": data["source"]["id"], **counts}), file=sys.stderr)
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Hand a bundle to the hub, for agents that run on `--node`."""
+    try:
+        data = json.loads(Path(args.bundle).expanduser().read_text())
+    except (OSError, ValueError) as e:
+        print(f"error: could not read {args.bundle}: {e}", file=sys.stderr)
+        return 2
+    payload = {
+        "node": args.node, "bundle": data, "dry_run": args.dry_run,
+        "again": args.again, "merge_teams": args.merge_teams,
+    }
+    r = httpx.post(f"{base_url()}/import", json=payload, headers=_headers(), timeout=120)
+    if not r.is_success:
+        print(r.text, file=sys.stderr)
+        return 1
+    body = r.json()
+    print(json.dumps(body["report"], indent=2))
+    if body["dry_run"]:
+        print("\nnothing was written; run again without --dry-run", file=sys.stderr)
+    if body.get("register"):
+        print("\nOn " + args.node + ", have each agent run its line:", file=sys.stderr)
+        for line in body["register"]:
+            print("  " + line, file=sys.stderr)
+    return 0
+
+
 def cmd_whoami(_: argparse.Namespace) -> int:
     pane = detect_pane()
     user = registered_user(pane) if pane else None
@@ -450,6 +502,28 @@ def main(argv: list[str] | None = None) -> int:
 
     nds = sub.add_parser("nodes", help="list enrolled machines")
     nds.set_defaults(func=cmd_nodes)
+
+    exp = sub.add_parser(
+        "export", help="write this machine's agents, teams, and tasks out as a bundle"
+    )
+    exp.add_argument("--db", help="database to read (default: $AGENT_SWARM_DB)")
+    exp.add_argument("--out", help="file to write (default: standard output)")
+    exp.add_argument(
+        "--with-messages", action="store_true",
+        help="carry message history too, as history: it is never delivered again",
+    )
+    exp.set_defaults(func=cmd_export)
+
+    imp = sub.add_parser("import", help="take a bundle into this hub")
+    imp.add_argument("bundle", help="the file `agent-swarm export` wrote")
+    imp.add_argument("--node", required=True, help="the machine those agents run on")
+    imp.add_argument("--dry-run", action="store_true", help="report what would happen, write nothing")
+    imp.add_argument("--again", action="store_true", help="import a bundle that was imported before")
+    imp.add_argument(
+        "--merge-teams", action="store_true",
+        help="add to a team of the same name here instead of importing it under a new one",
+    )
+    imp.set_defaults(func=cmd_import)
 
     args = p.parse_args(argv)
     return args.func(args)

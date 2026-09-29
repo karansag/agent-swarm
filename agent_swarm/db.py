@@ -72,6 +72,15 @@ CREATE TABLE IF NOT EXISTS nodes (
     harnesses   TEXT
 );
 
+-- Bundles already taken in, so importing the same export twice does not
+-- duplicate its tasks and history.
+CREATE TABLE IF NOT EXISTS imports (
+    source_id   TEXT PRIMARY KEY,
+    node        TEXT NOT NULL,
+    imported_at REAL NOT NULL,
+    report      TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS task_deps (
     task_id     INTEGER NOT NULL,
     depends_on  INTEGER NOT NULL,
@@ -277,6 +286,11 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
     # server fills it for rows that predate the column (fill_missing_node).
     if "node" not in cols:
         conn.execute("ALTER TABLE recipients ADD COLUMN node TEXT")
+    # A reservation: a handle imported from another hub, holding its history
+    # until the agent registers here. It has no pane yet, so it is offline,
+    # it is never swept by the pane migration, and prune leaves it alone.
+    if "reserved" not in cols:
+        conn.execute("ALTER TABLE recipients ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0")
     task_cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     if "worktree" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN worktree TEXT")
@@ -353,7 +367,7 @@ def legacy_pane_rows(conn: sqlite3.Connection) -> list[dict]:
     _ensure_columns(conn)
     return [dict(r) for r in conn.execute(
         "SELECT user_id, tmux_pane, flavor, node, registered_at FROM recipients "
-        "WHERE tmux_server IS NULL"
+        "WHERE tmux_server IS NULL AND reserved=0"
     )]
 
 
@@ -386,7 +400,7 @@ def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | No
 def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, reserved, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients WHERE user_id=?",
         (user_id,),
     ).fetchone()
@@ -397,7 +411,7 @@ def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
 def list_recipients(conn: sqlite3.Connection) -> list[dict]:
     _ensure_columns(conn)
     rows = conn.execute(
-        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, reserved, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients ORDER BY user_id"
     ).fetchall()
     return [dict(r) for r in rows]
@@ -914,3 +928,163 @@ def delete_node(conn: sqlite3.Connection, name: str) -> bool:
     cur = conn.execute("DELETE FROM nodes WHERE name=?", (name,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# ---- importing a bundle from another hub ----------------------------------
+
+
+def _hub_state(conn: sqlite3.Connection) -> dict:
+    """This hub as an import plan needs to see it: which handles, stable ids,
+    team names, and node names are already in use."""
+    return {
+        "handles": {r[0] for r in conn.execute("SELECT user_id FROM recipients")},
+        "agents_by_id": {
+            r["agent_id"]: {"user_id": r["user_id"], "node": r["node"]}
+            for r in conn.execute(
+                "SELECT user_id, agent_id, node FROM recipients "
+                "WHERE agent_id IS NOT NULL AND agent_id<>''"
+            )
+        },
+        "team_names": {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM teams")},
+        "nodes": {r[0] for r in conn.execute("SELECT name FROM nodes")},
+    }
+
+
+@_serialized
+def hub_state(conn: sqlite3.Connection) -> dict:
+    """The same snapshot, for a dry run, which writes nothing."""
+    _ensure_columns(conn)
+    return _hub_state(conn)
+
+
+class AlreadyImported(Exception):
+    """This export has been taken in before. Carries the earlier report."""
+
+    def __init__(self, report: dict):
+        super().__init__("this bundle was imported already")
+        self.report = report
+
+
+@_serialized
+def clear_reservation(conn: sqlite3.Connection, user_id: str) -> None:
+    """The agent registered: its row is a real registration now."""
+    conn.execute("UPDATE recipients SET reserved=0 WHERE user_id=?", (user_id,))
+    conn.commit()
+
+
+@_serialized
+def imported_report(conn: sqlite3.Connection, source_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT report FROM imports WHERE source_id=?", (source_id,)
+    ).fetchone()
+    return json.loads(row["report"]) if row else None
+
+
+@_serialized
+def apply_import(
+    conn: sqlite3.Connection,
+    source_id: str,
+    node: str,
+    make_plan,
+    summarize,
+    again: bool = False,
+) -> dict:
+    """Take a bundle in, as one transaction.
+
+    `make_plan` is handed this hub as it is inside the transaction and
+    returns the plan; deciding and writing in the same transaction means a
+    registration landing in between cannot take a handle the plan chose.
+    Nothing is written when any part of it fails.
+    """
+    _ensure_columns(conn)
+    with conn:  # one transaction: all of it, or none
+        row = conn.execute(
+            "SELECT report FROM imports WHERE source_id=?", (source_id,)
+        ).fetchone()
+        if row is not None and not again:
+            raise AlreadyImported(json.loads(row["report"]))
+
+        plan = make_plan(_hub_state(conn))
+        now = time.time()
+
+        team_ids: dict[str, int] = {}
+        for team in plan["teams"]:
+            if team["existing_id"] is not None:
+                team_ids[team["name"]] = team["existing_id"]
+            else:
+                cur = conn.execute(
+                    "INSERT INTO teams(name, queen, created_at) VALUES(?,?,?)",
+                    (team["name"], None, now),
+                )
+                team_ids[team["name"]] = int(cur.lastrowid)
+
+        for agent in plan["agents"]:
+            conn.execute(
+                "INSERT INTO recipients(user_id, tmux_pane, agent_id, model, flavor, instructions, "
+                "message_prefix, submit_key, registered_at, tmux_server, pane_label, node, team_id, reserved) "
+                "VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,1)",
+                (
+                    agent["user_id"],
+                    # Unique per handle, and never a pane id, so no two
+                    # reservations collide and none matches a real pane.
+                    f"reserved:{agent['user_id']}",
+                    agent["agent_id"], agent["model"], agent["flavor"], agent["instructions"],
+                    agent["message_prefix"], agent["submit_key"], now, agent["node"],
+                    team_ids.get(agent["team"]) if agent["team"] else None,
+                ),
+            )
+
+        for team in plan["teams"]:
+            for member in team["members"]:
+                conn.execute(
+                    "UPDATE recipients SET team_id=? WHERE user_id=?",
+                    (team_ids[team["name"]], member),
+                )
+            if team["queen"]:
+                conn.execute(
+                    "UPDATE teams SET queen=? WHERE id=?", (team["queen"], team_ids[team["name"]])
+                )
+
+        task_ids: dict = {}
+        for task in plan["tasks"]:
+            cur = conn.execute(
+                "INSERT INTO tasks(title, description, assignee, team_id, status, worktree, "
+                "worktree_node, note, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    task["title"], task["description"], task["assignee"],
+                    team_ids.get(task["team"]) if task["team"] else None,
+                    task["status"], task["worktree"], task["worktree_node"], task["note"],
+                    task["created_at"], task["updated_at"],
+                ),
+            )
+            if task["old_id"] is not None:
+                task_ids[task["old_id"]] = int(cur.lastrowid)
+        for task in plan["tasks"]:
+            here = task_ids.get(task["old_id"])
+            for dep in task["depends_on"]:
+                if here is not None and dep in task_ids:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO task_deps(task_id, depends_on) VALUES(?,?)",
+                        (here, task_ids[dep]),
+                    )
+
+        for message in plan["messages"]:
+            conn.execute(
+                "INSERT INTO messages(sender, recipient, context, content, ts, delivered, "
+                "delivery_error, attachments, status) VALUES(?,?,?,?,?,?,?,NULL,?)",
+                (
+                    message["sender"], message["recipient"], message["context"],
+                    message["content"], message["ts"],
+                    1 if message["status"] == "delivered" else 0,
+                    message["delivery_error"], message["status"],
+                ),
+            )
+
+        report = summarize(plan)
+        report["task_ids"] = {str(k): v for k, v in task_ids.items()}
+        report["imported_at"] = now
+        conn.execute(
+            "INSERT OR REPLACE INTO imports(source_id, node, imported_at, report) VALUES(?,?,?,?)",
+            (source_id, node, now, json.dumps(report)),
+        )
+    return report

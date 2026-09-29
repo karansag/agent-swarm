@@ -15,9 +15,12 @@ Codex, or otherwise). Last updated 2026-07-13.
   no way to identify the owner; a login page that sets an HttpOnly
   cookie from an owner token, with Origin checks on mutating requests,
   would cover it.
-- **Importing open tasks** from a machine that ran its own agent-swarm
-  (`agent-swarm import-tasks`, see docs/cross-machine-design.md) is
-  described but not built; re-file them by hand for now.
+- **Bundles carry no attachments.** `agent-swarm export` and `import`
+  move agents, teams, tasks, and optionally message history between
+  hubs; the image files a message carried stay on the machine that has
+  them, and imported messages say so. Copying them across would mean
+  putting the bytes in the bundle or fetching them from a hub that is
+  being retired.
 
 ## Conventions for this repo
 

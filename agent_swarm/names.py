@@ -127,8 +127,8 @@ POOL = [
 ]
 
 
-def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
-    """Return a pool name not yet taken in `recipients`.
+def pick(taken: set[str], rng: random.Random | None = None) -> str:
+    """Return a pool name that none of `taken` uses.
 
     Handles are bare pool names; what an agent is and where it runs are
     columns on its row, not parts of its name. A handle issued by an earlier
@@ -137,7 +137,6 @@ def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> s
     pool name is taken, a numeric suffix is appended.
     """
     r = rng or random.Random()
-    taken = {row[0] for row in conn.execute("SELECT user_id FROM recipients")}
 
     def free(name: str) -> bool:
         return name not in taken and not any(t.startswith(f"{name}-") for t in taken)
@@ -150,6 +149,11 @@ def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> s
     while f"{base}-{n}" in taken:
         n += 1
     return f"{base}-{n}"
+
+
+def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
+    """A pool name no registered agent holds."""
+    return pick({row[0] for row in conn.execute("SELECT user_id FROM recipients")}, rng)
 
 
 # Handles the server refuses to hand out: 'owner' is the human operator.

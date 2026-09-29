@@ -357,9 +357,59 @@ What changes when a paste crosses the network:
   on. The task convention is unchanged; a worker pushes its branch and
   reports the ref, since a path means nothing on another machine.
 
-Moving a machine that already runs its own agent-swarm to the hub is
-described in [docs/upgrading.md](docs/upgrading.md); the design and its
-trade-offs are in [docs/cross-machine-design.md](docs/cross-machine-design.md).
+### Bringing a machine that had its own hub
+
+A machine that has been running its own agent-swarm arrives with agents,
+teams, and a task board of its own. Carry them over as a bundle rather
+than merging databases:
+
+```bash
+# On that machine, before or after stopping its old server:
+agent-swarm export --out ~/swarm-bundle.json          # add --with-messages for history
+
+# Copy it to the hub, then there:
+agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro --dry-run
+agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro
+```
+
+The export reads that database without writing to it, so it is safe
+against a live server's file or an archived copy. The dry run decides
+everything and writes nothing, so you can read the report first.
+
+What the hub does with it:
+
+- Each agent becomes a reservation: an offline row holding its handle,
+  its harness, and its contact instructions until the agent registers
+  here through the node daemon. The import prints the line to run in
+  each pane; an agent that reports a stable id reclaims its handle by
+  itself. A handle reserved for a named agent cannot be taken by a
+  different one, and prune leaves reservations alone.
+- A handle already in use here is imported under a fresh one, and every
+  reference to it follows. An agent whose stable id this hub already
+  knows keeps the row and the machine it already has; nothing about it
+  is changed.
+- A team whose name is already here arrives under its own name, such as
+  "shipping (karans-macbook-pro)", rather than merging two unrelated
+  teams. Pass `--merge-teams` to add to the existing one instead.
+- Tasks keep their status, notes, assignees, and dependencies, renumbered
+  here. A worktree path is recorded with the machine it is on.
+- Messages come only with `--with-messages`, as history: they are
+  written as they were recorded, never delivered again, and tagged
+  `imported` so that task numbers in their text read as the old board's.
+  Attachments stay behind and are noted in the text.
+- Importing the same export twice is refused, so a retry cannot
+  duplicate a board. The whole import is one transaction: if any part of
+  a bundle is unusable, nothing is written.
+
+Anything the import could not resolve, a queen who is not a member, a
+dependency the bundle did not carry, a worktree on a machine this hub
+does not know, comes back as a warning in the report rather than being
+dropped quietly.
+
+The design and its trade-offs are in
+[docs/cross-machine-design.md](docs/cross-machine-design.md); the full
+upgrade path for such a machine is in
+[docs/upgrading.md](docs/upgrading.md).
 
 ## How Delivery Works
 
@@ -547,6 +597,8 @@ agent-swarm node-token <name>         # on the hub: enrol a machine, or rotate i
 agent-swarm nodes                     # on the hub: enrolled machines and whether they are connected
 agent-swarm join <hub-url> --token <token> [--node <name>]   # on the other machine
 agent-swarm-node                      # on the other machine: connect its tmux to the hub
+agent-swarm export [--db <path>] [--out <file>] [--with-messages]   # on a machine that had its own hub
+agent-swarm import <file> --node <name> [--dry-run] [--merge-teams] # on the hub
 agent-swarm tasks [--status open|picked_up|done]
 agent-swarm task-create <title> [--description <text>] [--assignee <handle>]
 agent-swarm task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
@@ -575,6 +627,7 @@ When `--pane` is omitted, the CLI resolves the current pane with
 | POST   | `/nodes/<name>/token` | enrol or rotate; returns the token once; owner only          |
 | DELETE | `/nodes/<name>` | revoke and disconnect; owner only                                  |
 | GET    | `/nodes/me`   | what the hub takes the caller for (`owner`, or `node` and which)     |
+| POST   | `/import`     | `{node, bundle, dry_run?, again?, merge_teams?}`; takes in another hub's agents, teams, and tasks; owner only |
 | WS     | `/nodes/ws`   | a node's connection; bearer token on the handshake, then the frames in `agent_swarm/protocol.py` |
 | POST   | `/send`       | `{tmux_pane, node?, recipient, content, context?}`; returns `status` of `delivered`, `failed`, or `unknown` |
 | GET    | `/messages`   | `?user=<handle>&limit=<n>`; omit `user` for all messages            |

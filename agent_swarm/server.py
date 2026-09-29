@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import activity, attachments, db, names, nodes, panes, protocol, tmux
+from . import activity, attachments, bundle, db, names, nodes, panes, protocol, tmux
 
 log = logging.getLogger("agent_swarm.monitor")
 
@@ -129,6 +129,22 @@ class RegisterReq(BaseModel):
     submit_key: str | None = Field(
         default=None,
         description="Optional tmux submit key override (defaults to C-m).",
+    )
+
+
+class ImportReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node: str = Field(min_length=1, description="the machine these agents run on")
+    bundle: dict = Field(description="what `agent-swarm export` wrote on that machine")
+    dry_run: bool = Field(default=False, description="decide and report, write nothing")
+    again: bool = Field(
+        default=False,
+        description="take in a bundle that was imported before, duplicating what it carries",
+    )
+    merge_teams: bool = Field(
+        default=False,
+        description="add to a team of the same name here instead of importing it under a new one",
     )
 
 
@@ -733,6 +749,19 @@ def create_app(
         if existing_id is not None:
             _own_row_or_403(request, existing_id)
 
+        def _reservation_allows(handle: str | None) -> None:
+            """A handle reserved for a named agent is that agent's to claim."""
+            row = db.get_recipient(conn, handle) if handle else None
+            if row and row.get("reserved") and row.get("agent_id") and req.agent_id:
+                if row["agent_id"] != req.agent_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "error": "that handle is reserved for another agent",
+                            "requested_user": handle,
+                        },
+                    )
+
         requested = None
         if req.requested_user is not None:
             try:
@@ -759,6 +788,8 @@ def create_app(
                         "requested_user": requested,
                     },
                 )
+
+        _reservation_allows(requested or existing_id)
 
         renamed_from = None
         if requested is not None:
@@ -807,6 +838,8 @@ def create_app(
             # re-registers from another machine moves with its handle.
             node=node.name,
         )
+        # Whatever it was before, this row is a live registration now.
+        db.clear_reservation(conn, user_id)
         node.tag_pane(nodes.new_op_id(), pane, server, user_id)
         _refresh_watch(node.name)
         registered = db.get_recipient(conn, user_id)
@@ -879,6 +912,10 @@ def create_app(
     def _offline(
         r: dict, node: nodes.Node | None, snap: nodes.PaneSnapshot | None
     ) -> str | None:
+        if r.get("reserved"):
+            # A handle held for an agent that was imported from another hub.
+            return ("recipient offline: imported from another hub; it has not "
+                    "registered here yet")
         if node is None:
             return f"recipient offline: node {r['node']} is not connected"
         if snap is None:
@@ -996,6 +1033,11 @@ def create_app(
         removed, kept_offline = [], []
         for r in _annotated_recipients():
             if r["alive"]:
+                continue
+            # A reservation has no pane to lose; it is dropped by name, with
+            # unregister, not swept up here.
+            if r.get("reserved"):
+                kept_offline.append(r["user_id"])
                 continue
             # Unobserved is not gone: only a node that answered can confirm
             # a pane is missing, so an agent on a node that is disconnected
@@ -1593,6 +1635,64 @@ def create_app(
                 if fleet.get(name) is node:
                     fleet.remove(name)
             log.info("node %s disconnected (generation %d)", name, node.generation)
+
+    @app.post("/import")
+    def import_bundle(req: ImportReq, _: None = Depends(_require_owner)):
+        """Take in the agents, teams, and tasks of another hub.
+
+        The node must be one this hub knows, so a typo cannot strand an
+        import on a machine that will never connect. A dry run decides and
+        reports without writing; the task ids it shows are the bundle's own,
+        since the real ones are assigned when it is applied.
+        """
+        known = {n["name"] for n in db.list_nodes(conn)} | {fleet.local.name}
+        if req.node not in known:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "unknown node", "node": req.node, "known": sorted(known),
+                        "hint": "enrol it first with `agent-swarm node-token`"},
+            )
+        try:
+            source = bundle.source_id(req.bundle)
+        except bundle.Invalid as e:
+            raise HTTPException(status_code=400, detail={"error": str(e)}) from e
+
+        def make_plan(hub: dict) -> dict:
+            hub["merge_teams"] = req.merge_teams
+            return bundle.plan(req.bundle, req.node, hub)
+
+        earlier = db.imported_report(conn, source)
+        try:
+            if req.dry_run:
+                plan = make_plan(db.hub_state(conn))
+                report = bundle.summary(plan)
+            else:
+                plan = None
+
+                def planning(hub: dict) -> dict:
+                    nonlocal plan
+                    plan = make_plan(hub)
+                    return plan
+
+                report = db.apply_import(
+                    conn, source, req.node, planning, bundle.summary, again=req.again
+                )
+                _refresh_watch(req.node)
+        except bundle.Invalid as e:
+            raise HTTPException(status_code=400, detail={"error": str(e)}) from e
+        except db.AlreadyImported as e:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "this bundle was imported already", "report": e.report,
+                        "hint": "pass again=true to take it in a second time"},
+            ) from e
+        return {
+            "ok": True,
+            "dry_run": req.dry_run,
+            "imported_before": earlier,
+            "report": report,
+            "register": bundle.register_commands(plan),
+        }
 
     @app.get("/nodes/me")
     def nodes_me(request: Request):
