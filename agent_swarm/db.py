@@ -997,7 +997,10 @@ def apply_import(
     Nothing is written when any part of it fails.
     """
     _ensure_columns(conn)
-    with conn:  # one transaction: all of it, or none
+    # IMMEDIATE, so the state the plan is made from and the writes it turns
+    # into are one transaction against one snapshot.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
         row = conn.execute(
             "SELECT report FROM imports WHERE source_id=?", (source_id,)
         ).fetchone()
@@ -1087,4 +1090,8 @@ def apply_import(
             "INSERT OR REPLACE INTO imports(source_id, node, imported_at, report) VALUES(?,?,?,?)",
             (source_id, node, now, json.dumps(report)),
         )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     return report

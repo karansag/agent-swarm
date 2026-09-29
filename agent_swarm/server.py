@@ -750,15 +750,21 @@ def create_app(
             _own_row_or_403(request, existing_id)
 
         def _reservation_allows(handle: str | None) -> None:
-            """A handle reserved for a named agent is that agent's to claim."""
+            """A handle reserved for a named agent is that agent's alone.
+
+            The registering agent has to say it is that one: leaving the id
+            out does not make the handle anybody's, or a second agent on the
+            same machine could take it.
+            """
             row = db.get_recipient(conn, handle) if handle else None
-            if row and row.get("reserved") and row.get("agent_id") and req.agent_id:
-                if row["agent_id"] != req.agent_id:
+            if row and row.get("reserved") and row.get("agent_id"):
+                if (req.agent_id or None) != row["agent_id"]:
                     raise HTTPException(
                         status_code=409,
                         detail={
                             "error": "that handle is reserved for another agent",
                             "requested_user": handle,
+                            "hint": f"register with --agent-id {row['agent_id']} to claim it",
                         },
                     )
 

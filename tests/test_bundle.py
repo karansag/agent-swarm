@@ -223,7 +223,7 @@ def test_a_bundle_becomes_reservations_teams_and_tasks(live):
     report = r.json()["report"]
     assert (report["agents"], report["teams"], report["tasks"]) == (2, 1, 2)
     assert r.json()["register"] == [
-        "agent-swarm register --name otter --flavor claude",
+        "agent-swarm register --name otter --flavor claude --agent-id conv-otter",
         "agent-swarm register --name tapir --flavor codex",
     ]
     rows = {x["user_id"]: x for x in owner.get("/recipients").json()["recipients"]}
@@ -322,3 +322,96 @@ def test_a_failed_import_writes_nothing(live, monkeypatch):
     assert owner.get("/teams").json()["teams"] == []
     assert owner.get("/tasks").json()["tasks"] == []
     assert json.loads(json.dumps(owner.get("/api/state").json()))["recipients"] == []
+
+
+def test_a_handle_is_judged_by_its_canonical_form():
+    # "OTTER" and "otter" are one handle here, whether the clash is with this
+    # hub or with another agent in the same bundle.
+    data = make(agents=[{"user_id": "OTTER", "flavor": "claude", "team": None}], teams=[], tasks=[])
+    plan = bundle.plan(data, "laptop", hub(handles={"otter"}))
+    assert plan["agents"][0]["user_id"] not in ("otter", "OTTER")
+    assert plan["renamed"]["OTTER"] == plan["agents"][0]["user_id"]
+    data = make(agents=[{"user_id": "otter", "team": None}, {"user_id": "OTTER", "team": None}],
+                teams=[], tasks=[])
+    plan = bundle.plan(data, "laptop", hub())
+    handles = [a["user_id"] for a in plan["agents"]]
+    assert handles[0] == "otter" and handles[1] != "otter" and len(set(handles)) == 2
+
+
+def test_the_same_bundle_plans_the_same_names_every_time():
+    state = hub(handles={"otter"})
+    first = bundle.plan(make(), "laptop", state)
+    second = bundle.plan(make(), "laptop", state)
+    assert first["renamed"] == second["renamed"]
+    assert bundle.register_commands(first) == bundle.register_commands(second)
+
+
+def test_the_line_to_run_carries_the_id_the_handle_is_held_for():
+    lines = bundle.register_commands(bundle.plan(make(), "laptop", hub()))
+    assert lines == [
+        "agent-swarm register --name otter --flavor claude --agent-id conv-otter",
+        "agent-swarm register --name tapir --flavor codex",
+    ]
+
+
+def test_a_bundle_whose_fields_are_the_wrong_shape_is_refused():
+    for data, expected in [
+        (make(tasks=[{"id": 1, "title": 9}]), "must be text"),
+        (make(agents=[{"user_id": "otter", "agent_id": ["x"]}]), "must be text"),
+        (make(agents=[{"user_id": "otter", "agent_id": "same"},
+                      {"user_id": "tapir", "agent_id": "same"}]), "share the id"),
+        (make(teams=[{"name": "shipping", "members": []}, {"name": "shipping", "members": []}]), "twice"),
+        (make(teams=[{"name": "a", "members": ["otter"]}, {"name": "b", "members": ["otter"]}]), "two teams"),
+        (make(tasks=[{"id": 1, "title": "t", "depends_on": ["two"]}]), "not a task id"),
+        (make(agents=["otter"]), "each of agents is an object"),
+        (make(messages=[{"sender": "owner", "recipient": "otter", "ts": "soon"}]), "must be a number"),
+    ]:
+        with pytest.raises(bundle.Invalid, match=expected):
+            bundle.plan(data, "laptop", hub())
+
+
+def test_a_long_chain_of_tasks_is_walked_without_recursion():
+    chain = [{"id": i, "title": f"step {i}", "depends_on": ([i + 1] if i < 1100 else [])}
+             for i in range(1, 1101)]
+    plan = bundle.plan(make(tasks=chain, teams=[], agents=[]), "laptop", hub())
+    assert len(plan["tasks"]) == 1100
+    chain[-1]["depends_on"] = [1]  # close the loop
+    with pytest.raises(bundle.Invalid, match="cycle"):
+        bundle.plan(make(tasks=chain, teams=[], agents=[]), "laptop", hub())
+
+
+def test_a_reserved_handle_is_not_claimable_without_the_id_it_is_held_for(live):
+    app, owner, token = live
+    owner.post("/import", json={"node": "macbook", "bundle": make()})
+    connect(app)
+    node = TestClient(app, client=("100.64.0.9", 1), headers={"Authorization": f"Bearer {token}"})
+    # otter is held for conv-otter: no id, or another id, is not that agent.
+    for body in ({"tmux_pane": "%1", "node": "macbook", "requested_user": "otter"},
+                 {"tmux_pane": "%1", "node": "macbook", "requested_user": "otter", "agent_id": ""},
+                 {"tmux_pane": "%1", "node": "macbook", "requested_user": "otter", "agent_id": "other"}):
+        r = node.post("/register", json=body)
+        assert r.status_code == 409, body
+        assert "conv-otter" in r.json()["detail"]["hint"]
+    r = node.post("/register", json={"tmux_pane": "%1", "node": "macbook",
+                                     "requested_user": "otter", "agent_id": "conv-otter"})
+    assert r.status_code == 200
+    # tapir was reserved without an id, so its machine may claim it by name.
+    assert node.post("/register", json={"tmux_pane": "%2", "node": "macbook",
+                                        "requested_user": "tapir"}).status_code == 200
+
+
+def test_nothing_is_written_when_an_import_fails_after_it_has_begun(live, monkeypatch):
+    app, owner, _ = live
+
+    def boom(plan):
+        raise RuntimeError("something went wrong after the rows went in")
+
+    monkeypatch.setattr(bundle, "summary", boom)
+    with pytest.raises(RuntimeError):
+        owner.post("/import", json={"node": "macbook", "bundle": make()})
+    monkeypatch.undo()
+    assert owner.get("/recipients").json()["recipients"] == []
+    assert owner.get("/teams").json()["teams"] == []
+    assert owner.get("/tasks").json()["tasks"] == []
+    # And the import was not recorded, so it can be taken in properly.
+    assert owner.post("/import", json={"node": "macbook", "bundle": make()}).status_code == 200
