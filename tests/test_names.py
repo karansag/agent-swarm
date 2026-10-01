@@ -35,7 +35,7 @@ def test_legacy_suffixed_handle_reserves_its_bare_name():
     for animal in names.POOL[:-2]:
         _take(conn, animal)
     penultimate, last = names.POOL[-2], names.POOL[-1]
-    _take(conn, f"{penultimate}-codex-gpt5-karanslinux")
+    _take(conn, f"{penultimate}-codex-gpt5-workstation")
     assert names.pick_unused(conn) == last
 
 
@@ -46,7 +46,7 @@ def test_every_generated_handle_can_be_requested_back():
     conn = _conn()
     generated = names.pick_unused(conn, rng=random.Random(0))
     assert names.normalize_requested(generated) == generated
-    assert names.normalize_requested("salamander-claude-fable-karanslinux")
+    assert names.normalize_requested("salamander-claude-fable-workstation")
 
 
 def test_pick_unused_falls_back_to_numeric_suffix_when_pool_exhausted():

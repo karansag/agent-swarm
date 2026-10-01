@@ -76,8 +76,8 @@ def test_local_node_prefers_the_node_override(monkeypatch):
     monkeypatch.setenv("AGENT_SWARM_NODE", "hub")
     assert tmux.local_node() == "hub"
     monkeypatch.delenv("AGENT_SWARM_NODE")
-    monkeypatch.setattr(tmux.socket, "gethostname", lambda: "karans-linux.local")
-    assert tmux.local_node() == "karans-linux"
+    monkeypatch.setattr(tmux.socket, "gethostname", lambda: "workstation.local")
+    assert tmux.local_node() == "workstation"
 
 
 def test_codex_spawn_skips_the_shared_daemon_when_codex_supports_it(monkeypatch):

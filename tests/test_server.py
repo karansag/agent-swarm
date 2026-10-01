@@ -1204,7 +1204,7 @@ def test_legacy_suffixed_handles_reserve_their_bare_name_over_http(client, monke
     # Every pool name but two is taken; one of the two survives only as a
     # legacy suffixed handle, so the other must be the one handed out.
     monkeypatch.setattr(names, "POOL", ["otter", "ferret"])
-    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "otter-codex-gpt5-karanslinux"})
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "otter-codex-gpt5-workstation"})
     assert client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"] == "ferret"
     # Both bases are taken now, so exhaustion suffixes whichever base the
     # RNG picks; either is correct as long as neither bare name is reused.

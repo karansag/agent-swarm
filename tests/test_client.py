@@ -452,10 +452,10 @@ def test_settings_come_from_env_then_file_then_defaults(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_SWARM_CONFIG", str(tmp_path / "node.toml"))
     monkeypatch.setattr(config.socket, "gethostname", lambda: "laptop.local")
     assert config.load() == config.Settings("http://127.0.0.1:8765", None, "laptop")
-    path = config.write("http://karans-linux:8765/", "s3cret", "macbook")
+    path = config.write("http://workstation:8765/", "s3cret", "macbook")
     assert oct(path.stat().st_mode & 0o777) == "0o600"
-    assert config.load() == config.Settings("http://karans-linux:8765", "s3cret", "macbook")
-    assert client.base_url() == "http://karans-linux:8765"
+    assert config.load() == config.Settings("http://workstation:8765", "s3cret", "macbook")
+    assert client.base_url() == "http://workstation:8765"
     assert client._headers() == {"Authorization": "Bearer s3cret"}
     assert tmux.local_node() == "macbook"
     monkeypatch.setenv("AGENT_SWARM_URL", "http://other:1")
@@ -498,7 +498,7 @@ def test_node_token_guesses_a_reachable_hub_address_for_a_loopback_hub(monkeypat
     from agent_swarm import config
 
     monkeypatch.setattr(client, "base_url", lambda: "http://127.0.0.1:8765")
-    monkeypatch.setattr(config.socket, "gethostname", lambda: "karans-linux.local")
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "workstation.local")
     monkeypatch.setattr(
         client.httpx, "post",
         lambda url, headers, timeout: SimpleNamespace(
@@ -507,7 +507,7 @@ def test_node_token_guesses_a_reachable_hub_address_for_a_loopback_hub(monkeypat
     )
     assert client.main(["node-token", "macbook"]) == 0
     err = capsys.readouterr().err
-    assert "agent-swarm join http://karans-linux:8765 --token 't k' --node macbook" in err
+    assert "agent-swarm join http://workstation:8765 --token 't k' --node macbook" in err
     assert "guessed" in err
 
 

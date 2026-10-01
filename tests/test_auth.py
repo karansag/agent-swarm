@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_swarm import nodes, server, tmux
+from agent_swarm import config, nodes, server, tmux
 
 
 @pytest.fixture()
@@ -47,7 +47,7 @@ def test_a_node_token_speaks_only_for_its_own_machine(hub):
     token = enrol(hub, "macbook")
     node = remote(hub, token)
     assert node.post("/register", json={"tmux_pane": "%1", "node": "macbook"}).status_code == 200
-    r = node.post("/register", json={"tmux_pane": "%1", "node": "karans-linux"})
+    r = node.post("/register", json={"tmux_pane": "%1", "node": "workstation"})
     assert r.status_code == 403 and r.json()["detail"]["error"] == "node mismatch"
     # Omitting the node means the hub's own machine, which a node is not.
     assert node.post("/register", json={"tmux_pane": "%1"}).status_code == 403
@@ -98,10 +98,19 @@ def test_tokens_are_issued_once_rotated_and_revoked(hub):
     assert owner(hub).delete("/nodes/macbook").status_code == 404
 
 
-def test_the_hub_refuses_a_token_for_its_own_name(hub):
-    r = owner(hub).post(f"/nodes/{tmux.local_node()}/token")
-    assert r.status_code == 400
-    assert owner(hub).post("/nodes/Not%20Valid/token").status_code == 400
+def test_the_hub_refuses_a_token_for_its_own_name(tmp_path, monkeypatch):
+    # A fixed hostname with capitals, as macOS reports them: the hub must know
+    # itself however the name is cased, on every machine the tests run on.
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "Mixed-Case-Host.local")
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    app = server.create_app(tmp_path / "db.sqlite", monitor=False)
+    assert tmux.local_node() == "mixed-case-host"
+    for name in ("mixed-case-host", "Mixed-Case-Host"):
+        r = owner(app).post(f"/nodes/{name}/token")
+        assert r.status_code == 400, name
+        assert "own node" in r.json()["detail"]["error"]
+    assert owner(app).post("/nodes/Not%20Valid/token").status_code == 400
+    assert owner(app).post("/nodes/other-box/token").status_code == 200
 
 
 def test_loopback_trust_can_be_switched_off(tmp_path, monkeypatch):
@@ -185,7 +194,7 @@ def proxied(app, login=None, peer="127.0.0.1"):
 
 @pytest.fixture()
 def named_hub(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "ksagar1030@gmail.com")
+    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "owner@example.com")
     monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
     monkeypatch.setattr(tmux, "resolve_pane", lambda t: (t, t))
     monkeypatch.setattr(tmux, "pane_table", lambda: {})
@@ -194,7 +203,7 @@ def named_hub(tmp_path, monkeypatch):
 
 def test_a_named_tailnet_user_through_tailscale_serve_is_the_owner(named_hub):
     hub = named_hub
-    me = proxied(hub, "ksagar1030@gmail.com")
+    me = proxied(hub, "owner@example.com")
     assert me.get("/api/state").status_code == 200
     assert me.get("/").status_code == 200
     assert me.get("/nodes/me").json() == {"kind": "owner", "node": tmux.local_node()}
@@ -206,7 +215,7 @@ def test_a_forwarded_request_without_an_identity_is_refused(named_hub):
     r = proxied(hub).get("/api/state")
     assert r.status_code == 401 and "without a Tailscale identity" in r.json()["detail"]["error"]
     # The identity header means nothing from a peer that is not the loopback proxy.
-    assert proxied(hub, "ksagar1030@gmail.com", peer="100.64.0.9").get("/api/state").status_code == 401
+    assert proxied(hub, "owner@example.com", peer="100.64.0.9").get("/api/state").status_code == 401
     # Plain loopback, not forwarded, is still the local owner.
     assert owner(hub).get("/api/state").status_code == 200
 
@@ -214,8 +223,8 @@ def test_a_forwarded_request_without_an_identity_is_refused(named_hub):
 def test_any_vouched_login_is_the_owner_until_logins_are_named(hub):
     # No AGENT_SWARM_OWNER_LOGINS: Serve is tailnet-only and vouches for the
     # login, which on a single-user tailnet is the one person.
-    assert proxied(hub, "ksagar1030@gmail.com").get("/api/state").status_code == 200
-    assert proxied(hub, "ksagar1030@gmail.com").get("/nodes/me").json()["kind"] == "owner"
+    assert proxied(hub, "owner@example.com").get("/api/state").status_code == 200
+    assert proxied(hub, "owner@example.com").get("/nodes/me").json()["kind"] == "owner"
     assert owner(hub).get("/api/state").status_code == 200
 
 
@@ -224,16 +233,16 @@ def test_an_identity_header_alone_marks_a_proxied_request(hub, named_hub):
     # the plain local owner: it takes the proxied path and its rules.
     bare = TestClient(hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "stranger@example.com"})
     assert bare.get("/nodes/me").json() == {"kind": "owner", "node": tmux.local_node()}  # proxied path, no allowlist
-    named = TestClient(named_hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "ksagar1030@gmail.com"})
+    named = TestClient(named_hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "owner@example.com"})
     assert named.get("/nodes/me").json()["kind"] == "owner"
     other = TestClient(named_hub, client=("127.0.0.1", 40000), headers={"Tailscale-User-Login": "stranger@example.com"})
     assert other.get("/api/state").status_code == 403
 
 
 def test_owner_logins_can_be_narrowed(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "ksagar1030@gmail.com, Other@Example.com")
+    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "owner@example.com, Other@Example.com")
     app = server.create_app(tmp_path / "db.sqlite", monitor=False)
-    assert proxied(app, "ksagar1030@gmail.com").get("/api/state").status_code == 200
+    assert proxied(app, "owner@example.com").get("/api/state").status_code == 200
     assert proxied(app, "other@example.com").get("/api/state").status_code == 200
     r = proxied(app, "stranger@example.com").get("/api/state")
     assert r.status_code == 403 and "not an owner login" in r.json()["detail"]["error"]
@@ -245,14 +254,14 @@ def test_a_node_token_keeps_its_scope_through_the_proxy(named_hub):
     c = TestClient(
         hub, client=("127.0.0.1", 40000),
         headers={"Authorization": f"Bearer {token}", "X-Forwarded-For": "100.87.6.39",
-                 "Tailscale-User-Login": "ksagar1030@gmail.com"},
+                 "Tailscale-User-Login": "owner@example.com"},
     )
     assert c.get("/nodes/me").json() == {"kind": "node", "node": "macbook"}
     assert c.get("/api/state").status_code == 403
 
 
 def test_proxied_identity_still_works_when_loopback_trust_is_off(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "ksagar1030@gmail.com")
+    monkeypatch.setenv("AGENT_SWARM_OWNER_LOGINS", "owner@example.com")
     app = server.create_app(tmp_path / "db.sqlite", monitor=False, trust_loopback=False)
     assert owner(app).get("/api/state").status_code == 401
-    assert proxied(app, "ksagar1030@gmail.com").get("/api/state").status_code == 200
+    assert proxied(app, "owner@example.com").get("/api/state").status_code == 200

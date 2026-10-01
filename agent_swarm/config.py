@@ -47,6 +47,13 @@ def hostname() -> str:
     return socket.gethostname().split(".")[0]
 
 
+def _node_name(raw: str) -> str:
+    # The hub stores node names the way it stores handles, lowercase, so a
+    # machine whose hostname has capitals (macOS: "Karans-MBP") must report
+    # itself the same way or it won't match its own enrolment.
+    return raw.strip().lower()
+
+
 def load() -> Settings:
     file = _file()
     hub = (
@@ -57,7 +64,7 @@ def load() -> Settings:
     )
     token = os.environ.get("AGENT_SWARM_TOKEN") or file.get("token") or None
     node = os.environ.get("AGENT_SWARM_NODE") or file.get("node") or hostname()
-    return Settings(hub=hub.rstrip("/"), token=token, node=node)
+    return Settings(hub=hub.rstrip("/"), token=token, node=_node_name(node))
 
 
 def _toml_string(value: str) -> str:
