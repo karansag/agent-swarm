@@ -374,3 +374,45 @@ def test_title_summary_reads_harness_titles(title, summary):
 
 def test_title_summary_ignores_the_default_host_title():
     assert tmux.title_summary(tmux.socket.gethostname()) is None
+
+
+def _fake_tree(monkeypatch, pane_pid, parents):
+    """A fake process table: `parents` maps pid -> ppid."""
+    monkeypatch.setattr(tmux, "_tmux_out", lambda *a, **k: f"{pane_pid}\n")
+    ps_out = "".join(f"{pid} {ppid}\n" for pid, ppid in parents.items())
+    monkeypatch.setattr(
+        tmux.subprocess, "run",
+        lambda cmd, **k: SimpleNamespace(stdout=ps_out, returncode=0),
+    )
+
+
+def test_a_process_under_the_pane_is_in_it(monkeypatch):
+    _fake_tree(monkeypatch, pane_pid=100, parents={300: 200, 200: 100, 100: 1})
+    assert tmux.process_in_pane("%5", pid=300) is True
+
+
+def test_a_shared_daemon_is_not_in_the_pane_its_env_names(monkeypatch):
+    # The Codex daemon hangs off launchd, not off the pane that started it.
+    _fake_tree(monkeypatch, pane_pid=100, parents={400: 390, 390: 1, 100: 1})
+    assert tmux.process_in_pane("%5", pid=400) is False
+
+
+def test_process_in_pane_is_unknown_without_tmux(monkeypatch):
+    monkeypatch.setattr(tmux, "_tmux_out", lambda *a, **k: None)
+    assert tmux.process_in_pane("%5", pid=1) is None
+
+
+def test_cli_warns_when_it_is_not_in_the_pane_it_claims(monkeypatch, capsys):
+    monkeypatch.setenv("TMUX_PANE", "%98")
+    monkeypatch.setattr(client, "current_pane", lambda: "%98")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
+    assert client.detect_pane() == "%98"
+    err = capsys.readouterr().err
+    assert "not running inside tmux pane %98" in err and "--no-daemon" in err
+
+
+def test_cli_is_quiet_in_its_own_pane(monkeypatch, capsys):
+    monkeypatch.setattr(client, "current_pane", lambda: "%49")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
+    assert client.detect_pane() == "%49"
+    assert capsys.readouterr().err == ""

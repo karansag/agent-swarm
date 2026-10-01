@@ -144,3 +144,31 @@ def test_local_host_prefers_the_node_override(monkeypatch):
     monkeypatch.delenv("AGENT_SWARM_NODE")
     monkeypatch.setattr(tmux.socket, "gethostname", lambda: "karans-linux.local")
     assert tmux.local_host() == "karans-linux"
+
+
+def test_codex_spawn_skips_the_shared_daemon_when_codex_supports_it(monkeypatch):
+    monkeypatch.setattr(tmux, "harness_accepts", lambda binary, flag: (binary, flag) == ("codex", "--no-daemon"))
+    assert tmux.spawn_launch_command("codex").endswith(" --no-daemon")
+    assert "--no-daemon" not in tmux.spawn_launch_command("claude")
+
+
+def test_codex_spawn_leaves_out_flags_an_older_codex_rejects():
+    # The autouse fixture reports every optional flag as unsupported.
+    assert "--no-daemon" not in tmux.spawn_launch_command("codex")
+
+
+def test_harness_accepts_probes_the_binary(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, capture_output, text, timeout):
+        calls.append(cmd)
+        return type("R", (), {"returncode": 0 if cmd[1] == "--new" else 2})()
+
+    monkeypatch.undo()  # drop the autouse stub; test the real probe
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+    tmux.harness_accepts.cache_clear()
+    assert tmux.harness_accepts("fakeharness", "--new") is True
+    assert tmux.harness_accepts("fakeharness", "--old") is False
+    assert tmux.harness_accepts("fakeharness", "--new") is True  # cached
+    assert calls == [["fakeharness", "--new", "--help"], ["fakeharness", "--old", "--help"]]
+    tmux.harness_accepts.cache_clear()

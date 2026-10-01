@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 import httpx
 
+from . import tmux
 from .tmux import current_pane, local_host
 
 
@@ -35,6 +36,30 @@ def base_url() -> str:
         "AGENT_SWARM_URL",
         os.environ.get("AGENT_MSG_URL", "http://127.0.0.1:8765"),
     )
+
+
+def detect_pane() -> str | None:
+    """This process's tmux pane, warning on stderr when it looks borrowed.
+
+    A process can name a pane it isn't in: Codex 0.158+ runs commands in one
+    shared daemon that inherited the TMUX_PANE of whichever pane started it,
+    and a process outside tmux falls back to tmux's active pane. Acting on
+    that pane would register or send as whatever agent is really there.
+    """
+    pane = current_pane()
+    if pane and tmux.process_in_pane(pane) is False:
+        source = (
+            "TMUX_PANE names it" if os.environ.get("TMUX_PANE")
+            else "TMUX_PANE is unset, so this is tmux's active pane"
+        )
+        print(
+            f"warning: this process is not running inside tmux pane {pane} ({source}).\n"
+            "  Registering or sending from here acts as whatever agent is in that pane.\n"
+            "  Codex 0.158+ does this when it shares one app-server daemon: start it with\n"
+            "  --no-daemon in the agent's own pane. Pass --pane only if you are sure.",
+            file=sys.stderr,
+        )
+    return pane
 
 
 def registered_user(pane: str) -> str | None:
@@ -48,7 +73,7 @@ def registered_user(pane: str) -> str | None:
 
 
 def cmd_register(args: argparse.Namespace) -> int:
-    pane = args.pane or current_pane()
+    pane = args.pane or detect_pane()
     if not pane:
         print(
             "error: could not detect tmux pane; pass --pane explicitly", file=sys.stderr
@@ -75,7 +100,7 @@ def cmd_register(args: argparse.Namespace) -> int:
 
 
 def cmd_send(args: argparse.Namespace) -> int:
-    pane = current_pane()
+    pane = detect_pane()
     if not pane:
         print(
             "error: could not detect tmux pane; run inside tmux or register with --pane",
@@ -102,7 +127,7 @@ def cmd_send(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    pane = current_pane()
+    pane = detect_pane()
     if not pane:
         print("error: could not detect tmux pane; run inside tmux", file=sys.stderr)
         return 2
@@ -141,7 +166,7 @@ def cmd_prune(args: argparse.Namespace) -> int:
 def cmd_unregister(args: argparse.Namespace) -> int:
     user = args.user
     if user is None:
-        pane = current_pane()
+        pane = detect_pane()
         user = registered_user(pane) if pane else None
     if user is None:
         print("error: current pane is not registered; pass --user HANDLE", file=sys.stderr)
@@ -206,11 +231,12 @@ def cmd_task_update(args: argparse.Namespace) -> int:
 
 
 def cmd_whoami(_: argparse.Namespace) -> int:
-    pane = current_pane()
+    pane = detect_pane()
     user = registered_user(pane) if pane else None
+    in_pane = tmux.process_in_pane(pane) if pane else None
     print(
         json.dumps(
-            {"user": user, "pane": pane, "server": base_url()}, indent=2
+            {"user": user, "pane": pane, "in_pane": in_pane, "server": base_url()}, indent=2
         )
     )
     return 0

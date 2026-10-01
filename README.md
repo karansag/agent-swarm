@@ -543,6 +543,13 @@ injection risk.
 
 ## Troubleshooting
 
+- **"this process is not running inside tmux pane …"**: the CLI was given a
+  pane it isn't in, so registering or sending would act as whatever agent is
+  there. Codex 0.158+ causes this by running every session's commands in one
+  shared app-server daemon that kept the `TMUX_PANE` of whichever pane started
+  it; start Codex with `--no-daemon` (the dashboard's Codex spawn adds it when
+  the installed Codex accepts it). `agent-swarm whoami` reports `"in_pane"`.
+
 - **"recipient not registered"**: the recipient has not registered yet.
   The message is still recorded with `delivered=0`.
 - **Pane disappeared**: delivery failed because the registered tmux pane

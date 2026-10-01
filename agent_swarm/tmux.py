@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import shlex
@@ -362,12 +363,16 @@ class HarnessSpec:
         models: list[str],
         startup_args: str = "",
         auto_args: str = "",
+        if_supported: tuple[str, ...] = (),
     ):
         self.binary = binary
         self.model_flag = model_flag
         self.models = models
         self.startup_args = startup_args
         self.auto_args = auto_args
+        # Flags passed only when the installed harness accepts them, so a
+        # flag added in a newer release can't stop an older one from starting.
+        self.if_supported = if_supported
 
 
 HARNESS_SPAWN: dict[str, HarnessSpec] = {
@@ -383,6 +388,11 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
         ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
         startup_args="-c check_for_update_on_startup=false",
         auto_args="--ask-for-approval never --sandbox workspace-write",
+        # Codex 0.156+ otherwise runs the session's commands in one shared
+        # app-server daemon, whose TMUX_PANE is whichever pane started it, so
+        # the agent's agent-swarm commands would claim that pane. Older
+        # releases reject the flag.
+        if_supported=("--no-daemon",),
     ),
     "pi": HarnessSpec(
         "pi",
@@ -404,6 +414,22 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
 }
 
 SPAWNABLE_FLAVORS = tuple(HARNESS_SPAWN)
+
+
+@functools.lru_cache(maxsize=None)
+def harness_accepts(binary: str, flag: str) -> bool:
+    """Whether the installed harness parses `flag` (`binary flag --help` exits 0).
+
+    Cached for the server's lifetime; restart the server after upgrading a
+    harness to pick up flags it newly accepts.
+    """
+    try:
+        out = subprocess.run(
+            [binary, flag, "--help"], capture_output=True, text=True, timeout=10
+        )
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return False
+    return out.returncode == 0
 
 
 def spawn_options() -> list[dict]:
@@ -435,6 +461,7 @@ def spawn_launch_command(
         parts.append(f"{spec.model_flag} {shlex.quote(model)}")
     if autonomy == "auto" and spec.auto_args:
         parts.append(spec.auto_args)
+    parts.extend(f for f in spec.if_supported if harness_accepts(spec.binary, f))
     return " ".join(parts)
 
 
@@ -494,6 +521,41 @@ def _tmux_out(*args: str, timeout: float = 2) -> str | None:
     except (subprocess.SubprocessError, FileNotFoundError):
         return None
     return out.stdout
+
+
+def process_in_pane(pane: str, pid: int | None = None) -> bool | None:
+    """Whether process `pid` (default: this one) runs inside tmux pane `pane`.
+
+    True when the pane's own process is one of its ancestors. False means the
+    pane id came from somewhere else: an inherited TMUX_PANE (Codex 0.158+
+    runs every session's commands in one shared daemon that kept the TMUX_PANE
+    of the pane that started it), or, with no TMUX_PANE at all, tmux's guess
+    of the active pane. None when it can't be told (no tmux, no ps).
+    """
+    out = _tmux_out("display-message", "-p", "-t", pane, "#{pane_pid}")
+    try:
+        pane_pid = int((out or "").strip())
+    except ValueError:
+        return None
+    try:
+        ps = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=True, timeout=5
+        )
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return None
+    parents = {}
+    for line in ps.stdout.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
+            parents[int(fields[0])] = int(fields[1])
+    current = os.getpid() if pid is None else pid
+    for _ in range(256):  # a cycle or a very deep tree ends the walk
+        if current == pane_pid:
+            return True
+        if current not in parents or current <= 1:
+            return False
+        current = parents[current]
+    return False
 
 
 def server_id() -> str | None:
