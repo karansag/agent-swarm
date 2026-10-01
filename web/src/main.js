@@ -9,6 +9,7 @@ import {
   STATE,
   agentStatus,
   Avatar,
+  MachineBadge,
   rel,
   currentTask,
   SUMMARY_SOURCE,
@@ -18,6 +19,7 @@ import {
   patchTask,
 } from "./shared.js";
 import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
+import { machineColor, machineList, machineName } from "./machines.js";
 import { HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { renderMarkdown } from "./markdown.js";
@@ -95,13 +97,16 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     e.dataTransfer.setData("text/plain", r.user_id);
   };
   return html`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
+      style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => { location.hash = selected ? "#/" : focusHash(r.user_id); }}>
     <${Avatar} name=${r.user_id} size="small" />
     <div class="who">
+      <${MachineBadge} node=${r.node} />
+      ${team && html`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
       <div class="nm">${r.user_id}${isQueen && html`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
-      <div class="tech" title=${[flavor, r.model, r.node, r.pane_label, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`}${r.node && html` · <span class="node">${r.node}</span>`} · ${r.pane_label}</div>
+      <div class="tech" title=${[flavor, r.model, r.node, r.pane_label, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
@@ -267,6 +272,7 @@ function SpawnControl({ refresh, nodes }) {
 
   const flavors = offered.length ? offered.map(h => h.flavor) : [];
   return html`<form class="spawn" onSubmit=${spawn}>
+    <div class="spawn-heading">Spawn agent · choose destination</div>
     ${(enrolled.length > 1 || node) && html`<select title="machine" value=${node} onChange=${e => pickNode(e.target.value)}>
       ${choices.map(n => html`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
     </select>`}
@@ -397,23 +403,34 @@ function Resend({ m, refresh }) {
     title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && html` <span class="ctx">${note}</span>`}`;
 }
 
-// Where agents run. Shown once more than one machine is enrolled.
-function NodeStrip({ nodes, recipients }) {
-  if (!nodes || nodes.length < 2) return null;
-  const count = (name) => recipients.filter(r => r.node === name && r.pane_alive).length;
-  return html`<div class="nodes" aria-label="machines">
-    ${nodes.map(n => html`<span key=${n.name} class=${`node-chip ${n.connected ? "on" : "off"}`}
-      title=${n.local ? "this machine" : n.connected ? "connected" : `not connected${n.last_seen ? ` · last seen ${rel(n.last_seen, Date.now() / 1000)}` : ""}`}>
-      <span class="dot"></span>${n.name}${n.local && html`<span class="you"> · hub</span>`} · ${count(n.name)}</span>`)}
-  </div>`;
+// The same machine key drives the hive and roster, including disconnected
+// or removed machines whose agents still have history here.
+function MachineBar({ state, machine, selectMachine }) {
+  const machines = machineList(state.nodes, state.recipients);
+  return html`<section class="machine-bar" aria-label="Machine selector">
+    <div class="machine-heading"><span>Machines</span><small>Color identifies the machine</small></div>
+    <div class="machine-choices">
+      <button class=${`machine-choice all ${machine === null ? "active" : ""}`} aria-pressed=${machine === null}
+        onClick=${() => selectMachine(null)}><strong>All machines</strong><span>${machines.length} machines · ${state.recipients.filter(r => r.pane_alive).length} live agents</span></button>
+      ${machines.map(n => html`<button key=${n.name} class=${`machine-choice ${machine === n.name ? "active" : ""} ${n.connected ? "" : "disconnected"}`}
+          style=${`--machine:${machineColor(n.name)}`} aria-pressed=${machine === n.name}
+          onClick=${() => selectMachine(machine === n.name ? null : n.name)}>
+        <strong><span class="machine-mark" aria-hidden="true"></span>${n.name}${n.local && html`<small>hub</small>`}</strong>
+        <span>${n.connected ? "Connected" : n.missing ? "Not enrolled" : "Disconnected"} · ${n.live} live${n.total > n.live ? ` / ${n.total} registered` : " agents"}</span>
+      </button>`)}
+    </div>
+    ${machine !== null && html`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
+  </section>`;
 }
 
-function Roster({ state, focusUser, unreadFor, pings, refresh }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine }) {
+  const [groupBy, setGroupBy] = useState("machine");
   const [overUnteam, setOverUnteam] = useState(false);
   const teams = state.teams || [];
   const teamById = new Map(teams.map(t => [t.id, t]));
-  const running = sortByActivity(state.recipients.filter(r => r.pane_alive));
-  const stopped = state.recipients.filter(r => !r.pane_alive);
+  const visible = state.recipients.filter(r => machine === null || machineName(r.node) === machine);
+  const running = sortByActivity(visible.filter(r => r.pane_alive));
+  const stopped = visible.filter(r => !r.pane_alive);
   const unteamed = running.filter(r => !teamById.has(r.team_id));
   const chip = (r) => html`<${RosterChip} key=${r.user_id} r=${r} state=${state}
     team=${teamById.get(r.team_id) || null}
@@ -421,7 +438,15 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
   return html`<aside class="roster">
     <h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>
-    <${NodeStrip} nodes=${state.nodes} recipients=${state.recipients} />
+    <div class="roster-grouping" aria-label="Group agents by">
+      <span>Group by</span>${["machine", "team"].map(g => html`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
+    </div>
+    ${groupBy === "machine" ? machineList(state.nodes, state.recipients).filter(n => machine === null || machine === n.name).map(n => html`<section class="machine-group" key=${n.name} style=${`--machine:${machineColor(n.name)}`}>
+      <h3><${MachineBadge} node=${n.name} /><span>${running.filter(r => machineName(r.node) === n.name).length} live</span></h3>
+      ${running.filter(r => machineName(r.node) === n.name).map(chip)}
+      ${!running.some(r => machineName(r.node) === n.name) && html`<p class="machine-empty">${n.connected ? "No live agents" : n.missing ? "Machine no longer enrolled" : "Machine disconnected"}</p>`}
+      ${stopped.some(r => machineName(r.node) === n.name) && html`<details class="stopped"><summary>Offline / stopped · ${stopped.filter(r => machineName(r.node) === n.name).length}</summary>${stopped.filter(r => machineName(r.node) === n.name).map(chip)}</details>`}
+    </section>`) : html`<div>
     ${teams.map(t => html`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
       members=${running.filter(r => r.team_id === t.id)} />`)}
     <${NewTeam} refresh=${refresh} />
@@ -437,6 +462,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
       <summary>stopped · ${stopped.length}</summary>
       ${stopped.map(chip)}
     </details>`}
+    </div>`}
     <${SpawnControl} refresh=${refresh} nodes=${state.nodes || []} />
   </aside>`;
 }
@@ -581,10 +607,10 @@ function Kanban({ state, refresh }) {
   </div>`;
 }
 
-function Overview({ state, refresh }) {
+function Overview({ state, refresh, machine }) {
   return html`<div>
     <h2>activity</h2>
-    <${HiveView} state=${state} refresh=${refresh} />
+    <${HiveView} state=${state} refresh=${refresh} machine=${machine} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -991,7 +1017,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          <${ModelLabel} r=${r} refresh=${refresh} />${r.node && html` · on <b>${r.node}</b>`} · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} /> · <${MachineBadge} node=${r.node} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? html` <span class="attn">${detail}</span>` : ""}
@@ -1038,6 +1064,7 @@ function FocusView({ user, state, refresh, freshIds }) {
 
 function App() {
   const [state, setState] = useState(null);
+  const [machine, setMachine] = useState(null);
   const [connected, setConnected] = useState(true);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [route, setRoute] = useState(location.hash);
@@ -1129,16 +1156,17 @@ function App() {
   const view = pending.length ? { ...state, messages: [...state.messages, ...pending] } : state;
 
   return html`${header}
+  <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
   <main>
     <div class="stage">
       ${focusUser
         ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />`
         : onHistory
           ? html`<${HistoryView} state=${state} />`
-          : html`<${Overview} state=${state} refresh=${poll} />`}
+          : html`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
     <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-      pings=${pings} refresh=${poll} />
+      pings=${pings} refresh=${poll} machine=${machine} />
   </main>`;
 }
 

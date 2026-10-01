@@ -478,6 +478,46 @@ function D(n, t) {
 	return "function" == typeof t ? t(n) : t;
 }
 //#endregion
+//#region web/src/machines.js
+var COLORS = [
+	"#80bfff",
+	"#c4a0f5",
+	"#91a4ee",
+	"#ed9bc4",
+	"#adc87f",
+	"#edba83",
+	"#65d5c0",
+	"#d2bd79"
+];
+var machineName = (name) => name || "Unknown machine";
+function machineColor(name) {
+	let hash = 2166136261;
+	for (const c of machineName(name)) hash = Math.imul(hash ^ c.codePointAt(0), 16777619);
+	return COLORS[(hash >>> 0) % COLORS.length];
+}
+function machineList(nodes = [], recipients = []) {
+	const all = new Map(nodes.map((n) => [machineName(n.name), {
+		...n,
+		name: machineName(n.name)
+	}]));
+	for (const r of recipients) {
+		const name = machineName(r.node);
+		if (!all.has(name)) all.set(name, {
+			name,
+			connected: false,
+			missing: true
+		});
+	}
+	return [...all.values()].map((n) => {
+		const agents = recipients.filter((r) => machineName(r.node) === n.name);
+		return {
+			...n,
+			total: agents.length,
+			live: agents.filter((r) => r.pane_alive).length
+		};
+	}).sort((a, b) => Number(!!b.local) - Number(!!a.local) || a.name.localeCompare(b.name));
+}
+//#endregion
 //#region web/src/shared.js
 var POLL_MS = 2e3;
 var PEEK_MS = 2e3;
@@ -637,6 +677,9 @@ function Avatar({ name, size }) {
     ${emoji || m$1`<span class="mono2">${base.slice(0, 2)}</span>`}
   </div>`;
 }
+function MachineBadge({ node }) {
+	return m$1`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
+}
 //#endregion
 //#region web/src/outcome.js
 function structured(body) {
@@ -791,7 +834,9 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 	}
 	return start;
 }
-function HiveView({ state, refresh }) {
+function HiveView({ state, refresh, machine }) {
+	const machineRef = A(machine);
+	machineRef.current = machine;
 	const canvasRef = A(null);
 	const stateRef = A(state);
 	const beesRef = A(/* @__PURE__ */ new Map());
@@ -1181,7 +1226,7 @@ function HiveView({ state, refresh }) {
 					bee.y = out.y;
 				}
 				bee.x = Math.max(16, Math.min(width - 16, bee.x));
-				bee.y = Math.max(34, Math.min(244, bee.y));
+				bee.y = Math.max(34, Math.min(bee.picked ? 208 : 224, bee.y));
 			}
 			for (const bee of beeData) {
 				const { r, name, harness, x, y, dx, dy, q, picked, assigned, primary, extras, working, busy } = bee;
@@ -1190,9 +1235,12 @@ function HiveView({ state, refresh }) {
 					x,
 					y,
 					task: primary,
+					node: machineName(r.node),
 					harness: harness.key,
 					doing: doing && doing.text
 				});
+				ctx.save();
+				if (machineRef.current !== null && machineName(r.node) !== machineRef.current) ctx.globalAlpha = .18;
 				if (assigned) token(assigned, x + 22, y + Math.sin(q * .8) * 3);
 				const bearing = Math.atan2(dy, dx);
 				ctx.save();
@@ -1212,7 +1260,7 @@ function HiveView({ state, refresh }) {
 				ctx.beginPath();
 				ctx.ellipse(-2, 7, 6, 3, .45 + flap, 0, Math.PI * 2);
 				ctx.fill();
-				ctx.fillStyle = harness.color;
+				ctx.fillStyle = machineColor(r.node);
 				ctx.beginPath();
 				ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2);
 				ctx.fill();
@@ -1241,14 +1289,18 @@ function HiveView({ state, refresh }) {
 				ctx.textBaseline = "alphabetic";
 				const markGap = 3;
 				const markW = ctx.measureText(harness.mark).width;
-				const nameW = ctx.measureText(name).width;
+				const shortName = name.length > 20 ? `${name.slice(0, 19)}…` : name;
+				const nameW = ctx.measureText(shortName).width;
 				const labelLeft = x - (markW + markGap + nameW) / 2;
 				ctx.textAlign = "left";
-				ctx.fillStyle = harness.color;
+				ctx.fillStyle = "#f0e6d2";
 				ctx.fillText(harness.mark, labelLeft, labelY);
 				ctx.fillStyle = "#a89878";
-				ctx.fillText(name, labelLeft + markW + markGap, labelY);
+				ctx.fillText(shortName, labelLeft + markW + markGap, labelY);
 				ctx.textAlign = "center";
+				ctx.font = "8px ui-monospace, monospace";
+				ctx.fillStyle = machineColor(r.node);
+				ctx.fillText(machineName(r.node), x, labelY + 11);
 				const attention = r.activity && r.activity.status === "needs_attention";
 				if (attention) {
 					ctx.fillStyle = "#f2a93b";
@@ -1264,6 +1316,7 @@ function HiveView({ state, refresh }) {
 					ctx.textBaseline = "alphabetic";
 					ctx.fillText("♛", x, y - (attention ? 26 : 14));
 				}
+				ctx.restore();
 			}
 			if (dragTaskRef.current !== null && dragPointRef.current) {
 				const dragged = (data.tasks || []).find((t) => t.id === dragTaskRef.current);
@@ -1273,7 +1326,6 @@ function HiveView({ state, refresh }) {
 			if (dragBee && dragPointRef.current) {
 				const p = dragPointRef.current;
 				const draggedRecipient = grouped.find((r) => r.user_id === dragBeeRef.current);
-				const draggedHarness = harnessStyle(draggedRecipient && draggedRecipient.flavor);
 				ctx.save();
 				ctx.strokeStyle = "rgba(240,230,210,.3)";
 				ctx.setLineDash([3, 4]);
@@ -1284,7 +1336,7 @@ function HiveView({ state, refresh }) {
 				ctx.restore();
 				ctx.save();
 				ctx.globalAlpha = .85;
-				ctx.fillStyle = draggedHarness.color;
+				ctx.fillStyle = machineColor(draggedRecipient?.node);
 				ctx.beginPath();
 				ctx.ellipse(p.x, p.y, 12, 6, 0, 0, Math.PI * 2);
 				ctx.fill();
@@ -1395,7 +1447,7 @@ function HiveView({ state, refresh }) {
 				const said = hovered.doing || hovered.task && hovered.task.title;
 				const title = said ? ` · ${said.length > 70 ? `${said.slice(0, 69)}…` : said}` : "";
 				const harnessLabel = (HARNESSES[hovered.harness] || HARNESSES.generic).label;
-				const label = `${hoverRef.current} · ${harnessLabel}${title}`;
+				const label = `${hoverRef.current} · ${hovered.node} · ${harnessLabel}${title}`;
 				ctx.font = "10px ui-monospace, monospace";
 				const w = ctx.measureText(label).width + 12;
 				const tx = Math.max(4, Math.min(width - w - 4, hovered.x - w / 2));
@@ -1709,6 +1761,10 @@ function HiveView({ state, refresh }) {
 		canvas.addEventListener("drop", drop);
 		canvas.addEventListener("dragend", clearDrop);
 		window.addEventListener("dragend", clearDrop);
+		const resize = new ResizeObserver(() => {
+			if (reduced) draw(performance.now(), true);
+		});
+		resize.observe(canvas);
 		if (reduced) draw(performance.now(), true);
 		else {
 			const tick = (now) => {
@@ -1721,6 +1777,7 @@ function HiveView({ state, refresh }) {
 			frame = requestAnimationFrame(tick);
 		}
 		return () => {
+			resize.disconnect();
 			cancelAnimationFrame(frame);
 			drawRef.current = null;
 			delete window.__hive;
@@ -1740,13 +1797,13 @@ function HiveView({ state, refresh }) {
 	}, []);
 	h(() => {
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current) drawRef.current(performance.now(), true);
-	}, [state]);
-	return m$1`<div class="hive-panel"><canvas ref=${canvasRef} tabindex="0"
-    aria-label="Live activity. Bee body color and the harness mark beside each bee's name identify the agent harness as listed in the legend. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas>
+	}, [state, machine]);
+	return m$1`<div class="hive-panel"><div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. The symbol beside the agent name identifies its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
     <div class="harness-legend" aria-label="Bee harness legend">
-      <span class="legend-title">harness</span>
+      <span class="legend-title">Color = machine · symbol = harness</span>
       ${legendHarnesses.map((harness) => m$1`<span class="harness-key" key=${harness.key}>
-        <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
+        <span class="harness-swatch" style="--harness:#a89878">${harness.mark}</span>
         ${harness.label}
       </span>`)}
     </div>
@@ -7579,12 +7636,15 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 		e.dataTransfer.setData("text/plain", r.user_id);
 	};
 	return m$1`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
+      style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => {
 		location.hash = selected ? "#/" : focusHash(r.user_id);
 	}}>
     <${Avatar} name=${r.user_id} size="small" />
     <div class="who">
+      <${MachineBadge} node=${r.node} />
+      ${team && m$1`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
       <div class="nm">${r.user_id}${isQueen && m$1`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
       <div class="tech" title=${[
@@ -7593,7 +7653,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 		r.node,
 		r.pane_label,
 		r.tmux_pane
-	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`}${r.node && m$1` · <span class="node">${r.node}</span>`} · ${r.pane_label}</div>
+	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
@@ -7765,6 +7825,7 @@ function SpawnControl({ refresh, nodes }) {
 	};
 	const flavors = offered.length ? offered.map((h) => h.flavor) : [];
 	return m$1`<form class="spawn" onSubmit=${spawn}>
+    <div class="spawn-heading">Spawn agent · choose destination</div>
     ${(enrolled.length > 1 || node) && m$1`<select title="machine" value=${node} onChange=${(e) => pickNode(e.target.value)}>
       ${choices.map((n) => m$1`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
     </select>`}
@@ -7895,21 +7956,31 @@ function Resend({ m, refresh }) {
 	return m$1`<button type="button" class="resend" disabled=${busy} onClick=${resend}
     title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && m$1` <span class="ctx">${note}</span>`}`;
 }
-function NodeStrip({ nodes, recipients }) {
-	if (!nodes || nodes.length < 2) return null;
-	const count = (name) => recipients.filter((r) => r.node === name && r.pane_alive).length;
-	return m$1`<div class="nodes" aria-label="machines">
-    ${nodes.map((n) => m$1`<span key=${n.name} class=${`node-chip ${n.connected ? "on" : "off"}`}
-      title=${n.local ? "this machine" : n.connected ? "connected" : `not connected${n.last_seen ? ` · last seen ${rel(n.last_seen, Date.now() / 1e3)}` : ""}`}>
-      <span class="dot"></span>${n.name}${n.local && m$1`<span class="you"> · hub</span>`} · ${count(n.name)}</span>`)}
-  </div>`;
+function MachineBar({ state, machine, selectMachine }) {
+	const machines = machineList(state.nodes, state.recipients);
+	return m$1`<section class="machine-bar" aria-label="Machine selector">
+    <div class="machine-heading"><span>Machines</span><small>Color identifies the machine</small></div>
+    <div class="machine-choices">
+      <button class=${`machine-choice all ${machine === null ? "active" : ""}`} aria-pressed=${machine === null}
+        onClick=${() => selectMachine(null)}><strong>All machines</strong><span>${machines.length} machines · ${state.recipients.filter((r) => r.pane_alive).length} live agents</span></button>
+      ${machines.map((n) => m$1`<button key=${n.name} class=${`machine-choice ${machine === n.name ? "active" : ""} ${n.connected ? "" : "disconnected"}`}
+          style=${`--machine:${machineColor(n.name)}`} aria-pressed=${machine === n.name}
+          onClick=${() => selectMachine(machine === n.name ? null : n.name)}>
+        <strong><span class="machine-mark" aria-hidden="true"></span>${n.name}${n.local && m$1`<small>hub</small>`}</strong>
+        <span>${n.connected ? "Connected" : n.missing ? "Not enrolled" : "Disconnected"} · ${n.live} live${n.total > n.live ? ` / ${n.total} registered` : " agents"}</span>
+      </button>`)}
+    </div>
+    ${machine !== null && m$1`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
+  </section>`;
 }
-function Roster({ state, focusUser, unreadFor, pings, refresh }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine }) {
+	const [groupBy, setGroupBy] = d("machine");
 	const [overUnteam, setOverUnteam] = d(false);
 	const teams = state.teams || [];
 	const teamById = new Map(teams.map((t) => [t.id, t]));
-	const running = sortByActivity(state.recipients.filter((r) => r.pane_alive));
-	const stopped = state.recipients.filter((r) => !r.pane_alive);
+	const visible = state.recipients.filter((r) => machine === null || machineName(r.node) === machine);
+	const running = sortByActivity(visible.filter((r) => r.pane_alive));
+	const stopped = visible.filter((r) => !r.pane_alive);
 	const unteamed = running.filter((r) => !teamById.has(r.team_id));
 	const chip = (r) => m$1`<${RosterChip} key=${r.user_id} r=${r} state=${state}
     team=${teamById.get(r.team_id) || null}
@@ -7917,7 +7988,15 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
 	return m$1`<aside class="roster">
     <h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2>
-    <${NodeStrip} nodes=${state.nodes} recipients=${state.recipients} />
+    <div class="roster-grouping" aria-label="Group agents by">
+      <span>Group by</span>${["machine", "team"].map((g) => m$1`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
+    </div>
+    ${groupBy === "machine" ? machineList(state.nodes, state.recipients).filter((n) => machine === null || machine === n.name).map((n) => m$1`<section class="machine-group" key=${n.name} style=${`--machine:${machineColor(n.name)}`}>
+      <h3><${MachineBadge} node=${n.name} /><span>${running.filter((r) => machineName(r.node) === n.name).length} live</span></h3>
+      ${running.filter((r) => machineName(r.node) === n.name).map(chip)}
+      ${!running.some((r) => machineName(r.node) === n.name) && m$1`<p class="machine-empty">${n.connected ? "No live agents" : n.missing ? "Machine no longer enrolled" : "Machine disconnected"}</p>`}
+      ${stopped.some((r) => machineName(r.node) === n.name) && m$1`<details class="stopped"><summary>Offline / stopped · ${stopped.filter((r) => machineName(r.node) === n.name).length}</summary>${stopped.filter((r) => machineName(r.node) === n.name).map(chip)}</details>`}
+    </section>`) : m$1`<div>
     ${teams.map((t) => m$1`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
       members=${running.filter((r) => r.team_id === t.id)} />`)}
     <${NewTeam} refresh=${refresh} />
@@ -7931,6 +8010,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
       <summary>stopped · ${stopped.length}</summary>
       ${stopped.map(chip)}
     </details>`}
+    </div>`}
     <${SpawnControl} refresh=${refresh} nodes=${state.nodes || []} />
   </aside>`;
 }
@@ -8083,10 +8163,10 @@ function Kanban({ state, refresh }) {
     </div>
   </div>`;
 }
-function Overview({ state, refresh }) {
+function Overview({ state, refresh, machine }) {
 	return m$1`<div>
     <h2>activity</h2>
-    <${HiveView} state=${state} refresh=${refresh} />
+    <${HiveView} state=${state} refresh=${refresh} machine=${machine} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -8521,7 +8601,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          <${ModelLabel} r=${r} refresh=${refresh} />${r.node && m$1` · on <b>${r.node}</b>`} · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} /> · <${MachineBadge} node=${r.node} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? m$1` <span class="attn">${detail}</span>` : ""}
@@ -8559,6 +8639,7 @@ function FocusView({ user, state, refresh, freshIds }) {
 }
 function App() {
 	const [state, setState] = d(null);
+	const [machine, setMachine] = d(null);
 	const [connected, setConnected] = d(true);
 	const [clock, setClock] = d((/* @__PURE__ */ new Date()).toLocaleTimeString());
 	const [route, setRoute] = d(location.hash);
@@ -8648,12 +8729,13 @@ function App() {
 		messages: [...state.messages, ...pending]
 	} : state;
 	return m$1`${header}
+  <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
   <main>
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} />`}
+      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
     <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-      pings=${pings} refresh=${poll} />
+      pings=${pings} refresh=${poll} machine=${machine} />
   </main>`;
 }
 R(m$1`<${App} />`, document.getElementById("app"));

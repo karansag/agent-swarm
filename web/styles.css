@@ -111,19 +111,12 @@
   .chip-card {
     position: relative; display: flex; align-items: center; gap: 10px;
     border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
-    margin-bottom: 8px; background:
-      linear-gradient(var(--state-wash, transparent), var(--state-wash, transparent)), var(--ink-2);
-    border-color: var(--state-edge, var(--line)); cursor: pointer;
+    margin-bottom: 8px; cursor: pointer;
     transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
     animation: rise .35s ease backwards;
   }
   .chip-card:hover { border-color: var(--honey-dim); }
   .chip-card.sel { border-color: var(--honey-dim); box-shadow: inset 3px 0 0 var(--honey-dim); }
-  .chip-card.state-working { --state-wash: rgba(143,191,111,.26); --state-edge: rgba(143,191,111,.8); }
-  .chip-card.state-attention { --state-wash: rgba(242,169,59,.14); --state-edge: rgba(242,169,59,.72); }
-  .chip-card.state-idle { --state-wash: rgba(168,152,120,.07); --state-edge: rgba(168,152,120,.38); }
-  .chip-card.state-unknown { --state-wash: rgba(168,152,120,.035); --state-edge: rgba(168,152,120,.23); }
-  .chip-card.state-stopped { --state-wash: rgba(224,108,85,.08); --state-edge: rgba(224,108,85,.35); }
   .chip-card .who { min-width: 0; flex: 1; }
   .chip-card .nm { font-family: var(--serif); font-style: italic; font-size: 16px; line-height: 1.2; }
   .chip-card .sub { font-size: 10px; color: var(--cream-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -165,12 +158,7 @@
   button.queen-agent:disabled { opacity: .6; cursor: wait; }
 
   /* team boxes in the sidebar */
-  .nodes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
-  .node-chip { font-size: 10px; color: var(--cream-dim); border: 1px solid var(--line); border-radius: 10px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 5px; }
-  .node-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cream-dim); opacity: .4; }
-  .node-chip.on .dot { background: var(--honey); opacity: 1; }
-  .node-chip.off { opacity: .6; }
-  .node-chip .you { color: var(--honey-dim); }
+
   .teambox { border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-bottom: 10px; }
   .teambox.over { border-color: var(--honey); background: rgba(242,169,59,.05); }
   .teamhead { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 7px; }
@@ -291,7 +279,7 @@
 
   /* ---------- hive activity ---------- */
   .hive-panel {
-    position: relative; height: 262px; margin-bottom: 26px; overflow: hidden;
+    position: relative; margin-bottom: 26px; overflow: hidden;
     border: 1px solid var(--line); border-radius: 10px;
   }
   .hive-panel canvas { display: block; width: 100%; height: 260px; }
@@ -540,3 +528,60 @@
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
   }
+
+/* Machine identity: a shared key across the fleet, bees and agent cards.
+   Activity remains a status dot and text, rather than recoloring the card. */
+.machine-bar { padding: 18px 34px; border-bottom: 1px solid var(--line); background: rgba(22,18,12,.65); }
+.machine-heading { display:flex; align-items:baseline; gap:14px; margin-bottom:10px; }
+.machine-heading > span { font-size:11px; text-transform:uppercase; letter-spacing:.15em; color:var(--cream); }
+.machine-heading small { font-size:10px; color:var(--cream-dim); }
+.machine-choices { display:flex; flex-wrap:wrap; gap:8px; }
+.machine-choice { --machine:var(--cream-dim); text-align:left; display:grid; gap:5px; min-width:180px; padding:11px 14px; border:1px solid var(--line); border-top:3px solid var(--machine); border-radius:7px; background:var(--ink-2); color:var(--cream); font-family:var(--mono); cursor:pointer; }
+.machine-choice strong { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:500; overflow-wrap:anywhere; }
+.machine-choice strong small { color:var(--cream-dim); font-size:9px; border:1px solid var(--line); border-radius:3px; padding:0 4px; }
+.machine-choice > span { font-size:10px; color:var(--cream-dim); }
+.machine-choice.active { border-color:var(--machine); background:color-mix(in srgb,var(--machine) 10%,var(--ink-2)); }
+.machine-choice:hover { background:color-mix(in srgb,var(--machine) 8%,var(--ink-2)); }
+.machine-choice.disconnected { border-top-style:dashed; }
+.machine-choice.disconnected .machine-mark { background:transparent; }
+.machine-mark { display:inline-block; width:9px; height:9px; border:1px solid var(--machine); border-radius:2px; background:var(--machine); flex:none; }
+.machine-badge { display:inline-flex; align-items:center; gap:5px; color:var(--machine); font:10px var(--mono); max-width:100%; overflow-wrap:anywhere; }
+.machine-filter-note { margin-top:10px; color:var(--cream-dim); font-size:11px; }
+.machine-filter-note button { background:none; border:0; color:var(--cream); text-decoration:underline; cursor:pointer; font:inherit; margin-left:8px; }
+.roster-grouping { display:flex; align-items:center; gap:5px; font-size:10px; margin:-6px 0 18px; color:var(--cream-dim); }
+.roster-grouping > span { margin-right:auto; }
+.roster-grouping button { font:inherit; color:var(--cream-dim); background:none; border:1px solid var(--line); border-radius:4px; padding:4px 8px; cursor:pointer; }
+.roster-grouping button[aria-pressed=true] { color:var(--cream); background:var(--panel-2); border-color:var(--cream-dim); }
+.machine-group { margin-bottom:22px; }
+.machine-group h3 { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:9px; font-size:10px; font-weight:400; }
+.machine-group h3 > span:last-child { color:var(--cream-dim); white-space:nowrap; }
+.machine-group h3 .machine-badge { font-size:11px; }
+.machine-empty { font-size:11px; color:var(--cream-dim); padding:12px; border:1px dashed var(--line); border-radius:5px; }
+.chip-card { background:color-mix(in srgb,var(--machine) 5%,var(--ink-2)); border-color:var(--line); border-left:3px solid var(--machine); }
+.chip-card.sel { border-color:var(--machine); box-shadow:0 0 0 1px var(--machine); }
+.chip-card:hover { border-color:var(--machine); }
+.chip-card .machine-badge { font-size:9px; margin-bottom:5px; }
+.chip-card .machine-badge .machine-mark { width:6px; height:6px; }
+.chip-card .hex { background:var(--machine); }
+.chip-card .nm { overflow-wrap:anywhere; }
+.machine-group .stopped { margin-top:8px; }
+.harness-legend { position:static; flex-wrap:wrap; max-width:none; border:0; border-top:1px solid var(--line); border-radius:0; padding:9px 12px; gap:10px; font-size:9px; }
+.harness-legend .legend-title { color:var(--cream-dim); text-transform:none; letter-spacing:0; margin-right:auto; }
+button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
+@media (max-width:600px) {
+  .machine-bar { padding:14px 18px; }
+  .machine-heading { flex-wrap:wrap; gap:4px 12px; }
+  .machine-choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .machine-choice { min-width:0; padding:9px; }
+  .machine-choice strong { flex-wrap:wrap; font-size:10px; }
+  .machine-choice > span { font-size:9px; }
+}
+
+.hive-scroll { overflow-x:auto; }
+.hive-panel canvas { min-width:660px; }
+.hive-scroll-hint { display:none; padding:5px 12px; color:var(--cream-dim); font-size:10px; }
+.spawn-heading { grid-column:1 / -1; color:var(--cream-dim); font-size:11px; margin:4px 0; }
+@media (max-width:760px) { .hive-scroll-hint { display:block; } }
+
+.agent-team { display:inline-block; margin-left:6px; color:var(--cream-dim); font-size:9px; }
+@media (prefers-reduced-motion:reduce) { .chip-card, .tcard { animation:none; } }
