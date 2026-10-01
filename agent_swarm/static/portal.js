@@ -7653,7 +7653,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => {
-		location.hash = selected ? "#/" : focusHash(r.user_id);
+		location.hash = focusHash(r.user_id);
 	}}>
     <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
     <div class="who">

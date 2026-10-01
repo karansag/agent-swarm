@@ -100,7 +100,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
   return html`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
       style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
-      onClick=${() => { location.hash = selected ? "#/" : focusHash(r.user_id); }}>
+      onClick=${() => { location.hash = focusHash(r.user_id); }}>
     <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
     <div class="who">
       <${MachineBadge} node=${r.node} />
