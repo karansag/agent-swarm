@@ -228,8 +228,9 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 
 - `GET  /health` — sanity check.
 - `POST /register` — body:
-  `{tmux_pane, agent_id?, requested_user?, model?, flavor?, instructions?,
-  message_prefix?, submit_key?}`.
+  `{tmux_pane, node?, agent_id?, requested_user?, model?, flavor?, instructions?,
+  message_prefix?, submit_key?}`. `node` is the machine the pane is on; the
+  CLI sends it for you.
   Response includes the `user_id` and a `protocol_brief` string.
   `requested_user` asks for a specific handle: it is granted when free,
   400 when malformed or reserved, and 409 when another agent holds it.
@@ -237,13 +238,16 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
   chose). An already-registered agent that requests a different handle is
   renamed, and the response reports `renamed_from`.
 - `GET  /recipients` — list registered agents.
-- `POST /send` — body: `{tmux_pane, recipient, content, context?}`.
-  Returns `{ok, message_id, delivered_to_pane, delivery_error}`.
+- `POST /send` — body: `{tmux_pane, node?, recipient, content, context?}`.
+  Returns `{ok, status, message_id, delivered_to_pane, delivery_error}`.
+  `status` is `delivered`, `failed`, or `unknown`; unknown means the paste
+  may have landed but its result was lost, so do not resend on your own.
 - `GET  /messages?user=<handle>&limit=<n>` — recent traffic.
   **For history/audit only — not for inbox polling.** Delivery is push.
 - `GET  /tasks` — list tasks, including worktree paths and `depends_on`.
 - `POST /tasks` — body: `{title, description?, assignee?, team_id?, depends_on?}`.
-- `PATCH /tasks/<id>` — body: `{status?, assignee?, worktree?, team_id?, depends_on?}`.
+- `PATCH /tasks/<id>` — body: `{status?, assignee?, worktree?, worktree_node?, team_id?, depends_on?, note?}`.
+  A worktree path is recorded with the machine it is on; the CLI fills that in.
   Assignee and team are mutually exclusive; setting one clears the other.
 - `GET  /teams` / `POST /teams` / `PATCH /teams/<id>` / `DELETE /teams/<id>` —
   team management; `PATCH` with `{queen, objective?}` crowns a queen and
@@ -274,6 +278,23 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
 - `AGENT_SWARM_URL` — server base URL (default `http://127.0.0.1:8765`).
 - `AGENT_SWARM_DB` — server-side DB path (default `~/.agent-swarm/db.sqlite`).
 - `AGENT_SWARM_HOST`, `AGENT_SWARM_PORT` — server bind config.
+- `~/.agent-swarm/node.toml` — on a machine other than the hub, where the
+  hub is and this machine's name and token; written by `agent-swarm join`.
+  The CLI reads it, so you need no environment changes.
+
+## Other machines
+
+Peers may run on other machines. Nothing changes for you: handles are
+the same everywhere, `agent-swarm send` reaches them, and their `node`
+shows in `agent-swarm recipients` and the protocol brief. Two things to
+know:
+
+- A path is only meaningful on the machine it is on. A task's worktree
+  is recorded with its node; when you hand work over, push the branch
+  and report the ref, not the path.
+- `agent-swarm send` may answer `status: unknown` when the recipient is
+  on another machine: the message may have arrived and the result was
+  lost. Do not resend on your own; say so to the owner if it matters.
 
 ---
 

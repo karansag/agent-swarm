@@ -10,9 +10,17 @@ Codex, or otherwise). Last updated 2026-07-13.
   agent. This feeds the visualization above and the roster sublines. No
   separate LLM harness is needed; the agents are LLMs and can
   self-report.
-- **Tailnet auth.** The dashboard can be served across a tailnet, but doing so
-  exposes the full agent-swarm API (send, register, tasks, and spawn), not just
-  read views. Add an auth gate or read-only mode before sharing it.
+- **Owner login without Tailscale.** Through Tailscale Serve the owner is
+  identified by the login header Serve adds. Any other reverse proxy has
+  no way to identify the owner; a login page that sets an HttpOnly
+  cookie from an owner token, with Origin checks on mutating requests,
+  would cover it.
+- **Bundles carry no attachments.** `agent-swarm export` and `import`
+  move agents, teams, tasks, and optionally message history between
+  hubs; the image files a message carried stay on the machine that has
+  them, and imported messages say so. Copying them across would mean
+  putting the bytes in the bundle or fetching them from a hub that is
+  being retired.
 
 ## Conventions for this repo
 

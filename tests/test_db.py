@@ -11,7 +11,7 @@ def test_shared_connection_concurrent_reads_and_writes(tmp_path):
         user = f"worker-{i}"
         db.register(conn, user, f"pane-{i}")
         db.rename_recipient(conn, user, f"renamed-{i}")
-        db.record_message(conn, user, "owner", None, str(i), True, None)
+        db.record_message(conn, user, "owner", None, str(i), "delivered")
         assert db.list_recipients(conn)
         assert db.fetch_messages(conn, "owner", 100)
 
@@ -36,7 +36,7 @@ def test_register_and_lookup(tmp_path):
 
 def test_record_and_fetch(tmp_path):
     conn = db.connect(tmp_path / "t.sqlite")
-    mid = db.record_message(conn, "alice", "bob", "topic", "hi", True, None)
+    mid = db.record_message(conn, "alice", "bob", "topic", "hi", "delivered")
     assert mid > 0
     rows = db.fetch_messages(conn, "bob")
     assert len(rows) == 1
@@ -54,9 +54,9 @@ def test_list_recipients(tmp_path):
 
 def test_register_replaces_existing_entry_for_same_pane(tmp_path):
     conn = db.connect(tmp_path / "t.sqlite")
-    db.register(conn, "a", "p1")
-    db.register(conn, "b", "p1")
-    assert db.lookup_user_by_pane(conn, "p1") == "b"
+    db.register(conn, "a", "p1", node="hub")
+    db.register(conn, "b", "p1", node="hub")
+    assert db.lookup_user_by_pane(conn, "hub", "p1") == "b"
     names = [r["user_id"] for r in db.list_recipients(conn)]
     assert names == ["b"]
 
@@ -130,8 +130,8 @@ def test_rename_recipient_moves_handle_and_references(tmp_path):
     conn = db.connect(tmp_path / "t.sqlite")
     db.register(conn, "dormouse", "0:0.0", agent_id="a1")
     db.register(conn, "stoat", "0:1.0", agent_id="a2")
-    db.record_message(conn, "dormouse", "stoat", None, "out", True, None)
-    db.record_message(conn, "stoat", "dormouse", None, "in", True, None)
+    db.record_message(conn, "dormouse", "stoat", None, "out", "delivered")
+    db.record_message(conn, "stoat", "dormouse", None, "in", "delivered")
     task_id = db.create_task(conn, "t", assignee="dormouse")["id"]
 
     db.rename_recipient(conn, "dormouse", "jax")
@@ -147,7 +147,34 @@ def test_rename_recipient_moves_handle_and_references(tmp_path):
 
 def test_name_taken_by_other_distinguishes_self_from_peer(tmp_path):
     conn = db.connect(tmp_path / "t.sqlite")
-    db.register(conn, "jax", "0:0.0", agent_id="a1")
-    assert db.name_taken_by_other(conn, "jax", "a1", "0:0.0") is False
-    assert db.name_taken_by_other(conn, "jax", "a2", "0:1.0") is True
-    assert db.name_taken_by_other(conn, "unused", "a2", "0:1.0") is False
+    db.register(conn, "jax", "0:0.0", agent_id="a1", node="hub", tmux_server="srv-1")
+    assert db.name_taken_by_other(conn, "jax", "a1", "hub", "0:0.0", "srv-1") is False
+    assert db.name_taken_by_other(conn, "jax", "a2", "hub", "0:1.0", "srv-1") is True
+    assert db.name_taken_by_other(conn, "unused", "a2", "hub", "0:1.0", "srv-1") is False
+    # Same pane id on another machine, or under an earlier tmux, is a
+    # different agent.
+    db.register(conn, "pip", "0:5.0", node="hub", tmux_server="srv-1")
+    assert db.name_taken_by_other(conn, "pip", None, "hub", "0:5.0", "srv-1") is False
+    assert db.name_taken_by_other(conn, "pip", None, "laptop", "0:5.0", "srv-1") is True
+    assert db.name_taken_by_other(conn, "pip", None, "hub", "0:5.0", "srv-2") is True
+
+
+def test_rows_written_by_an_older_server_read_their_status_from_the_flag(tmp_path):
+    # An older server, still running during an upgrade, writes rows with no
+    # status. They must never look pending, or a restart would mark them
+    # unknown even though they were delivered.
+    conn = db.connect(tmp_path / "t.sqlite")
+    ok = db.record_message(conn, "a", "b", None, "sent", "delivered")
+    bad = db.record_message(conn, "a", "b", None, "lost", "failed", "pane gone")
+    conn.execute("UPDATE messages SET status=NULL")
+    conn.commit()
+    conn.close()
+    conn = db.connect(tmp_path / "t.sqlite")
+    assert db.abandon_pending_messages(conn, "restart") == 0
+    by_id = {m["id"]: m["status"] for m in db.fetch_messages(conn)}
+    assert by_id == {ok: "delivered", bad: "failed"}
+    cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(messages)")}
+    assert cols["status"] is None  # no default, so older writers leave NULL
+    db.set_message_status(conn, bad, "unknown", "result lost")
+    m = next(m for m in db.fetch_messages(conn) if m["id"] == bad)
+    assert (m["status"], m["delivered"], m["delivery_error"]) == ("unknown", 0, "result lost")

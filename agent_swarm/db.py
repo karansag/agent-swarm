@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content     TEXT NOT NULL,
     ts          REAL NOT NULL,
     delivered   INTEGER NOT NULL DEFAULT 0,
-    delivery_error TEXT
+    delivery_error TEXT,
+    status      TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_recipient_ts
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     assignee    TEXT,
     status      TEXT NOT NULL DEFAULT 'open',
     worktree    TEXT,
+    worktree_node TEXT,
     note        TEXT,
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
@@ -53,6 +55,30 @@ CREATE TABLE IF NOT EXISTS teams (
     name        TEXT NOT NULL,
     queen       TEXT,
     created_at  REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS meta (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nodes (
+    name        TEXT PRIMARY KEY,
+    token_hash  TEXT,
+    created_at  REAL NOT NULL,
+    last_seen   REAL,
+    version     TEXT,
+    tmux_server TEXT,
+    harnesses   TEXT
+);
+
+-- Bundles already taken in, so importing the same export twice does not
+-- duplicate its tasks and history.
+CREATE TABLE IF NOT EXISTS imports (
+    source_id   TEXT PRIMARY KEY,
+    node        TEXT NOT NULL,
+    imported_at REAL NOT NULL,
+    report      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS task_deps (
@@ -121,13 +147,14 @@ def register(
     submit_key: str | None = None,
     tmux_server: str | None = None,
     pane_label: str | None = None,
+    node: str | None = None,
 ) -> None:
     _ensure_columns(conn)
     # One agent per pane. A row holding the same id under an earlier tmux
     # server is a different pane, so it stays (offline) with its history.
     conn.execute(
-        "DELETE FROM recipients WHERE tmux_pane=? AND tmux_server IS ? AND user_id<>?",
-        (tmux_pane, tmux_server, user_id),
+        "DELETE FROM recipients WHERE node IS ? AND tmux_pane=? AND tmux_server IS ? AND user_id<>?",
+        (node, tmux_pane, tmux_server, user_id),
     )
     if agent_id:
         conn.execute(
@@ -137,12 +164,13 @@ def register(
     conn.execute(
         "INSERT INTO recipients("
         "user_id, tmux_pane, agent_id, model, flavor, instructions, message_prefix, submit_key, registered_at, "
-        "tmux_server, pane_label"
-        ") VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+        "tmux_server, pane_label, node"
+        ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(user_id) DO UPDATE SET "
         "tmux_pane=excluded.tmux_pane, "
         "tmux_server=excluded.tmux_server, "
         "pane_label=excluded.pane_label, "
+        "node=COALESCE(excluded.node, recipients.node), "
         "agent_id=COALESCE(excluded.agent_id, recipients.agent_id), "
         "model=COALESCE(excluded.model, recipients.model), "
         "flavor=COALESCE(excluded.flavor, recipients.flavor), "
@@ -162,29 +190,54 @@ def register(
             time.time(),
             tmux_server,
             pane_label,
+            node,
         ),
     )
     conn.commit()
 
 
 @_serialized
+def fill_missing_node(conn: sqlite3.Connection, node: str) -> int:
+    """Stamp `node` on rows registered before nodes were recorded.
+
+    Every such row was registered against this server's own tmux, so it
+    belongs to this machine. Returns the number of rows updated.
+    """
+    _ensure_columns(conn)
+    cur = conn.execute("UPDATE recipients SET node=? WHERE node IS NULL", (node,))
+    conn.commit()
+    return cur.rowcount
+
+
+@_serialized
 def name_taken_by_other(
-    conn: sqlite3.Connection, user_id: str, agent_id: str | None, tmux_pane: str
+    conn: sqlite3.Connection,
+    user_id: str,
+    agent_id: str | None,
+    node: str,
+    tmux_pane: str,
+    tmux_server: str | None,
 ) -> bool:
     """True when `user_id` belongs to an agent other than this one.
 
-    Identity is the agent_id when we have one, else the pane, matching how
-    `register` resolves an existing handle.
+    Identity is the agent_id when we have one, else the pane on its node
+    under the tmux server that issued it, matching how `register` resolves
+    an existing handle.
     """
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT agent_id, tmux_pane FROM recipients WHERE user_id=?", (user_id,)
+        "SELECT agent_id, node, tmux_pane, tmux_server FROM recipients WHERE user_id=?",
+        (user_id,),
     ).fetchone()
     if row is None:
         return False
     if agent_id and row["agent_id"]:
         return row["agent_id"] != agent_id
-    return row["tmux_pane"] != tmux_pane
+    return (
+        row["node"] != node
+        or row["tmux_pane"] != tmux_pane
+        or row["tmux_server"] != tmux_server
+    )
 
 
 @_serialized
@@ -229,6 +282,15 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
     for col in ("tmux_server", "pane_label"):
         if col not in cols:
             conn.execute(f"ALTER TABLE recipients ADD COLUMN {col} TEXT")
+    # node is the machine the agent's pane lives on. Metadata for now; the
+    # server fills it for rows that predate the column (fill_missing_node).
+    if "node" not in cols:
+        conn.execute("ALTER TABLE recipients ADD COLUMN node TEXT")
+    # A reservation: a handle imported from another hub, holding its history
+    # until the agent registers here. It has no pane yet, so it is offline,
+    # it is never swept by the pane migration, and prune leaves it alone.
+    if "reserved" not in cols:
+        conn.execute("ALTER TABLE recipients ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0")
     task_cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     if "worktree" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN worktree TEXT")
@@ -236,9 +298,16 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN team_id INTEGER")
     if "note" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN note TEXT")
+    if "worktree_node" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN worktree_node TEXT")
     msg_cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     if "attachments" not in msg_cols:
         conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT")
+    if "status" not in msg_cols:
+        # No default on purpose: a row an older server writes during an
+        # upgrade has NULL here, and _message reads its flag instead. A
+        # default of 'pending' would make such rows look in flight.
+        conn.execute("ALTER TABLE messages ADD COLUMN status TEXT")
     conn.commit()
 
 
@@ -252,19 +321,24 @@ def lookup_pane(conn: sqlite3.Connection, user_id: str) -> str | None:
 
 @_serialized
 def lookup_user_by_pane(
-    conn: sqlite3.Connection, tmux_pane: str, tmux_server: str | None = None
+    conn: sqlite3.Connection, node: str, tmux_pane: str, tmux_server: str | None = None
 ) -> str | None:
-    """The agent bound to this pane id under this tmux server."""
+    """The agent bound to this pane id under this tmux server on this node."""
+    _ensure_columns(conn)
     row = conn.execute(
-        "SELECT user_id FROM recipients WHERE tmux_pane=? AND tmux_server IS ?",
-        (tmux_pane, tmux_server),
+        "SELECT user_id FROM recipients WHERE node=? AND tmux_pane=? AND tmux_server IS ?",
+        (node, tmux_pane, tmux_server),
     ).fetchone()
     return row["user_id"] if row else None
 
 
 @_serialized
 def lookup_user_by_restored_label(
-    conn: sqlite3.Connection, pane_label: str, flavor: str | None, tmux_server: str
+    conn: sqlite3.Connection,
+    node: str,
+    pane_label: str,
+    flavor: str | None,
+    tmux_server: str,
 ) -> str | None:
     """An agent from an earlier tmux server that sat at this same position.
 
@@ -274,10 +348,10 @@ def lookup_user_by_restored_label(
     qualify, never ones bound in the running server.
     """
     row = conn.execute(
-        "SELECT user_id FROM recipients WHERE pane_label=? AND flavor IS ? "
+        "SELECT user_id FROM recipients WHERE node=? AND pane_label=? AND flavor IS ? "
         "AND tmux_server IS NOT NULL AND tmux_server<>? AND tmux_server<>? "
         "ORDER BY registered_at DESC LIMIT 1",
-        (pane_label, flavor, tmux_server, UNBOUND),
+        (node, pane_label, flavor, tmux_server, UNBOUND),
     ).fetchone()
     return row["user_id"] if row else None
 
@@ -292,8 +366,8 @@ def legacy_pane_rows(conn: sqlite3.Connection) -> list[dict]:
     """Rows still addressed the old way (no tmux server recorded)."""
     _ensure_columns(conn)
     return [dict(r) for r in conn.execute(
-        "SELECT user_id, tmux_pane, flavor, registered_at FROM recipients "
-        "WHERE tmux_server IS NULL"
+        "SELECT user_id, tmux_pane, flavor, node, registered_at FROM recipients "
+        "WHERE tmux_server IS NULL AND reserved=0"
     )]
 
 
@@ -326,7 +400,7 @@ def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | No
 def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
     _ensure_columns(conn)
     row = conn.execute(
-        "SELECT user_id, tmux_pane, tmux_server, pane_label, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, reserved, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients WHERE user_id=?",
         (user_id,),
     ).fetchone()
@@ -337,7 +411,7 @@ def get_recipient(conn: sqlite3.Connection, user_id: str) -> dict | None:
 def list_recipients(conn: sqlite3.Connection) -> list[dict]:
     _ensure_columns(conn)
     rows = conn.execute(
-        "SELECT user_id, tmux_pane, tmux_server, pane_label, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
+        "SELECT user_id, tmux_pane, tmux_server, pane_label, node, reserved, agent_id, model, flavor, instructions, message_prefix, submit_key, team_id, registered_at "
         "FROM recipients ORDER BY user_id"
     ).fetchall()
     return [dict(r) for r in rows]
@@ -491,6 +565,7 @@ def update_task(
     worktree: str | None | object = _UNSET,
     team_id: int | None | object = _UNSET,
     note: str | None | object = _UNSET,
+    worktree_node: str | None | object = _UNSET,
 ) -> dict | None:
     task = get_task(conn, task_id)
     if task is None:
@@ -511,15 +586,23 @@ def update_task(
             task["assignee"] = None
     if worktree is not _UNSET:
         task["worktree"] = worktree
+    # A path only means something on the machine it is on; the two are set
+    # and cleared together.
+    if worktree_node is not _UNSET:
+        task["worktree_node"] = worktree_node
+    if task["worktree"] is None:
+        task["worktree_node"] = None
     if note is not _UNSET:
         task["note"] = note
     conn.execute(
-        "UPDATE tasks SET status=?, assignee=?, team_id=?, worktree=?, note=?, updated_at=? WHERE id=?",
+        "UPDATE tasks SET status=?, assignee=?, team_id=?, worktree=?, worktree_node=?, note=?, "
+        "updated_at=? WHERE id=?",
         (
             task["status"],
             task["assignee"],
             task["team_id"],
             task["worktree"],
+            task["worktree_node"],
             task["note"],
             time.time(),
             task_id,
@@ -629,6 +712,9 @@ def set_agent_team(
     return get_recipient(conn, user_id)
 
 
+MESSAGE_STATUSES = ("pending", "delivered", "failed", "unknown")
+
+
 @_serialized
 def record_message(
     conn: sqlite3.Connection,
@@ -636,26 +722,77 @@ def record_message(
     recipient: str,
     context: str | None,
     content: str,
-    delivered: bool,
-    delivery_error: str | None,
+    status: str,
+    delivery_error: str | None = None,
     attachments: list[str] | None = None,
 ) -> int:
+    """Store a message. `status` is one of MESSAGE_STATUSES.
+
+    A message bound for a pane is recorded as pending before dispatch and
+    settled with set_message_status afterwards, so the row exists even when
+    the outcome is lost. `delivered` is kept as the flag form of the status.
+    """
+    if status not in MESSAGE_STATUSES:
+        raise ValueError(f"invalid message status: {status}")
     cur = conn.execute(
-        "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error, attachments) "
-        "VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error, "
+        "attachments, status) VALUES(?,?,?,?,?,?,?,?,?)",
         (
             sender,
             recipient,
             context,
             content,
             time.time(),
-            1 if delivered else 0,
+            1 if status == "delivered" else 0,
             delivery_error,
             json.dumps(attachments) if attachments else None,
+            status,
         ),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+@_serialized
+def abandon_pending_messages(conn: sqlite3.Connection, reason: str) -> int:
+    """Mark every pending message unknown.
+
+    Called once at startup, when no delivery can be in flight: a row still
+    pending was dispatched by a server that stopped before recording the
+    result. The paste may or may not have happened, so it is unknown and is
+    never replayed. Returns the number of rows changed.
+    """
+    cur = conn.execute(
+        "UPDATE messages SET status='unknown', delivered=0, delivery_error=? WHERE status='pending'",
+        (reason,),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+@_serialized
+def fill_missing_worktree_node(conn: sqlite3.Connection, node: str) -> int:
+    """Stamp `node` on worktree paths recorded before nodes were. Every such
+    path was recorded by an agent on this server's own machine."""
+    cur = conn.execute(
+        "UPDATE tasks SET worktree_node=? WHERE worktree IS NOT NULL AND worktree_node IS NULL",
+        (node,),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+@_serialized
+def set_message_status(
+    conn: sqlite3.Connection, message_id: int, status: str, delivery_error: str | None = None
+) -> None:
+    if status not in MESSAGE_STATUSES:
+        raise ValueError(f"invalid message status: {status}")
+    conn.execute(
+        "UPDATE messages SET status=?, delivered=?, delivery_error=? WHERE id=?",
+        (status, 1 if status == "delivered" else 0, delivery_error, message_id),
+    )
+    conn.commit()
 
 
 @_serialized
@@ -698,4 +835,263 @@ def attachment_last_used(conn: sqlite3.Connection) -> dict[str, float]:
 def _message(row: sqlite3.Row) -> dict:
     msg = dict(row)
     msg["attachments"] = json.loads(msg["attachments"]) if msg.get("attachments") else []
+    if msg.get("status") is None:
+        # Written by a server from before statuses, which recorded a message
+        # only after delivery: the flag is the whole story.
+        msg["status"] = "delivered" if msg["delivered"] else "failed"
     return msg
+
+
+# ---- nodes: the other machines enrolled with this hub ----------------------
+
+
+@_serialized
+def hub_id(conn: sqlite3.Connection) -> str:
+    """A random id minted once per database. Nodes scope their record of
+    executed commands by it, since message ids restart with a new database."""
+    import uuid
+
+    row = conn.execute("SELECT value FROM meta WHERE key='hub_id'").fetchone()
+    if row:
+        return row["value"]
+    value = uuid.uuid4().hex
+    conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('hub_id', ?)", (value,))
+    conn.commit()
+    return conn.execute("SELECT value FROM meta WHERE key='hub_id'").fetchone()["value"]
+
+
+def hash_token(token: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@_serialized
+def set_node_token(conn: sqlite3.Connection, name: str, token: str) -> None:
+    """Enrol a node, or rotate its token. Only the hash is kept."""
+    now = time.time()
+    conn.execute(
+        "INSERT INTO nodes(name, token_hash, created_at) VALUES(?,?,?) "
+        "ON CONFLICT(name) DO UPDATE SET token_hash=excluded.token_hash",
+        (name, hash_token(token), now),
+    )
+    conn.commit()
+
+
+@_serialized
+def node_for_token(conn: sqlite3.Connection, token: str) -> str | None:
+    """The node a bearer token belongs to, or None."""
+    row = conn.execute(
+        "SELECT name FROM nodes WHERE token_hash=?", (hash_token(token),)
+    ).fetchone()
+    return row["name"] if row else None
+
+
+@_serialized
+def touch_node(
+    conn: sqlite3.Connection,
+    name: str,
+    version: str | None = None,
+    tmux_server: str | None = None,
+    harnesses: list[str] | None = None,
+) -> None:
+    """Record what a node last told us about itself, and when."""
+    conn.execute(
+        "UPDATE nodes SET last_seen=?, version=COALESCE(?, version), "
+        "tmux_server=COALESCE(?, tmux_server), harnesses=COALESCE(?, harnesses) WHERE name=?",
+        (
+            time.time(),
+            version,
+            tmux_server,
+            json.dumps(harnesses) if harnesses is not None else None,
+            name,
+        ),
+    )
+    conn.commit()
+
+
+@_serialized
+def list_nodes(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT name, created_at, last_seen, version, tmux_server, harnesses FROM nodes ORDER BY name"
+    ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["harnesses"] = json.loads(d["harnesses"]) if d.get("harnesses") else []
+        result.append(d)
+    return result
+
+
+@_serialized
+def delete_node(conn: sqlite3.Connection, name: str) -> bool:
+    cur = conn.execute("DELETE FROM nodes WHERE name=?", (name,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# ---- importing a bundle from another hub ----------------------------------
+
+
+def _hub_state(conn: sqlite3.Connection) -> dict:
+    """This hub as an import plan needs to see it: which handles, stable ids,
+    team names, and node names are already in use."""
+    return {
+        "handles": {r[0] for r in conn.execute("SELECT user_id FROM recipients")},
+        "agents_by_id": {
+            r["agent_id"]: {"user_id": r["user_id"], "node": r["node"]}
+            for r in conn.execute(
+                "SELECT user_id, agent_id, node FROM recipients "
+                "WHERE agent_id IS NOT NULL AND agent_id<>''"
+            )
+        },
+        "team_names": {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM teams")},
+        "nodes": {r[0] for r in conn.execute("SELECT name FROM nodes")},
+    }
+
+
+@_serialized
+def hub_state(conn: sqlite3.Connection) -> dict:
+    """The same snapshot, for a dry run, which writes nothing."""
+    _ensure_columns(conn)
+    return _hub_state(conn)
+
+
+class AlreadyImported(Exception):
+    """This export has been taken in before. Carries the earlier report."""
+
+    def __init__(self, report: dict):
+        super().__init__("this bundle was imported already")
+        self.report = report
+
+
+@_serialized
+def clear_reservation(conn: sqlite3.Connection, user_id: str) -> None:
+    """The agent registered: its row is a real registration now."""
+    conn.execute("UPDATE recipients SET reserved=0 WHERE user_id=?", (user_id,))
+    conn.commit()
+
+
+@_serialized
+def imported_report(conn: sqlite3.Connection, source_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT report FROM imports WHERE source_id=?", (source_id,)
+    ).fetchone()
+    return json.loads(row["report"]) if row else None
+
+
+@_serialized
+def apply_import(
+    conn: sqlite3.Connection,
+    source_id: str,
+    node: str,
+    make_plan,
+    summarize,
+    again: bool = False,
+) -> dict:
+    """Take a bundle in, as one transaction.
+
+    `make_plan` is handed this hub as it is inside the transaction and
+    returns the plan; deciding and writing in the same transaction means a
+    registration landing in between cannot take a handle the plan chose.
+    Nothing is written when any part of it fails.
+    """
+    _ensure_columns(conn)
+    # IMMEDIATE, so the state the plan is made from and the writes it turns
+    # into are one transaction against one snapshot.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT report FROM imports WHERE source_id=?", (source_id,)
+        ).fetchone()
+        if row is not None and not again:
+            raise AlreadyImported(json.loads(row["report"]))
+
+        plan = make_plan(_hub_state(conn))
+        now = time.time()
+
+        team_ids: dict[str, int] = {}
+        for team in plan["teams"]:
+            if team["existing_id"] is not None:
+                team_ids[team["name"]] = team["existing_id"]
+            else:
+                cur = conn.execute(
+                    "INSERT INTO teams(name, queen, created_at) VALUES(?,?,?)",
+                    (team["name"], None, now),
+                )
+                team_ids[team["name"]] = int(cur.lastrowid)
+
+        for agent in plan["agents"]:
+            conn.execute(
+                "INSERT INTO recipients(user_id, tmux_pane, agent_id, model, flavor, instructions, "
+                "message_prefix, submit_key, registered_at, tmux_server, pane_label, node, team_id, reserved) "
+                "VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,1)",
+                (
+                    agent["user_id"],
+                    # Unique per handle, and never a pane id, so no two
+                    # reservations collide and none matches a real pane.
+                    f"reserved:{agent['user_id']}",
+                    agent["agent_id"], agent["model"], agent["flavor"], agent["instructions"],
+                    agent["message_prefix"], agent["submit_key"], now, agent["node"],
+                    team_ids.get(agent["team"]) if agent["team"] else None,
+                ),
+            )
+
+        for team in plan["teams"]:
+            for member in team["members"]:
+                conn.execute(
+                    "UPDATE recipients SET team_id=? WHERE user_id=?",
+                    (team_ids[team["name"]], member),
+                )
+            if team["queen"]:
+                conn.execute(
+                    "UPDATE teams SET queen=? WHERE id=?", (team["queen"], team_ids[team["name"]])
+                )
+
+        task_ids: dict = {}
+        for task in plan["tasks"]:
+            cur = conn.execute(
+                "INSERT INTO tasks(title, description, assignee, team_id, status, worktree, "
+                "worktree_node, note, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    task["title"], task["description"], task["assignee"],
+                    team_ids.get(task["team"]) if task["team"] else None,
+                    task["status"], task["worktree"], task["worktree_node"], task["note"],
+                    task["created_at"], task["updated_at"],
+                ),
+            )
+            if task["old_id"] is not None:
+                task_ids[task["old_id"]] = int(cur.lastrowid)
+        for task in plan["tasks"]:
+            here = task_ids.get(task["old_id"])
+            for dep in task["depends_on"]:
+                if here is not None and dep in task_ids:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO task_deps(task_id, depends_on) VALUES(?,?)",
+                        (here, task_ids[dep]),
+                    )
+
+        for message in plan["messages"]:
+            conn.execute(
+                "INSERT INTO messages(sender, recipient, context, content, ts, delivered, "
+                "delivery_error, attachments, status) VALUES(?,?,?,?,?,?,?,NULL,?)",
+                (
+                    message["sender"], message["recipient"], message["context"],
+                    message["content"], message["ts"],
+                    1 if message["status"] == "delivered" else 0,
+                    message["delivery_error"], message["status"],
+                ),
+            )
+
+        report = summarize(plan)
+        report["task_ids"] = {str(k): v for k, v in task_ids.items()}
+        report["imported_at"] = now
+        conn.execute(
+            "INSERT OR REPLACE INTO imports(source_id, node, imported_at, report) VALUES(?,?,?,?)",
+            (source_id, node, now, json.dumps(report)),
+        )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return report

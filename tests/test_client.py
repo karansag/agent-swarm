@@ -14,7 +14,7 @@ def test_unregister_defaults_to_current_pane(monkeypatch):
     monkeypatch.setattr(client, "registered_user", lambda pane: "marten" if pane == "marin:1.2" else None)
     monkeypatch.setattr(client, "base_url", lambda: "http://localhost:8765")
 
-    def delete(url, timeout):
+    def delete(url, headers, timeout):
         calls.append((url, timeout))
         return SimpleNamespace(text='{"ok":true}', is_success=True)
 
@@ -25,7 +25,7 @@ def test_unregister_defaults_to_current_pane(monkeypatch):
 
 def test_unregister_explicit_handle_propagates_failure(monkeypatch):
     monkeypatch.setattr(client, "current_pane", lambda: None)
-    monkeypatch.setattr(client.httpx, "delete", lambda url, timeout: SimpleNamespace(text="not registered", is_success=False))
+    monkeypatch.setattr(client.httpx, "delete", lambda url, headers, timeout: SimpleNamespace(text="not registered", is_success=False))
     assert client.main(["unregister", "--user", "marten"]) == 1
 
 
@@ -149,7 +149,7 @@ def test_deliver_reports_tmux_failure(monkeypatch):
 def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
     captured = {}
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, headers, timeout):
         captured["url"] = url
         captured["json"] = json
         captured["timeout"] = timeout
@@ -171,20 +171,22 @@ def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
     )
 
     assert client.cmd_register(args) == 0
-    # The host travels with every registration; it names the assigned handle.
-    assert captured["json"] == {"tmux_pane": "session-a:9.0", "host": "testbox"}
+    # The node travels with every registration and is stored on the row.
+    assert captured["json"] == {"tmux_pane": "session-a:9.0", "node": "testbox"}
     assert capsys.readouterr().out == '{"ok": true}\n'
 
 
 def test_cmd_task_update_records_worktree(monkeypatch, capsys):
     captured = {}
 
-    def fake_patch(url, json, timeout):
+    def fake_patch(url, json, headers, timeout):
         captured["url"] = url
         captured["json"] = json
         return SimpleNamespace(text='{"ok": true}', is_success=True)
 
     monkeypatch.setattr(client.httpx, "patch", fake_patch)
+    monkeypatch.setattr(client, "current_pane", lambda: "%3")
+    monkeypatch.setattr(client, "local_node", lambda: "testbox")
     args = Namespace(
         id=7,
         status="picked_up",
@@ -196,9 +198,14 @@ def test_cmd_task_update_records_worktree(monkeypatch, capsys):
 
     assert client.cmd_task_update(args) == 0
     assert captured["url"].endswith("/tasks/7")
+    # A path only means something on the machine it is on, and the update is
+    # signed by the pane it came from.
     assert captured["json"] == {
         "status": "picked_up",
         "worktree": "/tmp/repo-task-7",
+        "worktree_node": "testbox",
+        "tmux_pane": "%3",
+        "node": "testbox",
     }
     assert capsys.readouterr().out == '{"ok": true}\n'
 
@@ -206,11 +213,12 @@ def test_cmd_task_update_records_worktree(monkeypatch, capsys):
 def test_cmd_task_create_files_task(monkeypatch, capsys):
     captured = {}
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, headers, timeout):
         captured["url"] = url
         captured["json"] = json
         return SimpleNamespace(text='{"ok": true, "task": {"id": 8}}', is_success=True)
 
+    monkeypatch.setattr(client, "current_pane", lambda: None)  # outside tmux: no acting pane
     monkeypatch.setattr(client.httpx, "post", fake_post)
     args = Namespace(
         title="Investigate flaky build",
@@ -233,7 +241,7 @@ def test_cmd_task_create_files_task(monkeypatch, capsys):
 def test_cmd_register_sends_requested_name(monkeypatch, capsys):
     captured = {}
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, headers, timeout):
         captured["json"] = json
         return SimpleNamespace(text='{"ok": true}', is_success=True)
 
@@ -255,7 +263,7 @@ def test_cmd_register_sends_requested_name(monkeypatch, capsys):
     assert client.cmd_register(args) == 0
     assert captured["json"] == {
         "tmux_pane": "session-a:9.0",
-        "host": "testbox",
+        "node": "testbox",
         "requested_user": "jax",
     }
     capsys.readouterr()
@@ -294,10 +302,11 @@ def test_base_url_prefers_new_environment_name(monkeypatch):
 def test_cmd_task_update_forwards_the_closing_note(monkeypatch, capsys):
     captured = {}
 
-    def fake_patch(url, json, timeout):
+    def fake_patch(url, json, headers, timeout):
         captured["json"] = json
         return SimpleNamespace(text='{"ok": true}', is_success=True)
 
+    monkeypatch.setattr(client, "current_pane", lambda: None)  # outside tmux: no acting pane
     monkeypatch.setattr(client.httpx, "patch", fake_patch)
     args = Namespace(
         id=42,
@@ -416,3 +425,109 @@ def test_cli_is_quiet_in_its_own_pane(monkeypatch, capsys):
     monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
     assert client.detect_pane() == "%49"
     assert capsys.readouterr().err == ""
+
+
+def test_registered_user_asks_the_server_for_this_pane_on_this_node(monkeypatch):
+    # Matching the pane id alone would confuse this pane with one of the same
+    # id on another machine, so the CLI hands the full address to the server.
+    captured = {}
+    monkeypatch.setattr(client, "base_url", lambda: "http://localhost:8765")
+    monkeypatch.setattr(client, "local_node", lambda: "laptop")
+
+    def get(url, params, headers, timeout):
+        captured["url"], captured["params"] = url, params
+        return SimpleNamespace(is_success=True, json=lambda: {"user_id": "laptop-agent"})
+
+    monkeypatch.setattr(client.httpx, "get", get)
+    assert client.registered_user("%1") == "laptop-agent"
+    assert captured["url"] == "http://localhost:8765/whoami"
+    assert captured["params"] == {"tmux_pane": "%1", "node": "laptop"}
+    monkeypatch.setattr(client.httpx, "get", lambda url, params, headers, timeout: SimpleNamespace(is_success=False))
+    assert client.registered_user("%1") is None
+
+
+def test_settings_come_from_env_then_file_then_defaults(monkeypatch, tmp_path):
+    from agent_swarm import config
+
+    monkeypatch.setenv("AGENT_SWARM_CONFIG", str(tmp_path / "node.toml"))
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "laptop.local")
+    assert config.load() == config.Settings("http://127.0.0.1:8765", None, "laptop")
+    path = config.write("http://workstation:8765/", "s3cret", "macbook")
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    assert config.load() == config.Settings("http://workstation:8765", "s3cret", "macbook")
+    assert client.base_url() == "http://workstation:8765"
+    assert client._headers() == {"Authorization": "Bearer s3cret"}
+    assert tmux.local_node() == "macbook"
+    monkeypatch.setenv("AGENT_SWARM_URL", "http://other:1")
+    monkeypatch.setenv("AGENT_SWARM_NODE", "override")
+    assert config.load().hub == "http://other:1" and config.load().node == "override"
+
+
+def test_join_writes_settings_and_checks_the_hub(monkeypatch, tmp_path, capsys):
+    from agent_swarm import config
+
+    monkeypatch.setenv("AGENT_SWARM_CONFIG", str(tmp_path / "node.toml"))
+    seen = {}
+
+    def get(url, headers=None, timeout=5):
+        seen[url] = headers
+        return SimpleNamespace(is_success=True, status_code=200, json=lambda: {"kind": "node", "node": "macbook"})
+
+    monkeypatch.setattr(client.httpx, "get", get)
+    assert client.main(["join", "http://hub:8765", "--token", "tok", "--node", "macbook"]) == 0
+    assert seen["http://hub:8765/nodes/me"] == {"Authorization": "Bearer tok"}
+    assert config.load() == config.Settings("http://hub:8765", "tok", "macbook")
+    assert '"hub_reachable": true' in capsys.readouterr().out
+
+
+def test_node_token_asks_the_hub_and_prints_the_join_command(monkeypatch, capsys):
+    monkeypatch.setattr(client, "base_url", lambda: "http://hub:8765")
+    monkeypatch.setattr(
+        client.httpx, "post",
+        lambda url, headers, timeout: SimpleNamespace(
+            is_success=True, json=lambda: {"ok": True, "name": "macbook", "token": "tok"}
+        ),
+    )
+    assert client.main(["node-token", "macbook"]) == 0
+    out, err = capsys.readouterr()
+    assert '"token": "tok"' in out
+    assert "agent-swarm join http://hub:8765 --token tok --node macbook" in err
+
+
+def test_node_token_guesses_a_reachable_hub_address_for_a_loopback_hub(monkeypatch, capsys):
+    from agent_swarm import config
+
+    monkeypatch.setattr(client, "base_url", lambda: "http://127.0.0.1:8765")
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "workstation.local")
+    monkeypatch.setattr(
+        client.httpx, "post",
+        lambda url, headers, timeout: SimpleNamespace(
+            is_success=True, json=lambda: {"ok": True, "name": "macbook", "token": "t k"}
+        ),
+    )
+    assert client.main(["node-token", "macbook"]) == 0
+    err = capsys.readouterr().err
+    assert "agent-swarm join http://workstation:8765 --token 't k' --node macbook" in err
+    assert "guessed" in err
+
+
+def test_join_verifies_the_token_names_this_node(monkeypatch, tmp_path, capsys):
+    from agent_swarm import config
+
+    monkeypatch.setenv("AGENT_SWARM_CONFIG", str(tmp_path / "node.toml"))
+    answers = {"/health": SimpleNamespace(is_success=True, status_code=200)}
+
+    def get(url, headers=None, timeout=5):
+        return answers[url.split("8765", 1)[1]]
+
+    monkeypatch.setattr(client.httpx, "get", get)
+    answers["/nodes/me"] = SimpleNamespace(is_success=False, status_code=401)
+    assert client.main(["join", "http://hub:8765", "--token", "bad", "--node", "macbook"]) == 1
+    assert "rejected the token" in capsys.readouterr().err
+    answers["/nodes/me"] = SimpleNamespace(is_success=True, status_code=200, json=lambda: {"kind": "node", "node": "laptop"})
+    assert client.main(["join", "http://hub:8765", "--token", "tok", "--node", "macbook"]) == 1
+    assert "belongs to node 'laptop'" in capsys.readouterr().err
+    answers["/nodes/me"] = SimpleNamespace(is_success=True, status_code=200, json=lambda: {"kind": "node", "node": "macbook"})
+    assert client.main(["join", "http://hub:8765", "--token", "tok", "--node", "macbook"]) == 0
+    assert '"enrolled": true' in capsys.readouterr().out
+    assert config.load() == config.Settings("http://hub:8765", "tok", "macbook")

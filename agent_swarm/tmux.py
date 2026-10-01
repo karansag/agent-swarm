@@ -9,6 +9,7 @@ import shlex
 import socket
 import subprocess
 import time
+from typing import NamedTuple
 
 
 # Panes are addressed by tmux's pane id (%N), which never changes or gets
@@ -85,79 +86,15 @@ def infer_flavor(model: str | None) -> str:
     return DEFAULT_FLAVOR
 
 
-# Named model lines, which identify a model far better than its family does.
-# Checked before the generic fallback so "claude-opus-4-7" reads as "opus"
-# rather than the redundant "claude".
-_MODEL_LINE_KEYWORDS = [
-    "opus", "sonnet", "haiku", "fable",  # claude lines
-    "sol", "terra", "luna",  # codex model codenames
-    "gemini",
-]
+def local_node() -> str:
+    """This machine's node name, as agents report it and the server stores it.
 
-
-def model_line(model: str | None) -> str | None:
-    """Short name for a model label's specific line, e.g. "claude-opus-4-7" -> "opus"."""
-    if not model:
-        return None
-    label = model.lower()
-    for kw in _MODEL_LINE_KEYWORDS:
-        if _has_label_token(label, kw):
-            return kw
-    # Unnamed line: use the leading family token with its major version, so
-    # "gpt-5-codex" -> "gpt5" stays distinct from a later "gpt-6-codex".
-    match = re.match(r"[^a-z]*([a-z]+)[^0-9a-z]*(\d+)?", label)
-    if not match:
-        return None
-    family, version = match.group(1), match.group(2)
-    return f"{family}{version}" if version else family
-
-
-def local_host() -> str:
-    """This machine's short name, as agents should report it.
-
-    AGENT_SWARM_NODE wins so a machine whose hostname is long or ambiguous can
-    present a better one; cross-machine setups rely on the same override.
+    AGENT_SWARM_NODE wins, then the name in ~/.agent-swarm/node.toml, then the
+    short hostname. See agent_swarm.config.
     """
-    return os.environ.get("AGENT_SWARM_NODE") or socket.gethostname().split(".")[0]
+    from . import config
 
-
-def host_tag(host: str | None) -> str | None:
-    """Short handle-safe token for a machine name, e.g. "karans-linux.local" -> "karanslinux".
-
-    Only the first DNS label is kept, then everything outside [a-z0-9] is
-    dropped rather than turned into a hyphen: the handle already uses hyphens
-    to separate its parts, so a host must not be able to add more of them.
-    """
-    if not host:
-        return None
-    label = host.strip().lower().split(".")[0]
-    token = re.sub(r"[^a-z0-9]", "", label)
-    return token[:12] or None
-
-
-def handle_tag(
-    flavor: str | None, model: str | None, host: str | None = None
-) -> str | None:
-    """Suffix identifying an agent, e.g. ("claude", "opus", "karans-linux") -> "claude-opus-karanslinux".
-
-    Auto-assigned handles append this to an animal name so agents drawing from
-    the same pool are told apart by what they actually are and where they run.
-    The harness leads because it is always known and decides delivery; the
-    model line follows only when it adds something the harness does not, so a
-    bare "claude-code" stays "claude" rather than "claude-claude"; the host
-    trails as the "where", and is omitted when the agent did not report one.
-    """
-    harness = (flavor or "").lower() or None
-    line = model_line(model)
-    if harness is None:
-        parts = [line]
-    elif line is None or line == harness or line.startswith(harness):
-        parts = [harness]
-    else:
-        parts = [harness, line]
-    parts.append(host_tag(host))
-    kept = [p for p in parts if p]
-    return "-".join(kept) if kept else None
+    return config.load().node
 
 
 def submit_key_for_flavor(flavor: str | None) -> str:
@@ -299,6 +236,36 @@ def _await_submit(pane: str, timeout: float) -> bool:
             return False
 
 
+class Uncertain(Exception):
+    """An operation's side effect may have happened; whether it did could not
+    be established. Never retry an operation that ended this way on its own:
+    a message may already be in the pane, a window may already exist.
+
+    `created` is set when the operation got far enough to know which pane it
+    made (a spawn whose launch command timed out): a Created, with the server
+    that made it, so the pane is never rebound to whatever tmux runs later.
+    """
+
+    def __init__(self, message: str, created: "Created | None" = None):
+        super().__init__(message)
+        self.created = created
+
+
+class Created(NamedTuple):
+    """A pane as reported by the command that created it: id, positional
+    label, and the tmux server that issued the id, all from one answer."""
+
+    pane: str
+    label: str
+    tmux_server: str
+
+
+def _error_text(e: Exception) -> str:
+    if isinstance(e, subprocess.CalledProcessError):
+        return (e.stderr or "").strip() or str(e)
+    return str(e)
+
+
 def deliver(
     pane: str,
     text: str,
@@ -311,7 +278,12 @@ def deliver(
     The text goes in as a bracketed paste (tmux only adds the paste markers when
     the pane's application has enabled them), so TUIs that detect typing bursts
     as pastes — Codex in particular — receive one atomic paste event and the
-    following submit key is unambiguous. Returns (ok, error_message_or_None).
+    following submit key is unambiguous.
+
+    Returns (ok, error) only when the outcome is certain: loading the buffer
+    failed, or tmux refused the paste, so nothing reached the pane. Once the
+    paste may have happened, any error raises Uncertain instead: a timeout
+    on the paste itself, or anything wrong with the submit key afterwards.
     """
     injected = f"{message_prefix or ''}{text}"
     buf = f"agent-swarm-{os.getpid()}-{time.monotonic_ns()}"
@@ -320,10 +292,19 @@ def deliver(
             ["tmux", "load-buffer", "-b", buf, "-"],
             input=injected, capture_output=True, text=True, check=True, timeout=5,
         )
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        return False, _error_text(e)
+    try:
         subprocess.run(
             ["tmux", "paste-buffer", "-p", "-d", "-b", buf, "-t", pane],
             capture_output=True, text=True, check=True, timeout=5,
         )
+    except subprocess.CalledProcessError as e:
+        # tmux answered and said no (bad target, no such buffer): no paste.
+        return False, _error_text(e)
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        raise Uncertain(f"paste did not report back: {_error_text(e)}") from e
+    try:
         time.sleep(max(0.05, submit_delay_for_flavor(flavor)))
         subprocess.run(
             ["tmux", "send-keys", "-t", pane, submit_key],
@@ -335,10 +316,8 @@ def deliver(
                 ["tmux", "send-keys", "-t", pane, submit_key],
                 capture_output=True, text=True, check=True, timeout=5,
             )
-    except subprocess.CalledProcessError as e:
-        return False, e.stderr.strip() or str(e)
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return False, str(e)
+        raise Uncertain(f"pasted, but the submit key failed: {_error_text(e)}") from e
     return True, None
 
 
@@ -467,10 +446,11 @@ def spawn_launch_command(
 
 def spawn_window(
     session: str = AGENTS_SESSION, command: str | None = None
-) -> tuple[str | None, str | None]:
+) -> tuple[Created | None, str | None]:
     """Create a detached tmux window (and session if needed) and optionally
-    launch a command in it. Returns (pane_id, error_or_None); the id is %N."""
-    fmt = "#{pane_id}"
+    launch a command in it. Returns (Created, None) or (None, error) when
+    tmux answered; raises Uncertain when it did not report back."""
+    fmt = "#{pane_id}\t#S:#I.#P\t#{pid}:#{start_time}"
     try:
         has = subprocess.run(
             ["tmux", "has-session", "-t", session],
@@ -478,6 +458,9 @@ def spawn_window(
             text=True,
             timeout=2,
         )
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        return None, _error_text(e)
+    try:
         if has.returncode != 0:
             out = subprocess.run(
                 ["tmux", "new-session", "-d", "-s", session,
@@ -495,10 +478,17 @@ def spawn_window(
                 check=True,
                 timeout=5,
             )
-        pane = out.stdout.strip()
-        if not pane:
-            return None, "tmux did not report a pane id"
-        if command:
+    except subprocess.CalledProcessError as e:
+        return None, _error_text(e)  # tmux answered: nothing was created
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        raise Uncertain(f"window creation did not report back: {_error_text(e)}") from e
+    pane, _, rest = out.stdout.strip().partition("\t")
+    label, _, server = rest.partition("\t")
+    if not pane.startswith("%") or not server:
+        return None, "tmux did not report the new pane"
+    created = Created(pane, label or pane, server)
+    if command:
+        try:
             subprocess.run(
                 ["tmux", "send-keys", "-t", pane, command, "C-m"],
                 capture_output=True,
@@ -506,11 +496,10 @@ def spawn_window(
                 check=True,
                 timeout=5,
             )
-        return pane, None
-    except subprocess.CalledProcessError as e:
-        return None, e.stderr.strip() or str(e)
-    except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return None, str(e)
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            # The window exists; whether the harness started in it is unknown.
+            raise Uncertain(f"launch command did not report back: {_error_text(e)}", created) from e
+    return created, None
 
 
 def _tmux_out(*args: str, timeout: float = 2) -> str | None:
@@ -639,7 +628,8 @@ def offline_reason(
 
 
 def kill_pane(pane: str) -> tuple[bool, str | None]:
-    """Kill a tmux pane. Returns (ok, error_message_or_None)."""
+    """Kill a tmux pane. Returns (ok, error_message_or_None) when tmux
+    answered; raises Uncertain when it did not, since the pane may be gone."""
     try:
         subprocess.run(
             ["tmux", "kill-pane", "-t", pane],
@@ -649,9 +639,9 @@ def kill_pane(pane: str) -> tuple[bool, str | None]:
             timeout=3,
         )
     except subprocess.CalledProcessError as e:
-        return False, e.stderr.strip() or str(e)
+        return False, _error_text(e)
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return False, str(e)
+        raise Uncertain(f"kill did not report back: {_error_text(e)}") from e
     return True, None
 
 

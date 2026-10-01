@@ -1,4 +1,4 @@
-"""Cute name pool for auto-assigned recipient ids."""
+"""Name pool for server-assigned handles, and validation of requested ones."""
 
 from __future__ import annotations
 
@@ -127,40 +127,41 @@ POOL = [
 ]
 
 
-def pick_unused(
-    conn: sqlite3.Connection,
-    tag: str | None = None,
-    rng: random.Random | None = None,
-) -> str:
-    """Return a cute name not yet taken in `recipients`. Falls back to suffixing.
+def pick(taken: set[str], rng: random.Random | None = None) -> str:
+    """Return a pool name that none of `taken` uses.
 
-    `tag` (typically a short model label like "opus" or "sol") is appended to
-    the animal name so agents sharing the animal pool stay distinguishable,
-    e.g. "ferret-opus". Without a tag, behaves like a plain animal name.
+    Handles are bare pool names; what an agent is and where it runs are
+    columns on its row, not parts of its name. A handle issued by an earlier
+    version, such as "otter-opus" or "otter-codex-gpt5-karanslinux", reserves
+    bare "otter" for as long as it exists so the two never coexist. When every
+    pool name is taken, a numeric suffix is appended.
     """
     r = rng or random.Random()
-    taken = {row[0] for row in conn.execute("SELECT user_id FROM recipients")}
 
-    def with_tag(name: str) -> str:
-        return f"{name}-{tag}" if tag else name
+    def free(name: str) -> bool:
+        return name not in taken and not any(t.startswith(f"{name}-") for t in taken)
 
-    candidates = [n for n in POOL if with_tag(n) not in taken]
+    candidates = [n for n in POOL if free(n)]
     if candidates:
-        return with_tag(r.choice(candidates))
-    # Pool exhausted (even combined with the tag) — append a numeric suffix.
-    base = with_tag(r.choice(POOL))
+        return r.choice(candidates)
+    base = r.choice(POOL)
     n = 2
     while f"{base}-{n}" in taken:
         n += 1
     return f"{base}-{n}"
 
 
+def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
+    """A pool name no registered agent holds."""
+    return pick({row[0] for row in conn.execute("SELECT user_id FROM recipients")}, rng)
+
+
 # Handles the server refuses to hand out: 'owner' is the human operator.
 RESERVED = frozenset({"owner"})
 
-# 48 rather than 32 so that every handle this module can generate is also one
-# an agent may ask for: "salamander-claude-fable-karanslinux" is 35 characters,
-# and an agent that loses its pane must be able to re-request the handle it had.
+# 48 rather than 32 because handles issued by earlier versions carried harness,
+# model, and host suffixes of up to 35 characters, and an agent that loses its
+# pane must still be able to re-request the handle it had.
 _VALID_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 
 

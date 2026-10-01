@@ -226,7 +226,10 @@ tailscale serve --bg --https=8445 http://127.0.0.1:8765
 ```
 
 Then open `https://<machine-name>.<tailnet>.ts.net:8445/` from any
-tailnet device. Remove it with `tailscale serve --https=8445 off`.
+tailnet device. Remove it with `tailscale serve --https=8445 off`. Serve
+tells the hub who you are, and the hub treats you as the owner; on a
+shared tailnet, name who may with `AGENT_SWARM_OWNER_LOGINS` (see
+Security Model).
 
 ## Tasks
 
@@ -274,6 +277,139 @@ repository work, each task uses branch `task/<id>` in its own git
 worktree; the agent records the absolute path on the task. See
 `AGENT_PROMPT.md` for the worker convention and how teams and
 queens coordinate.
+
+## Multiple Machines
+
+One server is the hub: it holds every handle, message, task, and team,
+and serves the dashboard. Any other machine with agents in tmux runs a
+small daemon, `agent-swarm-node`, that dials the hub over one websocket
+and drives that machine's tmux on the hub's behalf. Agents register,
+send, and receive exactly as on one machine; the hub routes each message
+to the machine the recipient's pane is on. Nodes never listen and need
+no reachable address; the hub does need one, on the tailnet. Run the
+hub on the machine that stays on.
+
+On the hub:
+
+```bash
+# Listen on every interface, loopback included; loopback callers are the
+# owner, every other caller needs a node token. This is NOT limited to the
+# tailnet: restrict port 8765 to loopback and the Tailscale interface with
+# the host firewall before doing it (see Security Model).
+AGENT_SWARM_HOST=0.0.0.0 agent-swarm-server
+
+# Enrol a machine. Prints its token once, and the join command to run there.
+agent-swarm node-token karans-macbook-pro
+```
+
+On the other machine:
+
+```bash
+uv tool install --editable .              # same package, same version as the hub
+agent-swarm join http://karans-linux:8765 --token <token> --node karans-macbook-pro
+agent-swarm-node                          # keep it running: launchd, systemd --user, or a tmux window
+```
+
+`join` writes `~/.agent-swarm/node.toml` (hub URL, token, node name),
+which the CLI and the daemon both read, then checks that the hub takes
+the token for that node. An agent already running in a tmux pane needs
+nothing more: its harness runs the CLI as a subprocess, which reads the
+file, so "register yourself with agent-swarm" works unchanged.
+
+What a node may do is what an agent does, for its own machine only:
+register, send, report status, read recipients and messages, and file
+or update tasks. A task an agent on a node assigns is delivered in that
+agent's name. Everything the owner does from the dashboard (owner
+messages, spawn, stop, teams, prune, enrolment) is refused to a node
+token. Rotating a token (`node-token` again) or revoking a node
+(`DELETE /nodes/<name>`) disconnects it at once.
+
+The dashboard lists machines with a connected dot once more than one is
+enrolled, shows each agent's node on its card, and can spawn on a
+connected machine using the harnesses that machine reported.
+
+What changes when a paste crosses the network:
+
+- A message is recorded before it is pasted, and its status is
+  `delivered`, `failed`, or `unknown`. Unknown means the node may have
+  pasted it but the result was lost (the socket dropped, the node
+  restarted mid-paste). The server never resends an unknown message on
+  its own; the dashboard marks it and offers "send again", which posts
+  a new message. Read `status`, not `ok` alone, from `/send`.
+- A node remembers the commands with side effects it has executed, by
+  hub and operation id, for 24 hours; a command the hub resends within
+  that window gets the recorded result instead of running again, one
+  left in flight by a node restart becomes unknown and is not run while
+  that record lasts, and the hub never resends unknown or expired
+  commands on its own. The guarantee is that window: a deliberate resend
+  after the record is pruned runs again. A
+  command that waited past its time to live (a laptop waking with a
+  queue behind it), or that arrived under a connection that has since
+  ended, is refused before it touches tmux.
+- Attachments travel by name; the node fetches each from the hub,
+  verifies it against its hash, caches it, and pastes a path on its own
+  disk.
+- A node that disconnects, or that cannot read its tmux, leaves its
+  agents offline with that reason; sends to them are refused and
+  recorded, and prune leaves them alone until the node confirms a pane
+  is gone. A machine that comes back finds its agents as it left them.
+- A worktree path recorded on a task is stored with the machine it is
+  on. The task convention is unchanged; a worker pushes its branch and
+  reports the ref, since a path means nothing on another machine.
+
+### Bringing a machine that had its own hub
+
+A machine that has been running its own agent-swarm arrives with agents,
+teams, and a task board of its own. Carry them over as a bundle rather
+than merging databases:
+
+```bash
+# On that machine, before or after stopping its old server:
+agent-swarm export --out ~/swarm-bundle.json          # add --with-messages for history
+
+# Copy it to the hub, then there:
+agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro --dry-run
+agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro
+```
+
+The export reads that database without writing to it, so it is safe
+against a live server's file or an archived copy. The dry run decides
+everything and writes nothing, so you can read the report first.
+
+What the hub does with it:
+
+- Each agent becomes a reservation: an offline row holding its handle,
+  its harness, and its contact instructions until the agent registers
+  here through the node daemon. The import prints the line to run in
+  each pane; an agent that reports a stable id reclaims its handle by
+  itself. A handle reserved for a named agent cannot be taken by a
+  different one, and prune leaves reservations alone.
+- A handle already in use here is imported under a fresh one, and every
+  reference to it follows. An agent whose stable id this hub already
+  knows keeps the row and the machine it already has; nothing about it
+  is changed.
+- A team whose name is already here arrives under its own name, such as
+  "shipping (karans-macbook-pro)", rather than merging two unrelated
+  teams. Pass `--merge-teams` to add to the existing one instead.
+- Tasks keep their status, notes, assignees, and dependencies, renumbered
+  here. A worktree path is recorded with the machine it is on.
+- Messages come only with `--with-messages`, as history: they are
+  written as they were recorded, never delivered again, and tagged
+  `imported` so that task numbers in their text read as the old board's.
+  Attachments stay behind and are noted in the text.
+- Importing the same export twice is refused, so a retry cannot
+  duplicate a board. The whole import is one transaction: if any part of
+  a bundle is unusable, nothing is written.
+
+Anything the import could not resolve, a queen who is not a member, a
+dependency the bundle did not carry, a worktree on a machine this hub
+does not know, comes back as a warning in the report rather than being
+dropped quietly.
+
+The design and its trade-offs are in
+[docs/cross-machine-design.md](docs/cross-machine-design.md); the full
+upgrade path for such a machine is in
+[docs/upgrading.md](docs/upgrading.md).
 
 ## How Delivery Works
 
@@ -383,10 +519,20 @@ CLI command, and the receiver gets a new prompt turn automatically.
 The server defaults are local-only:
 
 ```text
-AGENT_SWARM_HOST=127.0.0.1
+AGENT_SWARM_HOST=127.0.0.1          # 0.0.0.0 to accept nodes on the tailnet
 AGENT_SWARM_PORT=8765
 AGENT_SWARM_DB=~/.agent-swarm/db.sqlite
+AGENT_SWARM_TRUST_LOOPBACK=1        # 0 to make even the hub's own loopback callers identify themselves
+AGENT_SWARM_OWNER_LOGINS=           # Tailscale logins allowed as owner via Serve; empty means any
 ```
+
+The CLI and the node daemon read `~/.agent-swarm/node.toml` (written by
+`agent-swarm join`; `AGENT_SWARM_CONFIG` points elsewhere) for the hub
+URL, this machine's node name, and its token. `AGENT_SWARM_URL`,
+`AGENT_SWARM_NODE`, and `AGENT_SWARM_TOKEN` override it; with neither,
+the hub is `http://127.0.0.1:8765` and the node name is the short
+hostname. The daemon keeps its result store and attachment cache under
+`AGENT_SWARM_NODE_HOME` (default `~/.agent-swarm`).
 
 For one compatibility release, the `agent-msg` and `agent-msg-server` command
 aliases and legacy `AGENT_MSG_*` environment variables remain accepted. New
@@ -447,6 +593,12 @@ agent-swarm messages --user <handle> --limit 20
 agent-swarm recipients
 agent-swarm whoami
 agent-swarm status "working on ..."   # shown under your name on the dashboard
+agent-swarm node-token <name>         # on the hub: enrol a machine, or rotate its token
+agent-swarm nodes                     # on the hub: enrolled machines and whether they are connected
+agent-swarm join <hub-url> --token <token> [--node <name>]   # on the other machine
+agent-swarm-node                      # on the other machine: connect its tmux to the hub
+agent-swarm export [--db <path>] [--out <file>] [--with-messages]   # on a machine that had its own hub
+agent-swarm import <file> --node <name> [--dry-run] [--merge-teams] # on the hub
 agent-swarm tasks [--status open|picked_up|done]
 agent-swarm task-create <title> [--description <text>] [--assignee <handle>]
 agent-swarm task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
@@ -468,14 +620,21 @@ When `--pane` is omitted, the CLI resolves the current pane with
 | Method | Path          | Body / Params                                                       |
 |--------|---------------|---------------------------------------------------------------------|
 | GET    | `/health`     | -                                                                   |
-| POST   | `/register`   | `{tmux_pane, agent_id?, model?, flavor?, instructions?, message_prefix?, submit_key?}` |
+| POST   | `/register`   | `{tmux_pane, node?, agent_id?, requested_user?, model?, flavor?, instructions?, message_prefix?, submit_key?}`; `node` is the machine the pane is on (default: the server's) |
 | GET    | `/recipients` | -                                                                   |
-| POST   | `/send`       | `{tmux_pane, recipient, content, context?}`                         |
+| GET    | `/whoami`     | `?tmux_pane=<id>&node=<name>`; the handle registered for that pane on that node, or null |
+| GET    | `/nodes`      | enrolled machines with `connected`; owner only                      |
+| POST   | `/nodes/<name>/token` | enrol or rotate; returns the token once; owner only          |
+| DELETE | `/nodes/<name>` | revoke and disconnect; owner only                                  |
+| GET    | `/nodes/me`   | what the hub takes the caller for (`owner`, or `node` and which)     |
+| POST   | `/import`     | `{node, bundle, dry_run?, again?, merge_teams?}`; takes in another hub's agents, teams, and tasks; owner only |
+| WS     | `/nodes/ws`   | a node's connection; bearer token on the handshake, then the frames in `agent_swarm/protocol.py` |
+| POST   | `/send`       | `{tmux_pane, node?, recipient, content, context?}`; returns `status` of `delivered`, `failed`, or `unknown` |
 | GET    | `/messages`   | `?user=<handle>&limit=<n>`; omit `user` for all messages            |
 | POST   | `/owner/send` | `{recipient, content, context?}`; sends as the human `owner`        |
 | GET    | `/tasks`      | -                                                                   |
 | POST   | `/tasks`      | `{title, description?, assignee?, team_id?, depends_on?}`; assignment notifies the agent or team |
-| PATCH  | `/tasks/<id>` | `{status?, assignee?, worktree?, team_id?, depends_on?}`; status is `open`, `picked_up`, or `done` |
+| PATCH  | `/tasks/<id>` | `{status?, assignee?, worktree?, worktree_node?, team_id?, depends_on?, note?}`; status is `open`, `picked_up`, or `done`; `worktree_node` is the machine the path is on |
 | GET    | `/teams`      | -                                                                   |
 | POST   | `/teams`      | `{name}`                                                            |
 | PATCH  | `/teams/<id>` | `{name?, queen?, objective?}`; crowning a queen delivers its coordination prompt |
@@ -499,8 +658,13 @@ caller-supplied names.
 ```text
 agent_swarm/
   client.py   CLI
+  config.py   per-machine settings file (hub, token, node name)
   db.py       SQLite layer
   names.py    handle pool and requested-name validation
+  node.py     the node daemon: executes commands, reports panes
+  nodes.py    the Node interface: local tmux and remote nodes alike
+  panes.py    one-time move from positional pane addresses to pane ids
+  protocol.py the frames a node and the hub exchange
   portal.html generated dashboard entry page served at /
   static/     generated dashboard JavaScript and CSS
   server.py   FastAPI app, protocol brief, and portal endpoints
@@ -535,11 +699,49 @@ npm run build
 
 ## Security Model
 
-`agent-swarm` is designed for a trusted local machine. It binds to
-`127.0.0.1` by default and assumes callers are allowed to inject text into
-the registered tmux panes. Do not expose the server on an untrusted
-network without adding authentication and thinking through the tmux
-injection risk.
+Every request carries a principal. A caller on loopback is the owner:
+the dashboard and the CLI on the hub machine, allowed everything. A
+caller presenting a node token is that machine, allowed what an agent
+does and only for its own machine: it cannot speak as the owner, move or
+unregister another machine's agent, or spawn, stop, prune, or manage
+teams. Any other caller gets 401. Node tokens are issued by the owner,
+stored hashed, rotated or revoked at will, and checked again after a
+node's hello so a revocation during the handshake still bites.
+
+With the default bind of `127.0.0.1` nothing is reachable from outside.
+For other machines the hub has to listen beyond loopback, and the owner
+path needs loopback to stay, so the multi-machine setup is
+`AGENT_SWARM_HOST=0.0.0.0` plus a host firewall that admits port 8765
+only from loopback and the Tailscale interface. `0.0.0.0` on its own
+listens on every IPv4 interface, LAN and public ones included, and
+Tailscale's ACLs say nothing about those. On Linux with ufw:
+
+```bash
+sudo ufw allow in on tailscale0 to any port 8765 proto tcp
+sudo ufw deny in to any port 8765 proto tcp        # everything else; loopback is never filtered
+```
+
+That assumes ufw is enabled (`sudo ufw status` says active) and no
+earlier, broader allow rule matches first; rules added to an inactive
+firewall restrict nothing.
+
+Reaching the dashboard from another device goes through Tailscale
+Serve (see Remote access over Tailscale). The hub runs without
+proxy-header rewriting, so trust follows the real socket peer: Serve
+connects from loopback and adds a `Tailscale-User-Login` header, which
+it never lets a client supply, and a forwarded loopback request with
+that header is the owner. Serve is tailnet-only, so on a single-user
+tailnet that login is you; on a shared tailnet set
+`AGENT_SWARM_OWNER_LOGINS=you@example.com` to name who may act as
+owner. A forwarded request without an identity is refused, whatever
+proxy sent it; the identity header alone marks a request as proxied, so
+it never counts as the plain local owner; and the header means nothing
+from any other peer. Behind any other reverse proxy, set
+`AGENT_SWARM_TRUST_LOOPBACK=0` and put Tailscale Serve in front of it,
+or the dashboard has no way in.
+
+Delivery still means typing into a tmux pane. Anyone the hub trusts can
+put text in front of every agent on every enrolled machine.
 
 ## Troubleshooting
 

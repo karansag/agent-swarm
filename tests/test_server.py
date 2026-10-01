@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_swarm import server, tmux
+from agent_swarm import nodes, server, tmux
 
 
 WEB_ROOT = Path(__file__).parents[1] / "web"
@@ -61,7 +61,15 @@ def client(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
     monkeypatch.setattr(tmux, "server_start_time", lambda: 0.0)
-    monkeypatch.setattr(tmux, "pane_table", lambda: {})
+    # Existing and live panes derive from this one table.
+    monkeypatch.setattr(
+        tmux, "pane_table",
+        lambda: {
+            "0:0.0": {"label": "0:0.0", "command": "claude", "title": ""},
+            "0:1.0": {"label": "0:1.0", "command": "claude", "title": ""},
+            "0:2.0": {"label": "0:2.0", "command": "bash", "title": ""},
+        },
+    )
     monkeypatch.setattr(
         tmux, "capture_pane", lambda pane: (f"screen of {pane}\n$ ", None)
     )
@@ -70,7 +78,8 @@ def client(tmp_path, monkeypatch):
 
     def fake_spawn_window(session=tmux.AGENTS_SESSION, command=None):
         spawns.append((session, command))
-        return f"agents:{len(spawns)}.0", None
+        pane = f"agents:{len(spawns)}.0"
+        return tmux.Created(pane, pane, "srv-1"), None
 
     monkeypatch.setattr(tmux, "spawn_window", fake_spawn_window)
     kills = []
@@ -81,7 +90,7 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(tmux, "kill_pane", fake_kill_pane)
     app = server.create_app(tmp_path / "db.sqlite", monitor=False)
-    c = TestClient(app)
+    c = TestClient(app, client=("127.0.0.1", 50000))
     c._calls = calls
     c._spawns = spawns
     c._kills = kills
@@ -130,10 +139,9 @@ def test_register_without_user_id_assigns_cute_name(client):
     assert r.status_code == 200
     body = r.json()
     assert body["assigned"] is True
-    animal, _, tag = body["user_id"].partition("-")
-    assert animal in names.POOL
-    # Harness first, then the model line it does not already imply.
-    assert tag == "claude-opus"
+    # A bare pool name: what the agent is and where it runs are columns.
+    assert body["user_id"] in names.POOL
+    assert body["node"] == tmux.local_node()
     assert body["agent_id"] == "00000000-0000-4000-8000-000000000001"
     assert body["model"] == "claude-opus-4-7"
     assert body["flavor"] == "claude"
@@ -1076,3 +1084,395 @@ def test_unregister_forgets_summaries(client):
     assert client.delete("/recipients/jax").status_code == 200
     client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
     assert client.get("/api/state").json()["recipients"][0]["summaries"] == []
+
+
+def _connect_node(client, name):
+    """A second reachable machine whose tmux is the same fake as the local one."""
+    from agent_swarm import nodes
+
+    node = nodes.LocalNode(name)
+    client.app.state.nodes.add(node)
+    return node
+
+
+def test_register_records_the_node_it_came_from(client):
+    _connect_node(client, "macbook")
+    r = client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "agent_id": "a-node", "node": "macbook"},
+    )
+    assert r.status_code == 200
+    assert r.json()["node"] == "macbook"
+    user = r.json()["user_id"]
+    # Registering again from the same node keeps the row where it is; the
+    # node is never derived from the handle.
+    r = client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "a-node", "node": "macbook"})
+    assert r.json()["user_id"] == user
+    assert r.json()["node"] == "macbook"
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
+    assert row["node"] == "macbook"
+    brief = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["protocol_brief"]
+    assert f"{user} (" in brief and "node=macbook" in brief
+
+
+def test_agent_reregistering_from_another_node_moves_with_its_handle(client):
+    _connect_node(client, "macbook")
+    user = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "agent_id": "a-move", "node": "macbook"}
+    ).json()["user_id"]
+    r = client.post("/register", json={"tmux_pane": "0:1.0", "agent_id": "a-move"})
+    assert r.json()["user_id"] == user
+    assert r.json()["node"] == tmux.local_node()
+
+
+def test_register_and_send_refuse_an_unknown_node(client):
+    r = client.post("/register", json={"tmux_pane": "0:0.0", "node": "nowhere"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["error"] == "unknown node"
+    assert tmux.local_node() in r.json()["detail"]["known"]
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    r = client.post(
+        "/send", json={"tmux_pane": "0:0.0", "node": "nowhere", "recipient": "jax", "content": "x"}
+    )
+    assert r.status_code == 422
+
+
+def test_same_pane_id_on_two_nodes_is_two_agents(client):
+    _connect_node(client, "macbook")
+    a = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    b = client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"]
+    assert a != b
+    rows = {r["user_id"]: r for r in client.get("/recipients").json()["recipients"]}
+    assert rows[a]["node"] == tmux.local_node() and rows[b]["node"] == "macbook"
+    # The sender is resolved on its own node, so a message from the MacBook
+    # pane comes from b, not a.
+    client.post("/send", json={"tmux_pane": "0:0.0", "node": "macbook", "recipient": a, "content": "hi"})
+    assert client.get("/messages").json()["messages"][0]["sender"] == b
+
+
+def test_agents_on_a_disconnected_node_read_offline_and_are_never_pruned(client):
+    _connect_node(client, "macbook")
+    user = client.post(
+        "/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"}
+    ).json()["user_id"]
+    client.app.state.nodes.remove("macbook")
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
+    assert row["alive"] is False
+    assert row["offline_reason"] == "recipient offline: node macbook is not connected"
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "otter"})
+    r = client.post("/send", json={"tmux_pane": "0:1.0", "recipient": "puffin", "content": "hi"})
+    assert r.status_code == 409
+    assert "node macbook is not connected" in r.json()["detail"]["error"]
+    assert client._calls == []
+    # Unreachable is not confirmed gone: prune must leave the registration.
+    assert client.post("/recipients/prune", json={"include_shells": True}).json()["removed"] == []
+    assert client.post("/agents/puffin/stop").status_code == 409
+    peek = client.get("/api/peek/puffin").json()
+    assert peek["text"] is None and "not connected" in peek["error"]
+
+
+def test_spawn_on_a_named_node_registers_the_agent_there(client):
+    _connect_node(client, "macbook")
+    r = client.post("/agents/spawn", json={"flavor": "claude", "node": "macbook"})
+    assert r.status_code == 200
+    assert r.json()["node"] == "macbook"
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == r.json()["user_id"])
+    assert row["node"] == "macbook"
+    assert client.post("/agents/spawn", json={"flavor": "claude", "node": "nowhere"}).status_code == 422
+
+
+def test_register_without_a_node_records_this_machine(client):
+    r = client.post("/register", json={"tmux_pane": "0:0.0"})
+    assert r.json()["node"] == tmux.local_node()
+
+
+def test_spawn_assigns_a_bare_name_on_this_machine(client):
+    from agent_swarm import names
+
+    r = client.post("/agents/spawn", json={"flavor": "codex", "model": "gpt-5.6-terra"})
+    assert r.status_code == 200
+    user = r.json()["user_id"]
+    assert user in names.POOL
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
+    assert row["node"] == tmux.local_node()
+    assert row["model"] == "gpt-5.6-terra"
+
+
+def test_legacy_suffixed_handles_reserve_their_bare_name_over_http(client, monkeypatch):
+    from agent_swarm import names
+
+    # Every pool name but two is taken; one of the two survives only as a
+    # legacy suffixed handle, so the other must be the one handed out.
+    monkeypatch.setattr(names, "POOL", ["otter", "ferret"])
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "otter-codex-gpt5-workstation"})
+    assert client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"] == "ferret"
+    # Both bases are taken now, so exhaustion suffixes whichever base the
+    # RNG picks; either is correct as long as neither bare name is reused.
+    r = client.post("/agents/spawn", json={"flavor": "claude"})
+    assert r.status_code == 200
+    assert r.json()["user_id"] in {"otter-2", "ferret-2"}
+
+
+def test_rows_from_before_nodes_belong_to_this_machine(tmp_path):
+    from agent_swarm import db
+
+    conn = db.connect(tmp_path / "old.sqlite")
+    db.register(conn, "otter", "%1", tmux_server="srv-1", pane_label="0:0.0")
+    conn.execute("UPDATE recipients SET node=NULL")
+    conn.commit()
+    conn.close()
+    app = server.create_app(tmp_path / "old.sqlite", monitor=False)
+    rows = TestClient(app, client=("127.0.0.1", 50000)).get("/recipients").json()["recipients"]
+    assert rows[0]["node"] == tmux.local_node()
+
+
+def test_registering_again_without_agent_id_keeps_the_handle(client):
+    # Identity falls back to the pane on its node; a second register from the
+    # same pane must find the row rather than allocate and evict.
+    first = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    again = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    assert again == first
+    _connect_node(client, "macbook")
+    remote = client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"]
+    assert remote != first
+    assert client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"] == remote
+    handles = {r["user_id"] for r in client.get("/recipients").json()["recipients"]}
+    assert handles == {first, remote}
+
+
+def test_whoami_resolves_the_pane_on_its_own_node(client):
+    _connect_node(client, "macbook")
+    local = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    remote = client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook"}).json()["user_id"]
+    assert client.get("/whoami", params={"tmux_pane": "0:0.0"}).json()["user_id"] == local
+    r = client.get("/whoami", params={"tmux_pane": "0:0.0", "node": "macbook"}).json()
+    assert r["user_id"] == remote and r["node"] == "macbook"
+    assert client.get("/whoami", params={"tmux_pane": "0:1.0"}).json()["user_id"] is None
+    assert client.get("/whoami", params={"tmux_pane": "0:0.0", "node": "nowhere"}).status_code == 422
+
+
+def test_whoami_ignores_a_pane_from_an_earlier_tmux(client, monkeypatch):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-2")
+    assert client.get("/whoami", params={"tmux_pane": "0:0.0"}).json()["user_id"] is None
+
+
+class _AnsweringNode(nodes.LocalNode):
+    """A reachable node whose deliveries end however the test says."""
+
+    def __init__(self, name, result, db_path):
+        super().__init__(name)
+        self.result, self.db_path, self.seen = result, db_path, []
+
+    def deliver(self, op_id, pane, tmux_server, text, **kw):
+        import sqlite3
+
+        # The message row must already exist, pending, under this op id.
+        with sqlite3.connect(self.db_path) as c:
+            row = c.execute("SELECT status FROM messages WHERE id=?", (int(op_id),)).fetchone()
+        self.seen.append((op_id, pane, tmux_server, row[0] if row else None))
+        return self.result
+
+
+def test_delivery_is_recorded_before_dispatch_and_an_unknown_result_is_kept(client, tmp_path):
+    node = _AnsweringNode("macbook", nodes.Result("unknown", "socket closed"), tmp_path / "db.sqlite")
+    client.app.state.nodes.add(node)
+    client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"})
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "otter"})
+    r = client.post("/send", json={"tmux_pane": "0:1.0", "recipient": "puffin", "content": "hi"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and body["status"] == "unknown"
+    assert body["delivery_error"] == "socket closed"
+    # The node saw the pending row, keyed by the message id, before pasting.
+    assert node.seen == [(str(body["message_id"]), "0:0.0", "srv-1", "pending")]
+    msg = client.get("/messages").json()["messages"][0]
+    assert msg["status"] == "unknown" and msg["delivered"] == 0
+    assert msg["delivery_error"] == "socket closed"
+    # The owner path records the same way.
+    r = client.post("/owner/send", json={"recipient": "puffin", "content": "hello"})
+    assert r.json()["status"] == "unknown"
+    assert len(node.seen) == 2
+
+
+def test_failed_and_delivered_results_settle_the_message(client, tmp_path):
+    node = _AnsweringNode("macbook", nodes.Result("failed", "pane vanished"), tmp_path / "db.sqlite")
+    client.app.state.nodes.add(node)
+    client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"})
+    r = client.post("/owner/send", json={"recipient": "puffin", "content": "x"})
+    assert r.json()["status"] == "failed" and r.json()["ok"] is False
+    node.result = nodes.Result("ok")
+    r = client.post("/owner/send", json={"recipient": "puffin", "content": "y"})
+    assert r.json()["status"] == "delivered" and r.json()["ok"] is True
+    statuses = [(m["status"], m["delivered"]) for m in client.get("/messages").json()["messages"]]
+    assert statuses == [("delivered", 1), ("failed", 0)]
+
+
+def test_refused_and_owner_bound_messages_carry_a_status(client):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    client.post("/register", json={"tmux_pane": "0:2.0", "requested_user": "shell"})
+    client.post("/send", json={"tmux_pane": "0:0.0", "recipient": "owner", "content": "to you"})
+    client.post("/send", json={"tmux_pane": "0:0.0", "recipient": "shell", "content": "to a shell"})
+    client.post("/send", json={"tmux_pane": "0:0.0", "recipient": "ghost", "content": "to no one"})
+    statuses = {m["recipient"]: m["status"] for m in client.get("/messages").json()["messages"]}
+    assert statuses == {"owner": "delivered", "shell": "failed", "ghost": "failed"}
+
+
+def test_worktree_is_recorded_with_the_node_it_is_on(client):
+    _connect_node(client, "macbook")
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "jax"})
+    task = client.post("/tasks", json={"title": "t", "assignee": "jax"}).json()["task"]
+    r = client.patch(f"/tasks/{task['id']}", json={"worktree": "/Users/k/repo-7", "worktree_node": "macbook"})
+    assert r.json()["task"]["worktree_node"] == "macbook"
+    # Unsaid, the path is on the server's own machine.
+    r = client.patch(f"/tasks/{task['id']}", json={"worktree": "/home/k/repo-7"})
+    assert r.json()["task"]["worktree_node"] == tmux.local_node()
+    # Clearing the path clears where it was.
+    r = client.patch(f"/tasks/{task['id']}", json={"worktree": None})
+    assert r.json()["task"]["worktree"] is None and r.json()["task"]["worktree_node"] is None
+
+
+def test_an_exception_during_delivery_leaves_the_message_unknown(client, tmp_path):
+    class Exploding(nodes.LocalNode):
+        def deliver(self, *a, **k):
+            raise TimeoutError("socket read timed out")
+
+    client.app.state.nodes.add(Exploding("macbook"))
+    client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"})
+    r = client.post("/owner/send", json={"recipient": "puffin", "content": "x"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "unknown"
+    assert "TimeoutError" in r.json()["delivery_error"]
+    msg = client.get("/messages").json()["messages"][0]
+    assert msg["status"] == "unknown" and "TimeoutError" in msg["delivery_error"]
+
+
+def test_messages_left_pending_by_a_previous_run_become_unknown(tmp_path):
+    from agent_swarm import db
+
+    conn = db.connect(tmp_path / "old.sqlite")
+    stuck = db.record_message(conn, "owner", "otter", None, "in flight", "pending")
+    done = db.record_message(conn, "owner", "otter", None, "landed", "delivered")
+    conn.close()
+    app = server.create_app(tmp_path / "old.sqlite", monitor=False)
+    by_id = {m["id"]: m for m in TestClient(app, client=("127.0.0.1", 50000)).get("/messages").json()["messages"]}
+    assert by_id[stuck]["status"] == "unknown"
+    assert "stopped before" in by_id[stuck]["delivery_error"]
+    assert by_id[done]["status"] == "delivered"
+
+
+def test_a_node_that_cannot_observe_its_tmux_is_unavailable_not_empty(client):
+    class Blind(nodes.LocalNode):
+        def snapshot(self):
+            raise nodes.Unavailable("tmux restarting")
+
+    client.app.state.nodes.add(Blind("macbook"))
+    client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"})
+    row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == "puffin")
+    assert row["alive"] is False and row["observed"] is False
+    assert "cannot observe its tmux" in row["offline_reason"]
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "otter"})
+    assert client.post("/send", json={"tmux_pane": "0:1.0", "recipient": "puffin", "content": "hi"}).status_code == 409
+    assert client.post("/recipients/prune", json={"include_shells": True}).json()["removed"] == []
+    assert client.post("/agents/puffin/stop").status_code == 409
+    peek = client.get("/api/peek/puffin")
+    assert peek.status_code == 200
+    asyncio.run(client.app.state.monitor_tick())
+    state = client.get("/api/state").json()
+    assert next(r for r in state["recipients"] if r["user_id"] == "puffin")["activity"]["status"] == "stopped"
+
+
+def test_a_failing_capture_does_not_end_the_monitor_tick(client):
+    class Jumpy(nodes.LocalNode):
+        def capture(self, pane, tmux_server):
+            raise RuntimeError("tmux hiccup")
+
+    client.app.state.nodes.add(Jumpy("macbook"))
+    client.post("/register", json={"tmux_pane": "0:0.0", "node": "macbook", "requested_user": "puffin"})
+    client.post("/register", json={"tmux_pane": "0:1.0", "requested_user": "otter"})
+    asyncio.run(client.app.state.monitor_tick())
+    by_user = {r["user_id"]: r["activity"]["status"] for r in client.get("/api/state").json()["recipients"]}
+    assert by_user["puffin"] == "unknown"  # alive, but nothing could be read
+    assert by_user["otter"] == "working"
+
+
+def test_worktree_paths_from_before_nodes_belong_to_this_machine(tmp_path):
+    from agent_swarm import db
+
+    conn = db.connect(tmp_path / "old.sqlite")
+    task = db.create_task(conn, "old work")
+    db.update_task(conn, task["id"], worktree="/home/k/repo-1")
+    conn.execute("UPDATE tasks SET worktree_node=NULL")
+    conn.commit()
+    conn.close()
+    app = server.create_app(tmp_path / "old.sqlite", monitor=False)
+    t = TestClient(app, client=("127.0.0.1", 50000)).get("/tasks").json()["tasks"][0]
+    assert t["worktree_node"] == tmux.local_node()
+
+
+def test_importing_the_server_module_builds_no_app():
+    # Building the app opens the configured database and runs the startup
+    # reconciliation; that belongs to the serving process alone.
+    assert not hasattr(server, "app")
+
+
+def test_spawn_and_stop_report_unknown_outcomes_distinctly(client, monkeypatch):
+    import subprocess
+
+    def timed_out_launch(session=tmux.AGENTS_SESSION, command=None):
+        raise tmux.Uncertain(
+            "launch command did not report back: timed out",
+            tmux.Created("agents:9.0", "agents:9.0", "srv-1"),
+        )
+
+    monkeypatch.setattr(tmux, "spawn_window", timed_out_launch)
+    r = client.post("/agents/spawn", json={"flavor": "claude"})
+    assert r.status_code == 200
+    assert r.json()["launch"] == "unknown" and r.json()["tmux_pane"] == "agents:9.0"
+    user = r.json()["user_id"]
+
+    def no_window(session=tmux.AGENTS_SESSION, command=None):
+        raise tmux.Uncertain("window creation did not report back: timed out")
+
+    monkeypatch.setattr(tmux, "spawn_window", no_window)
+    r = client.post("/agents/spawn", json={"flavor": "claude"})
+    assert r.status_code == 502 and r.json()["detail"]["status"] == "unknown"
+
+    monkeypatch.setattr(
+        tmux, "pane_table",
+        lambda: {"agents:9.0": {"label": "agents:9.0", "command": "claude", "title": ""}},
+    )
+
+    def kill_timed_out(pane):
+        raise tmux.Uncertain("kill did not report back: timed out")
+
+    monkeypatch.setattr(tmux, "kill_pane", kill_timed_out)
+    r = client.post(f"/agents/{user}/stop")
+    assert r.status_code == 502 and r.json()["detail"]["status"] == "unknown"
+
+
+def test_portal_shows_machines_and_unknown_deliveries():
+    portal = portal_source()
+    # Messages are judged by their status, never by the delivered flag, and
+    # the composer reads the answer's status rather than trusting HTTP 200.
+    assert 'm.status === "unknown"' in portal and "m.delivered ?" not in portal
+    assert "deliveryOutcome(r.ok, body)" in portal and 'throw new Error("delivery failed")' not in portal
+    # An unknown outcome is resent only on purpose, as a new message.
+    assert "may already have it" in portal and "send again" in portal
+    # Machines: a strip of nodes and a spawn target.
+    assert "function NodeStrip" in portal and 'title="machine"' in portal and "body.node = target.node" in portal
+
+
+def test_dashboard_decisions_pass_their_own_tests():
+    """The dashboard's pure decisions (delivery outcome, spawn target) are
+    tested by Node's test runner; run them here so one suite covers both."""
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    proc = subprocess.run(
+        ["node", "--test", *sorted(str(p) for p in (WEB_ROOT / "test").glob("*.test.js"))],
+        cwd=WEB_ROOT.parent, capture_output=True, text=True, timeout=120
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr

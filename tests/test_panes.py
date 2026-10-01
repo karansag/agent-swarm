@@ -70,7 +70,8 @@ def fake(tmp_path, monkeypatch):
         used = {int(p["label"].split(":")[1].split(".")[0]) for p in t.panes.values()
                 if p["label"].startswith(f"{session}:")}
         index = next(i for i in range(100) if i not in used)  # tmux reuses the lowest free
-        return t.add(f"{session}:{index}.0"), None
+        label = f"{session}:{index}.0"
+        return tmux.Created(t.add(label), label, t.server), None
 
     def kill_pane(pane):
         t.kill(pane)
@@ -81,7 +82,7 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setattr(tmux, "kill_pane", kill_pane)
     monkeypatch.setattr(tmux, "rename_window", lambda *a: (True, None))
     monkeypatch.setattr(tmux, "tag_pane", lambda *a: (True, None))
-    t.client = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False))
+    t.client = TestClient(server.create_app(tmp_path / "db.sqlite", monitor=False), client=("127.0.0.1", 50000))
     t.db_path = tmp_path / "db.sqlite"
     return t
 

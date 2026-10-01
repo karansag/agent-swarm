@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "test": "node --test \"web/test/*.test.js\""
   },
   "dependencies": {
     "htm": "3.1.1",

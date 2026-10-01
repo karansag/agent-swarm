@@ -22,20 +22,30 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
-from . import tmux
-from .tmux import current_pane, local_host
+from pathlib import Path
+
+from . import bundle, config, tmux
+from .tmux import current_pane, local_node
 
 
 def base_url() -> str:
-    return os.environ.get(
-        "AGENT_SWARM_URL",
-        os.environ.get("AGENT_MSG_URL", "http://127.0.0.1:8765"),
-    )
+    return config.load().hub
+
+
+def _headers() -> dict[str, str]:
+    """The bearer token for this machine, when it has one.
+
+    A hub on the tailnet requires one from every non-loopback caller; a
+    single-machine install has none and needs none.
+    """
+    token = config.load().token
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def detect_pane() -> str | None:
@@ -63,13 +73,18 @@ def detect_pane() -> str | None:
 
 
 def registered_user(pane: str) -> str | None:
-    r = httpx.get(f"{base_url()}/recipients", timeout=5)
+    """The handle registered for this pane on this machine, or None.
+
+    Asked of the server rather than matched locally: it resolves the pane on
+    this node and checks the tmux server that issued it, so a pane with the
+    same id on another machine, or from an earlier tmux, never matches.
+    """
+    r = httpx.get(
+        f"{base_url()}/whoami", params={"tmux_pane": pane, "node": local_node()}, headers=_headers(), timeout=5
+    )
     if not r.is_success:
         return None
-    for recipient in r.json().get("recipients", []):
-        if recipient.get("tmux_pane") == pane:
-            return recipient.get("user_id")
-    return None
+    return r.json().get("user_id")
 
 
 def cmd_register(args: argparse.Namespace) -> int:
@@ -79,7 +94,7 @@ def cmd_register(args: argparse.Namespace) -> int:
             "error: could not detect tmux pane; pass --pane explicitly", file=sys.stderr
         )
         return 2
-    payload: dict = {"tmux_pane": pane, "host": local_host()}
+    payload: dict = {"tmux_pane": pane, "node": local_node()}
     if args.name:
         payload["requested_user"] = args.name
     if args.agent_id:
@@ -94,7 +109,7 @@ def cmd_register(args: argparse.Namespace) -> int:
         payload["message_prefix"] = args.message_prefix
     if args.submit_key:
         payload["submit_key"] = args.submit_key
-    r = httpx.post(f"{base_url()}/register", json=payload, timeout=5)
+    r = httpx.post(f"{base_url()}/register", json=payload, headers=_headers(), timeout=5)
     print(r.text)
     return 0 if r.is_success else 1
 
@@ -116,12 +131,13 @@ def cmd_send(args: argparse.Namespace) -> int:
         return 2
     payload = {
         "tmux_pane": pane,
+        "node": local_node(),
         "recipient": args.to,
         "content": args.message,
     }
     if args.context:
         payload["context"] = args.context
-    r = httpx.post(f"{base_url()}/send", json=payload, timeout=10)
+    r = httpx.post(f"{base_url()}/send", json=payload, headers=_headers(), timeout=10)
     print(r.text)
     return 0 if r.is_success else 1
 
@@ -132,7 +148,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("error: could not detect tmux pane; run inside tmux", file=sys.stderr)
         return 2
     r = httpx.post(
-        f"{base_url()}/status", json={"tmux_pane": pane, "text": args.text}, timeout=5
+        f"{base_url()}/status", json={"tmux_pane": pane, "node": local_node(), "text": args.text}, headers=_headers(), timeout=5
     )
     print(r.text)
     return 0 if r.is_success else 1
@@ -142,13 +158,13 @@ def cmd_messages(args: argparse.Namespace) -> int:
     params = {"limit": args.limit}
     if args.user:
         params["user"] = args.user
-    r = httpx.get(f"{base_url()}/messages", params=params, timeout=5)
+    r = httpx.get(f"{base_url()}/messages", params=params, headers=_headers(), timeout=5)
     print(json.dumps(r.json(), indent=2))
     return 0 if r.is_success else 1
 
 
 def cmd_recipients(_: argparse.Namespace) -> int:
-    r = httpx.get(f"{base_url()}/recipients", timeout=5)
+    r = httpx.get(f"{base_url()}/recipients", headers=_headers(), timeout=5)
     print(json.dumps(r.json(), indent=2))
     return 0 if r.is_success else 1
 
@@ -171,13 +187,13 @@ def cmd_unregister(args: argparse.Namespace) -> int:
     if user is None:
         print("error: current pane is not registered; pass --user HANDLE", file=sys.stderr)
         return 2
-    response = httpx.delete(f"{base_url()}/recipients/{quote(user, safe='')}", timeout=5)
+    response = httpx.delete(f"{base_url()}/recipients/{quote(user, safe='')}", headers=_headers(), timeout=5)
     print(response.text)
     return 0 if response.is_success else 1
 
 
 def cmd_tasks(args: argparse.Namespace) -> int:
-    r = httpx.get(f"{base_url()}/tasks", timeout=5)
+    r = httpx.get(f"{base_url()}/tasks", headers=_headers(), timeout=5)
     if not r.is_success:
         print(r.text, file=sys.stderr)
         return 1
@@ -193,27 +209,36 @@ def _parse_deps(raw: str) -> list[int]:
     return [int(part) for part in raw.split(",") if part.strip()]
 
 
+def _acting_fields() -> dict:
+    """This pane and node, so a task notification goes out in this agent's name."""
+    pane = current_pane()
+    return {"tmux_pane": pane, "node": local_node()} if pane else {}
+
+
 def cmd_task_create(args: argparse.Namespace) -> int:
-    payload: dict = {"title": args.title}
+    payload: dict = {"title": args.title, **_acting_fields()}
     if args.description:
         payload["description"] = args.description
     if args.assignee:
         payload["assignee"] = args.assignee
     if args.depends_on is not None:
         payload["depends_on"] = _parse_deps(args.depends_on)
-    r = httpx.post(f"{base_url()}/tasks", json=payload, timeout=5)
+    r = httpx.post(f"{base_url()}/tasks", json=payload, headers=_headers(), timeout=5)
     print(r.text)
     return 0 if r.is_success else 1
 
 
 def cmd_task_update(args: argparse.Namespace) -> int:
     payload: dict = {}
+    fields = _acting_fields()
     if args.status:
         payload["status"] = args.status
     if args.assignee is not None:
         payload["assignee"] = args.assignee
     if args.worktree is not None:
         payload["worktree"] = args.worktree
+        # A path is only meaningful on the machine it is on.
+        payload["worktree_node"] = local_node()
     if args.depends_on is not None:
         payload["depends_on"] = _parse_deps(args.depends_on)
     if args.note is not None:
@@ -225,9 +250,125 @@ def cmd_task_update(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    r = httpx.patch(f"{base_url()}/tasks/{args.id}", json=payload, timeout=5)
+    payload.update(fields)
+    r = httpx.patch(f"{base_url()}/tasks/{args.id}", json=payload, headers=_headers(), timeout=5)
     print(r.text)
     return 0 if r.is_success else 1
+
+
+def cmd_join(args: argparse.Namespace) -> int:
+    """Point this machine at a hub: write the settings file, then check the
+    hub answers and takes this token for this node."""
+    node = args.node or config.hostname()
+    path = config.write(args.hub, args.token, node)
+    hub = config.load().hub
+    reachable, enrolled, problem = False, False, None
+    try:
+        reachable = httpx.get(f"{hub}/health", timeout=5).is_success
+        r = httpx.get(f"{hub}/nodes/me", headers=_headers(), timeout=5)
+        if r.status_code == 401:
+            problem = "the hub rejected the token"
+        elif r.is_success:
+            me = r.json()
+            if me.get("kind") == "node" and me.get("node") != node:
+                problem = f"the token belongs to node {me.get('node')!r}, not {node!r}; pass --node {me.get('node')}"
+            elif me.get("kind") == "node":
+                enrolled = True
+            else:
+                problem = "no token given: the hub sees this as the owner, which only works on the hub itself"
+        else:
+            problem = f"unexpected answer from the hub: {r.status_code}"
+    except httpx.HTTPError as e:
+        problem = f"the hub did not answer: {e}"
+    print(json.dumps({"config": str(path), "hub": hub, "node": node,
+                      "hub_reachable": reachable, "enrolled": enrolled}, indent=2))
+    if problem:
+        print(f"warning: {problem}; settings were written anyway", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_node_token(args: argparse.Namespace) -> int:
+    """Enrol a node with the hub (or rotate its token). Prints the token once."""
+    r = httpx.post(
+        f"{base_url()}/nodes/{quote(args.name, safe='')}/token", headers=_headers(), timeout=5
+    )
+    if not r.is_success:
+        print(r.text, file=sys.stderr)
+        return 1
+    body = r.json()
+    print(json.dumps(body, indent=2))
+    # The join command runs on the other machine, so a loopback hub address
+    # would point at that machine itself; guess this host's name instead.
+    hub = base_url()
+    host = urlparse(hub).hostname or ""
+    if host in ("127.0.0.1", "localhost", "::1"):
+        port = urlparse(hub).port or 8765
+        hub = f"http://{config.hostname()}:{port}"
+        print(f"(hub address guessed as {hub}; use this machine's tailnet name if that is wrong)", file=sys.stderr)
+    print(
+        f"On {body['name']}, run:\n  agent-swarm join {shlex.quote(hub)} "
+        f"--token {shlex.quote(body['token'])} --node {shlex.quote(body['name'])}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_nodes(_: argparse.Namespace) -> int:
+    r = httpx.get(f"{base_url()}/nodes", headers=_headers(), timeout=5)
+    print(json.dumps(r.json(), indent=2))
+    return 0 if r.is_success else 1
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Write this machine's agents, teams, and tasks out as a bundle.
+
+    Reads the database without writing to it, so it is safe against a live
+    server's file or an archived copy.
+    """
+    path = args.db or os.environ.get("AGENT_SWARM_DB", "~/.agent-swarm/db.sqlite")
+    try:
+        conn = bundle.open_readonly(path)
+        data = bundle.read(conn, with_messages=args.with_messages)
+    except bundle.Invalid as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    text = json.dumps(data, indent=1)
+    counts = {k: len(data[k]) for k in ("agents", "teams", "tasks", "messages")}
+    if args.out and args.out != "-":
+        out = Path(args.out).expanduser()
+        out.write_text(text)
+        print(json.dumps({"out": str(out), "source": data["source"]["id"], **counts}, indent=2))
+    else:
+        print(text)
+        print(json.dumps({"source": data["source"]["id"], **counts}), file=sys.stderr)
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Hand a bundle to the hub, for agents that run on `--node`."""
+    try:
+        data = json.loads(Path(args.bundle).expanduser().read_text())
+    except (OSError, ValueError) as e:
+        print(f"error: could not read {args.bundle}: {e}", file=sys.stderr)
+        return 2
+    payload = {
+        "node": args.node, "bundle": data, "dry_run": args.dry_run,
+        "again": args.again, "merge_teams": args.merge_teams,
+    }
+    r = httpx.post(f"{base_url()}/import", json=payload, headers=_headers(), timeout=120)
+    if not r.is_success:
+        print(r.text, file=sys.stderr)
+        return 1
+    body = r.json()
+    print(json.dumps(body["report"], indent=2))
+    if body["dry_run"]:
+        print("\nnothing was written; run again without --dry-run", file=sys.stderr)
+    if body.get("register"):
+        print("\nOn " + args.node + ", have each agent run its line:", file=sys.stderr)
+        for line in body["register"]:
+            print("  " + line, file=sys.stderr)
+    return 0
 
 
 def cmd_whoami(_: argparse.Namespace) -> int:
@@ -236,7 +377,8 @@ def cmd_whoami(_: argparse.Namespace) -> int:
     in_pane = tmux.process_in_pane(pane) if pane else None
     print(
         json.dumps(
-            {"user": user, "pane": pane, "in_pane": in_pane, "server": base_url()}, indent=2
+            {"user": user, "pane": pane, "in_pane": in_pane, "node": local_node(), "server": base_url()},
+            indent=2,
         )
     )
     return 0
@@ -343,6 +485,45 @@ def main(argv: list[str] | None = None) -> int:
 
     who = sub.add_parser("whoami")
     who.set_defaults(func=cmd_whoami)
+
+    join = sub.add_parser(
+        "join", help="point this machine at a hub (writes ~/.agent-swarm/node.toml)"
+    )
+    join.add_argument("hub", help="hub URL, e.g. http://karans-linux:8765")
+    join.add_argument("--token", help="this machine's token, from `agent-swarm node-token` on the hub")
+    join.add_argument("--node", help="this machine's node name (default: short hostname)")
+    join.set_defaults(func=cmd_join)
+
+    ntok = sub.add_parser(
+        "node-token", help="enrol a machine with this hub, or rotate its token; prints it once"
+    )
+    ntok.add_argument("name", help="the node name that machine will register as")
+    ntok.set_defaults(func=cmd_node_token)
+
+    nds = sub.add_parser("nodes", help="list enrolled machines")
+    nds.set_defaults(func=cmd_nodes)
+
+    exp = sub.add_parser(
+        "export", help="write this machine's agents, teams, and tasks out as a bundle"
+    )
+    exp.add_argument("--db", help="database to read (default: $AGENT_SWARM_DB)")
+    exp.add_argument("--out", help="file to write (default: standard output)")
+    exp.add_argument(
+        "--with-messages", action="store_true",
+        help="carry message history too, as history: it is never delivered again",
+    )
+    exp.set_defaults(func=cmd_export)
+
+    imp = sub.add_parser("import", help="take a bundle into this hub")
+    imp.add_argument("bundle", help="the file `agent-swarm export` wrote")
+    imp.add_argument("--node", required=True, help="the machine those agents run on")
+    imp.add_argument("--dry-run", action="store_true", help="report what would happen, write nothing")
+    imp.add_argument("--again", action="store_true", help="import a bundle that was imported before")
+    imp.add_argument(
+        "--merge-teams", action="store_true",
+        help="add to a team of the same name here instead of importing it under a new one",
+    )
+    imp.set_defaults(func=cmd_import)
 
     args = p.parse_args(argv)
     return args.func(args)

@@ -72,78 +72,12 @@ def test_spawn_options_shape():
     assert opts["codex"] == ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
 
 
-def test_model_line_prefers_named_lines_over_family():
-    # "opus" beats the redundant "claude" family name.
-    assert tmux.model_line("claude-opus-4-7") == "opus"
-    assert tmux.model_line("claude-sonnet-5") == "sonnet"
-    assert tmux.model_line("claude-3-5-haiku-20241022") == "haiku"
-    assert tmux.model_line("claude-fable-5-1") == "fable"
-
-
-def test_model_line_recognizes_codex_model_codenames():
-    assert tmux.model_line("gpt-5.6-sol") == "sol"
-    assert tmux.model_line("gpt-5.6-terra") == "terra"
-    assert tmux.model_line("gpt-5.6-luna") == "luna"
-
-
-def test_model_line_keeps_major_version_for_unnamed_lines():
-    # Version stays so a later generation is a different tag.
-    assert tmux.model_line("gpt-5-codex") == "gpt5"
-    assert tmux.model_line("gpt-6-codex") == "gpt6"
-    assert tmux.model_line("claude-code") == "claude"
-    assert tmux.model_line("totally-made-up") == "totally"
-
-
-def test_model_line_handles_missing_model():
-    assert tmux.model_line(None) is None
-    assert tmux.model_line("") is None
-
-
-def test_handle_tag_leads_with_harness_then_model_line():
-    assert tmux.handle_tag("claude", "claude-opus-4-7") == "claude-opus"
-    assert tmux.handle_tag("codex", "gpt-5.6-terra") == "codex-terra"
-    assert tmux.handle_tag("codex", "gpt-5-codex") == "codex-gpt5"
-
-
-def test_handle_tag_drops_a_model_line_that_only_repeats_the_harness():
-    # "claude-code" tells us nothing "claude" did not already say.
-    assert tmux.handle_tag("claude", "claude-code") == "claude"
-    assert tmux.handle_tag("hermes", "hermes-2") == "hermes"
-
-
-def test_handle_tag_falls_back_to_whichever_half_is_known():
-    assert tmux.handle_tag("generic", None) == "generic"
-    assert tmux.handle_tag(None, "claude-opus-4-7") == "opus"
-    assert tmux.handle_tag(None, None) is None
-
-
-def test_handle_tag_trails_the_host_when_one_is_reported():
-    assert (
-        tmux.handle_tag("claude", "claude-opus-4-7", "karans-linux")
-        == "claude-opus-karanslinux"
-    )
-    assert tmux.handle_tag("codex", "gpt-5-codex", "karans-linux") == "codex-gpt5-karanslinux"
-    # No host reported: the handle is exactly what it was before.
-    assert tmux.handle_tag("claude", "claude-code") == "claude"
-    assert tmux.handle_tag(None, None, "karans-linux") == "karanslinux"
-
-
-def test_host_tag_keeps_handles_parseable():
-    # Only the first DNS label, and no hyphens of its own: the handle already
-    # uses hyphens to separate animal, harness, model and host.
-    assert tmux.host_tag("karans-linux.local") == "karanslinux"
-    assert tmux.host_tag("Karans-MacBook-Pro") == "karansmacboo"  # capped at 12
-    assert tmux.host_tag("  box01  ") == "box01"
-    assert tmux.host_tag(None) is None
-    assert tmux.host_tag("---") is None
-
-
-def test_local_host_prefers_the_node_override(monkeypatch):
+def test_local_node_prefers_the_node_override(monkeypatch):
     monkeypatch.setenv("AGENT_SWARM_NODE", "hub")
-    assert tmux.local_host() == "hub"
+    assert tmux.local_node() == "hub"
     monkeypatch.delenv("AGENT_SWARM_NODE")
-    monkeypatch.setattr(tmux.socket, "gethostname", lambda: "karans-linux.local")
-    assert tmux.local_host() == "karans-linux"
+    monkeypatch.setattr(tmux.socket, "gethostname", lambda: "workstation.local")
+    assert tmux.local_node() == "workstation"
 
 
 def test_codex_spawn_skips_the_shared_daemon_when_codex_supports_it(monkeypatch):
@@ -172,3 +106,95 @@ def test_harness_accepts_probes_the_binary(monkeypatch):
     assert tmux.harness_accepts("fakeharness", "--new") is True  # cached
     assert calls == [["fakeharness", "--new", "--help"], ["fakeharness", "--old", "--help"]]
     tmux.harness_accepts.cache_clear()
+
+
+def _run_sequence(monkeypatch, outcomes):
+    """Fake subprocess.run for tmux.deliver: one outcome per tmux call, in order."""
+    import subprocess
+
+    calls = []
+    outcomes = iter(outcomes)
+
+    def run(cmd, **kw):
+        calls.append(cmd[1])
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tmux.subprocess, "run", run)
+    monkeypatch.setattr(tmux.time, "sleep", lambda s: None)
+    monkeypatch.setattr(tmux, "_await_submit", lambda pane, timeout: True)
+    return calls
+
+
+def test_deliver_is_failed_only_while_nothing_reached_the_pane(monkeypatch):
+    import subprocess
+
+    calls = _run_sequence(monkeypatch, [subprocess.CalledProcessError(1, "tmux", stderr="no server")])
+    assert tmux.deliver("%1", "hi") == (False, "no server")
+    assert calls == ["load-buffer"]
+    calls = _run_sequence(monkeypatch, [None, subprocess.CalledProcessError(1, "tmux", stderr="can't find pane")])
+    assert tmux.deliver("%1", "hi") == (False, "can't find pane")
+    assert calls == ["load-buffer", "paste-buffer"]
+
+
+def test_deliver_is_uncertain_once_the_paste_may_have_landed(monkeypatch):
+    import subprocess
+
+    import pytest
+
+    _run_sequence(monkeypatch, [None, subprocess.TimeoutExpired("tmux", 5)])
+    with pytest.raises(tmux.Uncertain, match="paste did not report back"):
+        tmux.deliver("%1", "hi")
+    _run_sequence(monkeypatch, [None, None, subprocess.TimeoutExpired("tmux", 5)])
+    with pytest.raises(tmux.Uncertain, match="submit key failed"):
+        tmux.deliver("%1", "hi")
+    calls = _run_sequence(monkeypatch, [None, None, None])
+    assert tmux.deliver("%1", "hi") == (True, None)
+    assert calls == ["load-buffer", "paste-buffer", "send-keys"]
+
+
+def test_spawn_window_is_uncertain_when_tmux_does_not_report_back(monkeypatch):
+    import subprocess
+
+    import pytest
+
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),  # has-session
+        subprocess.CompletedProcess([], 0, "%7\tagents:3.0\t4242:1700000000\n", ""),  # new-window
+        subprocess.TimeoutExpired("tmux", 5),  # send-keys
+    ])
+    monkeypatch.setattr(tmux.subprocess, "run", lambda cmd, **kw: _raise_or(next(outcomes)))
+    with pytest.raises(tmux.Uncertain) as info:
+        tmux.spawn_window(command="claude")
+    # The window's identity comes from the creating command itself.
+    assert info.value.created == tmux.Created("%7", "agents:3.0", "4242:1700000000")
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),
+        subprocess.CalledProcessError(1, "tmux", stderr="no space"),
+    ])
+    assert tmux.spawn_window(command="claude") == (None, "no space")
+
+
+def _raise_or(outcome):
+    if isinstance(outcome, Exception):
+        raise outcome
+    return outcome
+
+
+def test_spawn_window_reports_the_pane_with_the_server_that_made_it(monkeypatch):
+    import subprocess
+
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),
+        subprocess.CompletedProcess([], 0, "%8\tagents:4.0\t4242:1700000000\n", ""),
+        subprocess.CompletedProcess([], 0, "", ""),
+    ])
+    monkeypatch.setattr(tmux.subprocess, "run", lambda cmd, **kw: _raise_or(next(outcomes)))
+    assert tmux.spawn_window(command="claude") == (tmux.Created("%8", "agents:4.0", "4242:1700000000"), None)
+    outcomes = iter([
+        subprocess.CompletedProcess([], 0, "", ""),
+        subprocess.CompletedProcess([], 0, "garbage\n", ""),
+    ])
+    assert tmux.spawn_window(command="claude") == (None, "tmux did not report the new pane")

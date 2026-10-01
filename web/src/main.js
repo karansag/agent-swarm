@@ -17,6 +17,7 @@ import {
   focusHash,
   patchTask,
 } from "./shared.js";
+import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
 import { HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { renderMarkdown } from "./markdown.js";
@@ -100,7 +101,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     <div class="who">
       <div class="nm">${r.user_id}${isQueen && html`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
-      <div class="tech" title=${[flavor, r.model, r.pane_label, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
+      <div class="tech" title=${[flavor, r.model, r.node, r.pane_label, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`}${r.node && html` · <span class="node">${r.node}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
@@ -205,8 +206,9 @@ function ModelLabel({ r, refresh }) {
 
 const DEFAULT_MODEL = "default";
 
-function SpawnControl({ refresh }) {
+function SpawnControl({ refresh, nodes }) {
   const [harnesses, setHarnesses] = useState([]);
+  const [node, setNode] = useState("");
   const [flavor, setFlavor] = useState("claude");
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [autonomy, setAutonomy] = useState("auto");
@@ -222,25 +224,54 @@ function SpawnControl({ refresh }) {
     return () => { live = false; };
   }, []);
 
-  const models = (harnesses.find(h => h.flavor === flavor) || {}).models || [];
+  // Where this spawn would go. A picked machine that has gone away or
+  // disconnected stays picked and blocks the form; it is never swapped for
+  // the hub behind the user's back.
+  const target = spawnTarget(nodes, node, harnesses);
+  const offered = target.harnesses || [];
+  const models = (offered.find(h => h.flavor === flavor) || {}).models || [];
   const pickFlavor = (f) => { setFlavor(f); setModel(DEFAULT_MODEL); };
+  const pickNode = (n) => {
+    setNode(n);
+    const next = spawnTarget(nodes, n, harnesses);
+    if (next.ok && next.harnesses.length && !next.harnesses.some(h => h.flavor === flavor)) pickFlavor(next.harnesses[0].flavor);
+  };
+  const enrolled = nodes || [];
+  const choices = enrolled.some(n => n.name === node) || !node
+    ? enrolled : enrolled.concat([{ name: node, connected: false, gone: true }]);
 
   const spawn = async (e) => {
     e.preventDefault();
+    if (!target.ok) { setErr(target.reason); return; }
     setBusy(true);
     setErr("");
     const body = { flavor, model: model === DEFAULT_MODEL ? null : model, autonomy };
-    const r = await fetch("/agents/spawn", {
-      method: "POST", headers: JSONH, body: JSON.stringify(body),
-    });
-    if (!r.ok) setErr("spawn failed");
-    setBusy(false);
-    refresh();
+    if (target.remote) body.node = target.node;
+    try {
+      const r = await fetch("/agents/spawn", {
+        method: "POST", headers: JSONH, body: JSON.stringify(body),
+      });
+      let payload = null;
+      try { payload = await r.json(); } catch { payload = null; }
+      const outcome = spawnOutcome(r.ok, payload);
+      if (outcome.status === "failed") setErr(`spawn failed: ${outcome.reason}`);
+      else if (outcome.status === "unknown") setErr(`spawn outcome unknown: ${outcome.reason}${outcome.user ? ` (registered as ${outcome.user})` : ""}`);
+      else if (outcome.status === "uncertain") setErr(`spawn not confirmed: ${outcome.reason}; check the roster`);
+    } catch (err) {
+      setErr(`not confirmed: ${unansweredOutcome(err).reason}`);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
   };
 
-  const flavors = harnesses.length ? harnesses.map(h => h.flavor) : [flavor];
+  const flavors = offered.length ? offered.map(h => h.flavor) : [];
   return html`<form class="spawn" onSubmit=${spawn}>
-    <select title="harness" value=${flavor} onChange=${e => pickFlavor(e.target.value)}>
+    ${(enrolled.length > 1 || node) && html`<select title="machine" value=${node} onChange=${e => pickNode(e.target.value)}>
+      ${choices.map(n => html`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
+    </select>`}
+    ${!target.ok && html`<span class="spawn-note">${target.reason}. Pick a connected machine.</span>`}
+    <select title="harness" value=${flavor} onChange=${e => pickFlavor(e.target.value)} disabled=${!target.ok}>
       ${flavors.map(f => html`<option key=${f} value=${f}>${f}</option>`)}
     </select>
     <select title="model" value=${model} onChange=${e => setModel(e.target.value)}
@@ -252,7 +283,7 @@ function SpawnControl({ refresh }) {
       <option value="auto">permissions: auto</option>
       <option value="supervised">permissions: ask first</option>
     </select>
-    <button class="act" type="submit" disabled=${busy}>${busy ? "spawning…" : "spawn agent"}</button>
+    <button class="act" type="submit" disabled=${busy || !target.ok}>${busy ? "spawning…" : "spawn agent"}</button>
     ${err && html`<span style="color:var(--alert); font-size:11px">${err}</span>`}
   </form>`;
 }
@@ -334,6 +365,49 @@ function NewTeam({ refresh }) {
   </form>`;
 }
 
+// A delivery whose outcome was lost is never replayed by the server. The
+// owner can send the same text again, as a new message with its own id,
+// knowing the agent may already have the first.
+function Resend({ m, refresh }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const resend = async () => {
+    if (!window.confirm(
+      "The outcome of this message is unknown: the agent may already have it. Send it again as a new message?"
+    )) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const r = await fetch("/owner/send", {
+        method: "POST", headers: JSONH,
+        body: JSON.stringify({ recipient: m.recipient, content: m.content, context: m.context, attachments: m.attachments || [] }),
+      });
+      let body = null;
+      try { body = await r.json(); } catch { body = null; }
+      const outcome = deliveryOutcome(r.ok, body);
+      if (outcome.status !== "delivered") setNote(`${outcome.status}: ${outcome.reason}`);
+    } catch (err) {
+      setNote(`not confirmed: ${unansweredOutcome(err).reason}`);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+  return html`<button type="button" class="resend" disabled=${busy} onClick=${resend}
+    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && html` <span class="ctx">${note}</span>`}`;
+}
+
+// Where agents run. Shown once more than one machine is enrolled.
+function NodeStrip({ nodes, recipients }) {
+  if (!nodes || nodes.length < 2) return null;
+  const count = (name) => recipients.filter(r => r.node === name && r.pane_alive).length;
+  return html`<div class="nodes" aria-label="machines">
+    ${nodes.map(n => html`<span key=${n.name} class=${`node-chip ${n.connected ? "on" : "off"}`}
+      title=${n.local ? "this machine" : n.connected ? "connected" : `not connected${n.last_seen ? ` · last seen ${rel(n.last_seen, Date.now() / 1000)}` : ""}`}>
+      <span class="dot"></span>${n.name}${n.local && html`<span class="you"> · hub</span>`} · ${count(n.name)}</span>`)}
+  </div>`;
+}
+
 function Roster({ state, focusUser, unreadFor, pings, refresh }) {
   const [overUnteam, setOverUnteam] = useState(false);
   const teams = state.teams || [];
@@ -347,6 +421,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
   return html`<aside class="roster">
     <h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>
+    <${NodeStrip} nodes=${state.nodes} recipients=${state.recipients} />
     ${teams.map(t => html`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
       members=${running.filter(r => r.team_id === t.id)} />`)}
     <${NewTeam} refresh=${refresh} />
@@ -362,7 +437,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
       <summary>stopped · ${stopped.length}</summary>
       ${stopped.map(chip)}
     </details>`}
-    <${SpawnControl} refresh=${refresh} />
+    <${SpawnControl} refresh=${refresh} nodes=${state.nodes || []} />
   </aside>`;
 }
 
@@ -651,7 +726,7 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     // server confirms delivery afterwards, and a failure restores the draft.
     const draft = { text, context, images };
     const pending = {
-      id: `pending-${++pendingSeq}`, pending: true, delivered: true,
+      id: `pending-${++pendingSeq}`, pending: true, delivered: true, status: "delivered",
       sender: "owner", recipient, content, context: context.trim() || null,
       attachments: images, ts: Date.now() / 1000,
     };
@@ -666,22 +741,38 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     // composer, and that one has to show the result and get the draft back.
     const report = (detail) => pendingSends.dispatchEvent(
       new CustomEvent("outcome", { detail: { draftKey, ...detail } }));
+    const keepDraft = () => {
+      try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* best effort */ }
+    };
+    let outcome;
     try {
       const r = await fetch("/owner/send", {
         method: "POST", headers: JSONH,
         body: JSON.stringify({ recipient, content, context: pending.context, attachments: images }),
       });
-      if (!r.ok) throw new Error("delivery failed");
-      report({ status: "delivered" });
-    } catch {
-      try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* best effort */ }
-      report({ status: "delivery failed — draft kept", draft });
-    } finally {
-      // Swap the placeholder for the server's copy in one step, no flicker.
-      await refresh();
-      pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
-      setSending(false);
+      let body = null;
+      try { body = await r.json(); } catch { body = null; }
+      outcome = deliveryOutcome(r.ok, body);
+    } catch (err) {
+      outcome = unansweredOutcome(err);
     }
+    if (outcome.status === "delivered") {
+      report({ status: "delivered" });
+    } else if (outcome.status === "unknown") {
+      // The paste may have landed. No draft comes back: resending is a
+      // deliberate act on the marked message, not a reflex.
+      report({ status: `outcome unknown: ${outcome.reason}. The agent may have it; see the marked message.` });
+    } else if (outcome.status === "uncertain") {
+      keepDraft();
+      report({ status: `not confirmed: ${outcome.reason}. It may have arrived; draft kept`, draft });
+    } else {
+      keepDraft();
+      report({ status: `delivery failed: ${outcome.reason}. Draft kept`, draft });
+    }
+    // Swap the placeholder for the server's copy in one step, no flicker.
+    await refresh();
+    pendingSends.dispatchEvent(new CustomEvent("settle", { detail: pending.id }));
+    setSending(false);
   };
   const clearDraft = () => {
     setText("");
@@ -815,7 +906,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
             "msg",
             m.sender === a ? "" : "right",
             freshIds.has(m.id) ? "fresh" : "",
-            m.delivered ? "" : "failed",
+            m.status === "failed" ? "failed" : m.status === "unknown" ? "unknown" : "",
             m.sender === "owner" ? "from-owner" : "",
             m.pending ? "pending" : "",
           ].join(" ")}>
@@ -823,7 +914,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
             dangerouslySetInnerHTML=${{ __html: renderMarkdown(m.content) }} />`}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
             ${m.attachments.map(name => html`<${MessageImage} key=${name} name=${name} />`)}
           </div>`}</div>
-          <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${!m.delivered && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}</div>
+          <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${m.status === "failed" && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}${m.status === "unknown" && html` · <span class="ctx">outcome unknown${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>${m.sender === "owner" && html` <${Resend} m=${m} refresh=${refresh} />`}`}</div>
         </div>`)}
     </div>
     <button type="button" class="history-resizer" role="separator" aria-orientation="horizontal"
@@ -900,7 +991,7 @@ function FocusView({ user, state, refresh, freshIds }) {
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          <${ModelLabel} r=${r} refresh=${refresh} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} />${r.node && html` · on <b>${r.node}</b>`} · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? html` <span class="attn">${detail}</span>` : ""}
