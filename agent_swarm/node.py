@@ -159,7 +159,7 @@ class OpStore:
 
 
 class AttachmentCache:
-    """Images the hub sent along with messages, fetched once and kept locally.
+    """Files the hub sent along with messages, fetched once and kept locally.
 
     The hub names an attachment by the hash of its bytes, so a fetched file
     is verified against its name before it is written, and an existing file
@@ -195,7 +195,7 @@ class AttachmentCache:
                 if time.monotonic() > deadline:
                     raise ValueError(f"attachment {name}: fetch exceeded its budget")
         digest, _, ext = name.partition(".")
-        if hashlib.sha256(data).hexdigest() != digest or attachments.sniff(bytes(data)) != ext:
+        if hashlib.sha256(data).hexdigest() != digest or (attachments.is_image(name) and attachments.sniff(bytes(data)) != ext):
             raise ValueError(f"attachment {name}: content does not match its name")
         self.root.mkdir(parents=True, exist_ok=True)
         tmp = self.root / f".{name}.{os.getpid()}.{time.monotonic_ns()}.part"

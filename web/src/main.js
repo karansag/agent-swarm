@@ -23,6 +23,7 @@ import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from ".
 import { machineColor, machineList, machineName } from "./machines.js";
 import { HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
+import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
 import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
 
@@ -512,6 +513,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     <div class="t">${t.title}</div>
     <div class="meta">#${t.id} · created ${when}${deps.length > 0 ? ` · after ${deps.map(d => `#${d}`).join(" ")}` : ""}${t.description ? ` · ${t.description}` : ""}${t.worktree ? ` · worktree ${t.worktree}` : ""}</div>
     ${blocked && html`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map(d => `#${d}`).join(" ")}</div>`}
+    <${AttachmentList} files=${t.attachments} />
     ${t.assignee && html`<div class="meta">${t.status === "open" ? "assigned to" : t.status === "done" ? "done by" : "picked up by"} <a class="agent-link" href=${focusHash(t.assignee)}
         title=${`Open ${t.assignee} and message it`}>${t.assignee}</a></div>`}
     ${t.note && html`<div class="tnote">
@@ -547,22 +549,69 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
 
 const DONE_ON_BOARD = 10;
 
+function TaskComposer({ state, refresh, user = "" }) {
+  const draftKey = `agent-swarm:task-draft:${user || "board"}`;
+  const [draft] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(draftKey) || "null") || {}; } catch { return {}; }
+  });
+  const [title, setTitle] = useState(draft.title || "");
+  const [description, setDescription] = useState(draft.description || "");
+  const [assignee, setAssignee] = useState(draft.assignee ?? user);
+  const [files, setFiles] = useState(Array.isArray(draft.files) ? draft.files.filter(f => typeof f === "string") : []);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const attachments = useAttachments(files, setFiles, setStatus, draftKey);
+  useEffect(() => {
+    try {
+      if (title || description || files.length) localStorage.setItem(draftKey, JSON.stringify({ title, description, assignee, files }));
+      else localStorage.removeItem(draftKey);
+    } catch { /* draft storage is best effort */ }
+  }, [draftKey, title, description, assignee, files]);
+  const agents = state.recipients.filter(r => r.pane_alive || r.user_id === user || r.user_id === assignee);
+  const teams = state.teams || [];
+  const targetExists = !assignee || (assignee.startsWith("t:")
+    ? teams.some(t => `t:${t.id}` === assignee) : agents.some(r => r.user_id === assignee));
+  const create = async e => {
+    e.preventDefault();
+    if (busy || attachments.uploading || !title.trim() || !targetExists) return;
+    setBusy(true); setStatus("Creating task…");
+    const body = { title: title.trim(), description: description.trim() || null, attachments: files };
+    if (assignee.startsWith("t:")) body.team_id = Number(assignee.slice(2));
+    else if (assignee) body.assignee = assignee;
+    try {
+      const response = await fetch("/tasks", { method: "POST", headers: JSONH, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.task?.id) {
+        setStatus(result?.detail?.error ? `Task not created: ${result.detail.error}. Draft kept.` : "Creation not confirmed. Check the board before retrying; draft kept.");
+        return;
+      }
+      setTitle(""); setDescription(""); setFiles([]);
+      setStatus(`Created task #${result.task.id}${result.task.assignee ? ` · assigned to ${result.task.assignee}` : result.task.team_id ? " · assigned to team" : " · unassigned"}.`);
+      await refresh();
+    } catch {
+      setStatus("Creation not confirmed. Check the board before retrying; draft kept.");
+    } finally { setBusy(false); }
+  };
+  return html`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
+    <div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>
+    <input class="task-title" aria-label="Task title" placeholder="What needs doing?" value=${title} disabled=${busy} onInput=${e => setTitle(e.target.value)} onPaste=${attachments.onPaste} required />
+    <textarea aria-label="Task details" placeholder="Details, context, or steps to reproduce… (optional)" rows="2" value=${description} disabled=${busy} onInput=${e => setDescription(e.target.value)} onPaste=${attachments.onPaste} />
+    <${AttachmentPicker} files=${files} controls=${attachments} disabled=${busy} />
+    <div class="task-compose-actions"><label>Assign to <select aria-label="Task assignee" value=${assignee} disabled=${busy} onChange=${e => setAssignee(e.target.value)}>
+      <option value="">Unassigned</option>
+      ${!targetExists && html`<option value=${assignee} disabled>${assignee} (unavailable)</option>`}
+      ${teams.length > 0 && html`<optgroup label="Teams">${teams.map(t => html`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>`}
+      <optgroup label="Agents">${agents.map(r => html`<option value=${r.user_id}>${r.user_id} · ${machineName(r.node)}${r.pane_alive ? "" : " (offline)"}</option>`)}</optgroup>
+    </select></label><button class="act" disabled=${busy || attachments.uploading > 0 || !title.trim() || !targetExists}>${busy ? "Creating…" : "create task"}</button></div>
+    ${!targetExists && html`<p class="task-compose-status">The selected assignee is unavailable. Choose another destination.</p>`}
+    ${status && html`<p class="task-compose-status" role="status">${status}</p>`}
+  </form>`;
+}
+
 function Kanban({ state, refresh }) {
-  const [title, setTitle] = useState("");
-  const [assignee, setAssignee] = useState("");
   const agentIds = state.recipients.filter(r => r.pane_alive).map(r => r.user_id);
   const teams = state.teams || [];
   const byId = new Map(state.tasks.map(t => [t.id, t]));
-  const create = async (e) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const body = { title: title.trim() };
-    if (assignee.startsWith("t:")) body.team_id = Number(assignee.slice(2));
-    else if (assignee) body.assignee = assignee;
-    await fetch("/tasks", { method: "POST", headers: JSONH, body: JSON.stringify(body) });
-    setTitle("");
-    refresh();
-  };
   const cols = [
     ["open", "open"],
     ["picked_up", "picked up"],
@@ -570,18 +619,7 @@ function Kanban({ state, refresh }) {
   ];
   return html`<div>
     <h2>tasks ${state.tasks.length > 0 && html`<span class="count">· ${state.tasks.length}</span>`}</h2>
-    <form class="newtask" onSubmit=${create}>
-      <input type="text" placeholder="task title"
-        value=${title} onInput=${e => setTitle(e.target.value)} />
-      <select value=${assignee} onChange=${e => setAssignee(e.target.value)}>
-        <option value="">unassigned</option>
-        ${teams.length > 0 && html`<optgroup label="teams">
-          ${teams.map(x => html`<option key=${`t:${x.id}`} value=${`t:${x.id}`}>team ${x.name}</option>`)}
-        </optgroup>`}
-        ${agentIds.map(a => html`<option key=${a} value=${a}>${a}</option>`)}
-      </select>
-      <button class="act" type="submit">create task</button>
-    </form>
+    <${TaskComposer} key="board" state=${state} refresh=${refresh} />
     <div class="board">
       ${cols.map(([status, label]) => {
         const all = state.tasks.filter(t => t.status === status);
@@ -664,29 +702,16 @@ function Scope({ user, refresh }) {
 const pendingSends = new EventTarget();
 let pendingSeq = 0;
 
-// Upload one image; resolves to the stored name the server hands back.
-async function uploadImage(file) {
-  const r = await fetch("/attachments", {
-    method: "POST", headers: { "content-type": file.type || "application/octet-stream" }, body: file,
-  });
-  const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(body.detail?.error || `upload failed (${r.status})`);
-  return body.name;
-}
-
-const imageFiles = (list) => [...(list || [])].filter(f => f.type.startsWith("image/"));
-
 function MessageComposer({ recipient, refresh, draftId = "thread" }) {
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
   const [images, setImages] = useState([]);
-  const [uploading, setUploading] = useState(0);
-  const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
   const composerRef = useRef(null);
-  const fileRef = useRef(null);
   const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
+  const attachments = useAttachments(images, setImages, setStatus, draftKey);
+  const { uploading, dragging } = attachments;
   useEffect(() => {
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -728,22 +753,6 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
       else localStorage.removeItem(draftKey);
     } catch { /* storage full or blocked: the draft just isn't kept */ }
   }, [draftKey, text, context, images]);
-  const addFiles = async (files) => {
-    if (!files.length) return;
-    setStatus("");
-    setUploading(n => n + files.length);
-    for (const file of files) {
-      try {
-        const name = await uploadImage(file);
-        setImages(prev => (prev.includes(name) ? prev : [...prev, name]));
-      } catch (err) {
-        setStatus(`image not added: ${err.message}`);
-      } finally {
-        setUploading(n => n - 1);
-      }
-    }
-  };
-  const removeImage = (name) => setImages(prev => prev.filter(x => x !== name));
   const canSend = !sending && uploading === 0 && (text.trim() || images.length > 0);
   const send = async (e) => {
     e.preventDefault();
@@ -808,46 +817,22 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     setStatus("");
     composerRef.current?.focus();
   };
-  // Only file drags are ours; agent chips dragged across the page carry text.
-  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
-  return html`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send}
-      onDragOver=${e => { if (hasFiles(e)) { e.preventDefault(); setDragging(true); } }}
-      onDragLeave=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
-      onDrop=${e => {
-        if (!hasFiles(e)) return;
-        e.preventDefault();
-        setDragging(false);
-        addFiles(imageFiles(e.dataTransfer.files));
-      }}>
+  return html`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send} ...${sending ? {} : attachments.dropProps}>
     <div class="compose-row">
       <span class="mark">❯</span>
       <textarea ref=${composerRef} value=${text} rows="2"
         onInput=${e => setText(e.target.value)}
-        onPaste=${e => {
-          const files = imageFiles(e.clipboardData?.files);
-          if (files.length) { e.preventDefault(); addFiles(files); }
-        }}
+        onPaste=${sending ? undefined : attachments.onPaste}
         onKeyDown=${e => {
           if (e.key === "Enter" && !e.shiftKey && !(e.metaKey || e.ctrlKey)) send(e);
         }}
-        placeholder=${`Message ${recipient}… (paste or drop images)`} aria-label=${`Message ${recipient} as owner`} />
+        placeholder=${`Message ${recipient}… (paste or drop files)`} aria-label=${`Message ${recipient} as owner`} />
     </div>
-    ${(images.length > 0 || uploading > 0) && html`<div class="compose-images">
-      ${images.map(name => html`<figure key=${name} class="compose-image">
-        <img src=${`/attachments/${name}`} alt="attached image" onError=${() => removeImage(name)} />
-        <button type="button" class="remove" onClick=${() => removeImage(name)}
-          title="remove image" aria-label="Remove image">×</button>
-      </figure>`)}
-      ${uploading > 0 && html`<span class="uploading" role="status">uploading ${uploading}…</span>`}
-    </div>`}
+    <${AttachmentPicker} files=${images} controls=${attachments} disabled=${sending} />
     <div class="compose-meta">
       <input class="context" type="text" value=${context} onInput=${e => setContext(e.target.value)}
         placeholder="context tag (optional)" aria-label="Optional context tag" />
-      <button type="button" class="mini" onClick=${() => fileRef.current?.click()}
-        title="attach images (or paste / drop them)">+ image</button>
-      <input ref=${fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
-        onChange=${e => { addFiles(imageFiles(e.target.files)); e.target.value = ""; }} />
-      <span class="count">${text.length} character${text.length === 1 ? "" : "s"}${images.length > 0 ? ` · ${images.length} image${images.length === 1 ? "" : "s"}` : ""}</span>
+      <span class="count">${text.length} character${text.length === 1 ? "" : "s"}${images.length > 0 ? ` · ${images.length} file${images.length === 1 ? "" : "s"}` : ""}</span>
       <span class="hint">Enter to send · Shift + Enter for a new line</span>
       <div class="actions">
         ${status && html`<span class=${status.startsWith("delivery failed") || status.startsWith("image not added") ? "error" : "sent"} role="status">${status}</span>`}
@@ -858,15 +843,6 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
       </div>
     </div>
   </form>`;
-}
-
-// Old images are cleaned up after a while; show that instead of a broken image.
-function MessageImage({ name }) {
-  const [expired, setExpired] = useState(false);
-  if (expired) return html`<span class="image-expired" title="images are removed after a retention period">image expired</span>`;
-  return html`<a href=${`/attachments/${name}`} target="_blank" rel="noopener" title="open full size">
-    <img src=${`/attachments/${name}`} alt="attached image" loading="lazy" onError=${() => setExpired(true)} />
-  </a>`;
 }
 
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
@@ -939,7 +915,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
           ].join(" ")}>
           <div class="bubble">${m.content && html`<div class="md"
             dangerouslySetInnerHTML=${{ __html: renderMarkdown(m.content) }} />`}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
-            ${m.attachments.map(name => html`<${MessageImage} key=${name} name=${name} />`)}
+            ${m.attachments.map(name => html`<${AttachmentLink} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${m.status === "failed" && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}${m.status === "unknown" && html` · <span class="ctx">outcome unknown${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>${m.sender === "owner" && html` <${Resend} m=${m} refresh=${refresh} />`}`}</div>
         </div>`)}
@@ -1028,6 +1004,7 @@ function FocusView({ user, state, refresh, freshIds }) {
     </div>
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} user=${user} refresh=${refresh} />
+    <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && html`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0
       ? html`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
@@ -1047,7 +1024,7 @@ function FocusView({ user, state, refresh, freshIds }) {
       ? html`<div class="empty">No tasks assigned to ${user}. Assign one from the overview board.</div>`
       : myTasks.map(t => html`<div key=${t.id} class=${`trow ${t.status}`}>
           <span class="tid">#${t.id}</span>
-          <span class="t">${t.title}</span>
+          <span class="t">${t.title}<${AttachmentList} files=${t.attachments} /></span>
           <span class=${`pill ${t.status}`}>${t.status.replace("_", " ")}</span>
           <select title="assignee" value=${t.assignee || ""}
             onChange=${e => act(t.id, { assignee: e.target.value })}>

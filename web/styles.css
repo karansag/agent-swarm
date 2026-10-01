@@ -588,3 +588,19 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 
 .agent-bee { width:64px; height:48px; flex:none; overflow:visible; }
 .agent-bee.small { width:42px; height:34px; }
+
+.attachment-tools { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:10px 0; }
+.attachment-tools > span { color:var(--cream-dim); font-size:10px; }
+.attachment-list { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+.attachment-list img { max-width:140px; max-height:100px; object-fit:contain; border-radius:5px; }
+.file-link { display:inline-flex; align-items:center; gap:8px; color:var(--cream); font-size:11px; overflow-wrap:anywhere; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:5px; text-decoration:none; }
+.compose-image:has(.file-link) { max-width:100%; width:auto; height:auto; padding-right:18px; }
+.task-composer { border:1px solid var(--line); border-radius:8px; padding:16px; margin:0 0 24px; background:var(--ink-2); }
+.task-compose-heading { color:var(--honey); font-size:12px; margin-bottom:10px; }
+.task-composer input.task-title, .task-composer textarea { display:block; width:100%; font:12px var(--mono); color:var(--cream); border:1px solid var(--line); border-radius:5px; padding:10px; background:var(--panel); margin-bottom:8px; }
+.task-composer textarea { resize:vertical; min-height:60px; }
+.task-compose-actions { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-top:12px; }
+.task-compose-actions label { display:flex; align-items:center; gap:10px; min-width:0; max-width:100%; color:var(--cream-dim); font-size:11px; }
+.task-compose-actions select { min-width:0; max-width:100%; }
+.task-compose-status { font-size:11px; color:var(--cream-dim); margin-top:10px; }
+.task-composer.dragging { border-color:var(--honey); box-shadow:inset 0 0 0 1px var(--honey); }

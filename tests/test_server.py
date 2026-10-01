@@ -424,8 +424,8 @@ def test_portal_dead_pane_overrides_stale_activity(client):
     portal = portal_source()
     assert 'if (!r.pane_alive) return "stopped";' in portal
     assert "chip-card state-${st.cls}" in portal
-    assert ".chip-card.state-working" in portal
-    assert ".chip-card.state-attention" in portal
+    assert ".status.working" in portal
+    assert ".status.attention" in portal
 
 
 def test_portal_conversation_history_has_full_width_resize_handle(client):
@@ -1460,7 +1460,7 @@ def test_portal_shows_machines_and_unknown_deliveries():
     # An unknown outcome is resent only on purpose, as a new message.
     assert "may already have it" in portal and "send again" in portal
     # Machines: a strip of nodes and a spawn target.
-    assert "function NodeStrip" in portal and 'title="machine"' in portal and "body.node = target.node" in portal
+    assert "function MachineBar" in portal and 'title="machine"' in portal and "body.node = target.node" in portal
 
 
 def test_dashboard_decisions_pass_their_own_tests():

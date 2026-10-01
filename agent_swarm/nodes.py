@@ -175,8 +175,8 @@ class LocalNode:
         self.attachments_root = attachments_root
 
     def render_attachments(self, text: str, paths: list[str]) -> str:
-        """The message text plus one line per attached image, as a local path."""
-        lines = [f"[attached image: {p}]" for p in paths]
+        """The message text plus one line per attachment, as a local path."""
+        lines = [f"[attached {'file' if '.file.' in Path(p).name else 'image'}: {p}]" for p in paths]
         return "\n\n".join(part for part in (text, "\n".join(lines)) if part)
 
     def snapshot(self) -> PaneSnapshot:
