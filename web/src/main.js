@@ -9,6 +9,7 @@ import {
   STATE,
   agentStatus,
   Avatar,
+  Bee,
   MachineBadge,
   rel,
   currentTask,
@@ -100,7 +101,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => { location.hash = selected ? "#/" : focusHash(r.user_id); }}>
-    <${Avatar} name=${r.user_id} size="small" />
+    <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
     <div class="who">
       <${MachineBadge} node=${r.node} />
       ${team && html`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
@@ -1012,7 +1013,7 @@ function FocusView({ user, state, refresh, freshIds }) {
   return html`<div>
     <button type="button" class="focus-back" onClick=${() => { location.hash = "#/"; }}>← back to overview</button>
     <div class="fhead">
-      <${Avatar} name=${user} />
+      <${Bee} node=${r.node} flavor=${r.flavor} />
       <div class="who">
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">

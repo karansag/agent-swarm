@@ -397,7 +397,9 @@ export function HiveView({ state, refresh, machine }) {
         ctx.beginPath(); ctx.ellipse(-2, 7, 6, 3, .45 + flap, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = machineColor(r.node);
         ctx.beginPath(); ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "rgba(22,18,12,.5)";
+        ctx.fillStyle = "#16120c";
+        ctx.fillRect(-5, -6, 4.5, 12); ctx.fillRect(1, -6, 4.5, 12);
+        ctx.fillStyle = harness.color;
         ctx.fillRect(-4, -6, 2.5, 12); ctx.fillRect(2, -6, 2.5, 12);
         ctx.fillStyle = "#16120c"; ctx.beginPath(); ctx.arc(11, 0, 3.5, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
@@ -422,7 +424,7 @@ export function HiveView({ state, refresh, machine }) {
         const nameW = ctx.measureText(shortName).width;
         const labelLeft = x - (markW + markGap + nameW) / 2;
         ctx.textAlign = "left";
-        ctx.fillStyle = "#f0e6d2";
+        ctx.fillStyle = harness.color;
         ctx.fillText(harness.mark, labelLeft, labelY);
         ctx.fillStyle = "#a89878";
         ctx.fillText(shortName, labelLeft + markW + markGap, labelY);
@@ -458,7 +460,7 @@ export function HiveView({ state, refresh, machine }) {
         ctx.save(); ctx.globalAlpha = .85;
         ctx.fillStyle = machineColor(draggedRecipient?.node);
         ctx.beginPath(); ctx.ellipse(p.x, p.y, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "rgba(22,18,12,.5)";
+        ctx.fillStyle = harnessStyle(draggedRecipient?.flavor).color;
         ctx.fillRect(p.x - 4, p.y - 6, 2.5, 12); ctx.fillRect(p.x + 2, p.y - 6, 2.5, 12);
         ctx.restore();
       }
@@ -844,11 +846,11 @@ export function HiveView({ state, refresh, machine }) {
   }, [state, machine]);
 
   return html`<div class="hive-panel"><div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
-    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. The symbol beside the agent name identifies its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
+    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
     <div class="harness-legend" aria-label="Bee harness legend">
-      <span class="legend-title">Color = machine · symbol = harness</span>
+      <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       ${legendHarnesses.map(harness => html`<span class="harness-key" key=${harness.key}>
-        <span class="harness-swatch" style="--harness:#a89878">${harness.mark}</span>
+        <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
         ${harness.label}
       </span>`)}
     </div>

@@ -680,6 +680,17 @@ function Avatar({ name, size }) {
 function MachineBadge({ node }) {
 	return m$1`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
 }
+function Bee({ node, flavor, size = "" }) {
+	const harness = harnessStyle(flavor);
+	return m$1`<svg class=${`agent-bee ${size}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+    <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
+    <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
+    <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />
+    <path d="M19 12v18M29 11v20" stroke="#16120c" stroke-width="7" />
+    <path d="M19 12v18M29 11v20" stroke=${harness.color} stroke-width="4" />
+    <circle cx="44" cy="21" r="6" fill="#16120c" /><circle cx="46" cy="19" r="1.3" fill="#f0e6d2" />
+  </svg>`;
+}
 //#endregion
 //#region web/src/outcome.js
 function structured(body) {
@@ -1264,7 +1275,10 @@ function HiveView({ state, refresh, machine }) {
 				ctx.beginPath();
 				ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2);
 				ctx.fill();
-				ctx.fillStyle = "rgba(22,18,12,.5)";
+				ctx.fillStyle = "#16120c";
+				ctx.fillRect(-5, -6, 4.5, 12);
+				ctx.fillRect(1, -6, 4.5, 12);
+				ctx.fillStyle = harness.color;
 				ctx.fillRect(-4, -6, 2.5, 12);
 				ctx.fillRect(2, -6, 2.5, 12);
 				ctx.fillStyle = "#16120c";
@@ -1293,7 +1307,7 @@ function HiveView({ state, refresh, machine }) {
 				const nameW = ctx.measureText(shortName).width;
 				const labelLeft = x - (markW + markGap + nameW) / 2;
 				ctx.textAlign = "left";
-				ctx.fillStyle = "#f0e6d2";
+				ctx.fillStyle = harness.color;
 				ctx.fillText(harness.mark, labelLeft, labelY);
 				ctx.fillStyle = "#a89878";
 				ctx.fillText(shortName, labelLeft + markW + markGap, labelY);
@@ -1340,7 +1354,7 @@ function HiveView({ state, refresh, machine }) {
 				ctx.beginPath();
 				ctx.ellipse(p.x, p.y, 12, 6, 0, 0, Math.PI * 2);
 				ctx.fill();
-				ctx.fillStyle = "rgba(22,18,12,.5)";
+				ctx.fillStyle = harnessStyle(draggedRecipient?.flavor).color;
 				ctx.fillRect(p.x - 4, p.y - 6, 2.5, 12);
 				ctx.fillRect(p.x + 2, p.y - 6, 2.5, 12);
 				ctx.restore();
@@ -1799,11 +1813,11 @@ function HiveView({ state, refresh, machine }) {
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current) drawRef.current(performance.now(), true);
 	}, [state, machine]);
 	return m$1`<div class="hive-panel"><div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
-    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. The symbol beside the agent name identifies its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
+    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
     <div class="harness-legend" aria-label="Bee harness legend">
-      <span class="legend-title">Color = machine · symbol = harness</span>
+      <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       ${legendHarnesses.map((harness) => m$1`<span class="harness-key" key=${harness.key}>
-        <span class="harness-swatch" style="--harness:#a89878">${harness.mark}</span>
+        <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
         ${harness.label}
       </span>`)}
     </div>
@@ -7641,7 +7655,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       onClick=${() => {
 		location.hash = selected ? "#/" : focusHash(r.user_id);
 	}}>
-    <${Avatar} name=${r.user_id} size="small" />
+    <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
     <div class="who">
       <${MachineBadge} node=${r.node} />
       ${team && m$1`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
@@ -8596,7 +8610,7 @@ function FocusView({ user, state, refresh, freshIds }) {
 		location.hash = "#/";
 	}}>← back to overview</button>
     <div class="fhead">
-      <${Avatar} name=${user} />
+      <${Bee} node=${r.node} flavor=${r.flavor} />
       <div class="who">
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">

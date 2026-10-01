@@ -93,3 +93,15 @@ export function Avatar({ name, size }) {
 export function MachineBadge({ node }) {
   return html`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
 }
+
+export function Bee({ node, flavor, size = "" }) {
+  const harness = harnessStyle(flavor);
+  return html`<svg class=${`agent-bee ${size}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+    <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
+    <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
+    <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />
+    <path d="M19 12v18M29 11v20" stroke="#16120c" stroke-width="7" />
+    <path d="M19 12v18M29 11v20" stroke=${harness.color} stroke-width="4" />
+    <circle cx="44" cy="21" r="6" fill="#16120c" /><circle cx="46" cy="19" r="1.3" fill="#f0e6d2" />
+  </svg>`;
+}

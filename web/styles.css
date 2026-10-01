@@ -585,3 +585,6 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 
 .agent-team { display:inline-block; margin-left:6px; color:var(--cream-dim); font-size:9px; }
 @media (prefers-reduced-motion:reduce) { .chip-card, .tcard { animation:none; } }
+
+.agent-bee { width:64px; height:48px; flex:none; overflow:visible; }
+.agent-bee.small { width:42px; height:34px; }
