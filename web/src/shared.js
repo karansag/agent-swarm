@@ -96,7 +96,8 @@ export function MachineBadge({ node }) {
 
 export function Bee({ node, flavor, size = "" }) {
   const harness = harnessStyle(flavor);
-  return html`<svg class=${`agent-bee ${size}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+  return html`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+    <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
     <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
     <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
     <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />

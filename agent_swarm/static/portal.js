@@ -58,7 +58,7 @@ var p$1;
 var v$1;
 var d$1 = {};
 var w$1 = [];
-var _ = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+var _$1 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
 var g = Array.isArray;
 function m$2(n, l) {
 	for (var u in l) n[u] = l[u];
@@ -155,7 +155,7 @@ function O(n, l, u, t) {
 	return -1;
 }
 function z$1(n, l, u) {
-	"-" == l[0] ? n.setProperty(l, null == u ? "" : u) : n[l] = null == u ? "" : "number" != typeof u || _.test(l) ? u : u + "px";
+	"-" == l[0] ? n.setProperty(l, null == u ? "" : u) : n[l] = null == u ? "" : "number" != typeof u || _$1.test(l) ? u : u + "px";
 }
 function N(n, l, u, t, i) {
 	var r, o;
@@ -395,6 +395,10 @@ function y(n, u, i) {
 function h(n, u) {
 	var i = s(t++, 3);
 	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__H.__h.push(i));
+}
+function _(n, u) {
+	var i = s(t++, 4);
+	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__h.push(i));
 }
 function A(n) {
 	return o = 5, T(function() {
@@ -682,7 +686,8 @@ function MachineBadge({ node }) {
 }
 function Bee({ node, flavor, size = "" }) {
 	const harness = harnessStyle(flavor);
-	return m$1`<svg class=${`agent-bee ${size}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+	return m$1`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+    <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
     <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
     <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
     <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />
@@ -2193,6 +2198,24 @@ function HistoryView({ state }) {
 	})}
         </div>`}
   </div>`;
+}
+//#endregion
+//#region web/src/scroll-follow.js
+function createBottomFollower() {
+	let pinned = true;
+	let lastTop = 0;
+	return {
+		onScroll(el) {
+			const top = Math.max(0, el.scrollTop);
+			if (top + el.clientHeight >= el.scrollHeight - 8) pinned = true;
+			else if (top < lastTop - 1) pinned = false;
+			lastTop = top;
+		},
+		follow(el) {
+			if (pinned) el.scrollTop = el.scrollHeight;
+			lastTop = Math.max(0, el.scrollTop);
+		}
+	};
 }
 //#endregion
 //#region node_modules/mdurl/lib/decode.mjs
@@ -8579,26 +8602,28 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 }
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const boxRef = A(null);
-	const pinned = A(true);
+	const follower = A(null);
+	if (!follower.current) follower.current = createBottomFollower();
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
 	const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
-	h(() => {
+	_(() => {
 		const el = boxRef.current;
 		if (!el) return;
-		const stick = () => {
-			if (pinned.current) el.scrollTop = el.scrollHeight;
-		};
+		const stick = () => follower.current.follow(el);
 		const ro = new ResizeObserver(stick);
 		ro.observe(el);
 		for (const child of el.children) ro.observe(child);
 		stick();
 		return () => ro.disconnect();
-	}, [msgs.length, lastId]);
+	}, [
+		msgs.length,
+		lastId,
+		historyHeight
+	]);
 	const onScroll = (e) => {
-		const el = e.target;
-		pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+		follower.current.onScroll(e.currentTarget);
 	};
 	const resizeBounds = () => ({
 		min: 120,

@@ -604,3 +604,6 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 .task-compose-actions select { min-width:0; max-width:100%; }
 .task-compose-status { font-size:11px; color:var(--cream-dim); margin-top:10px; }
 .task-composer.dragging { border-color:var(--honey); box-shadow:inset 0 0 0 1px var(--honey); }
+
+/* The machine outline stays visible around the harness-striped sidebar bee. */
+.agent-bee.small { width:46px; height:38px; padding:3px; border:1px solid var(--machine); border-radius:8px; background:color-mix(in srgb,var(--machine) 8%,var(--ink)); }

@@ -1,5 +1,5 @@
 import { html, render } from "htm/preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
   POLL_MS,
@@ -24,6 +24,7 @@ import { machineColor, machineList, machineName } from "./machines.js";
 import { HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
+import { createBottomFollower } from "./scroll-follow.js";
 import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
 
@@ -847,27 +848,29 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
   const boxRef = useRef(null);
-  const pinned = useRef(true);
+  const follower = useRef(null);
+  if (!follower.current) follower.current = createBottomFollower();
   const resizeRef = useRef(null);
   const [historyHeight, setHistoryHeight] = useState(null);
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
+  // Follow synchronously after rendering, before a queued browser scroll
+  // event can mistake the new bottom distance for the reader scrolling up.
   // Stay pinned to the newest message whenever the history box or any bubble
   // changes size (drag-resize, window resize, late font/layout), not only
   // when a message arrives.
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = boxRef.current;
     if (!el) return;
-    const stick = () => { if (pinned.current) el.scrollTop = el.scrollHeight; };
+    const stick = () => follower.current.follow(el);
     const ro = new ResizeObserver(stick);
     ro.observe(el);
     for (const child of el.children) ro.observe(child);
     stick();
     return () => ro.disconnect();
-  }, [msgs.length, lastId]);
+  }, [msgs.length, lastId, historyHeight]);
   const onScroll = (e) => {
-    const el = e.target;
-    pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    follower.current.onScroll(e.currentTarget);
   };
   const resizeBounds = () => ({ min: 120, max: Math.max(120, Math.floor(innerHeight * .85)) });
   const resizeTo = (height) => {
