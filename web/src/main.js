@@ -853,6 +853,12 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
   const resizeRef = useRef(null);
   const [historyHeight, setHistoryHeight] = useState(null);
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
+  const [expanded, setExpanded] = useState(!!recipient);
+  const savedScroll = useRef(0);
+  const bodyId = `thread-${encodeURIComponent(pairKey(a, b))}`;
+  useLayoutEffect(() => {
+    if (expanded && boxRef.current) boxRef.current.scrollTop = savedScroll.current;
+  }, [expanded]);
   // Follow synchronously after rendering, before a queued browser scroll
   // event can mistake the new bottom distance for the reader scrolling up.
   // Stay pinned to the newest message whenever the history box or any bubble
@@ -861,15 +867,17 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
   useLayoutEffect(() => {
     const el = boxRef.current;
-    if (!el) return;
+    if (!el || !expanded) return;
     const stick = () => follower.current.follow(el);
     const ro = new ResizeObserver(stick);
     ro.observe(el);
     for (const child of el.children) ro.observe(child);
     stick();
     return () => ro.disconnect();
-  }, [msgs.length, lastId, historyHeight]);
+  }, [msgs.length, lastId, historyHeight, expanded]);
   const onScroll = (e) => {
+    if (!expanded) return;
+    savedScroll.current = e.currentTarget.scrollTop;
     follower.current.onScroll(e.currentTarget);
   };
   const resizeBounds = () => ({ min: 120, max: Math.max(120, Math.floor(innerHeight * .85)) });
@@ -903,8 +911,13 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
     resizeTo(next);
   };
   return html`<div class="thread">
-    <div class="bar">${disp(a)} <span class="swap">⇄</span> ${disp(b)}
-      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span></div>
+    <button type="button" class="bar thread-toggle" aria-expanded=${expanded} aria-controls=${bodyId}
+        onClick=${() => setExpanded(v => !v)}>
+      <span class="thread-chevron" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
+      ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
+      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
+    </button>
+    <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}
       style=${historyHeight === null ? null : { height: `${historyHeight}px` }}>
       ${msgs.slice(-40).map(m => html`
@@ -932,6 +945,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
       <span>drag to resize history</span>
     </button>
     ${recipient && html`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
+    </div>
   </div>`;
 }
 

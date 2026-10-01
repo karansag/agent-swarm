@@ -607,3 +607,9 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 
 /* The machine outline stays visible around the harness-striped sidebar bee. */
 .agent-bee.small { width:46px; height:38px; padding:3px; border:1px solid var(--machine); border-radius:8px; background:color-mix(in srgb,var(--machine) 8%,var(--ink)); }
+
+.thread-toggle { width:100%; border:0; text-align:left; color:var(--cream); cursor:pointer; }
+.thread-toggle:hover { color:var(--honey); }
+.thread-toggle[aria-expanded=false] { border-bottom:0; }
+.thread-chevron { width:12px; flex:none; color:var(--cream-dim); font:12px var(--mono); }
+.thread-body[hidden] { display:none; }

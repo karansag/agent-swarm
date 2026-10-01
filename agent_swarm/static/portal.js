@@ -8607,10 +8607,16 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
+	const [expanded, setExpanded] = d(!!recipient);
+	const savedScroll = A(0);
+	const bodyId = `thread-${encodeURIComponent(pairKey(a, b))}`;
+	_(() => {
+		if (expanded && boxRef.current) boxRef.current.scrollTop = savedScroll.current;
+	}, [expanded]);
 	const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 	_(() => {
 		const el = boxRef.current;
-		if (!el) return;
+		if (!el || !expanded) return;
 		const stick = () => follower.current.follow(el);
 		const ro = new ResizeObserver(stick);
 		ro.observe(el);
@@ -8620,9 +8626,12 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	}, [
 		msgs.length,
 		lastId,
-		historyHeight
+		historyHeight,
+		expanded
 	]);
 	const onScroll = (e) => {
+		if (!expanded) return;
+		savedScroll.current = e.currentTarget.scrollTop;
 		follower.current.onScroll(e.currentTarget);
 	};
 	const resizeBounds = () => ({
@@ -8659,8 +8668,13 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 		resizeTo(next);
 	};
 	return m$1`<div class="thread">
-    <div class="bar">${disp(a)} <span class="swap">⇄</span> ${disp(b)}
-      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span></div>
+    <button type="button" class="bar thread-toggle" aria-expanded=${expanded} aria-controls=${bodyId}
+        onClick=${() => setExpanded((v) => !v)}>
+      <span class="thread-chevron" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
+      ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
+      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
+    </button>
+    <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}
       style=${historyHeight === null ? null : { height: `${historyHeight}px` }}>
       ${msgs.slice(-40).map((m) => m$1`
@@ -8688,6 +8702,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
       <span>drag to resize history</span>
     </button>
     ${recipient && m$1`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
+    </div>
   </div>`;
 }
 function Doing({ summaries, now }) {
