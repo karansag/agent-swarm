@@ -593,6 +593,10 @@ var HARNESSES = Object.freeze({
 function harnessStyle(flavor) {
 	return HARNESSES[String(flavor || "generic").toLowerCase()] || HARNESSES.generic;
 }
+var WORKING_HALO = {
+	color: "#9be879",
+	fill: "rgba(155,232,121,.14)"
+};
 var STATE = {
 	working: {
 		cls: "working",
@@ -709,10 +713,13 @@ function Avatar({ name, size }) {
 function MachineBadge({ node }) {
 	return m$1`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
 }
-function Bee({ node, flavor, size = "" }) {
+function Bee({ node, flavor, size = "", working = false }) {
 	const harness = harnessStyle(flavor);
-	return m$1`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+	return m$1`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness${working ? ", working" : ""}`}>
     <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
+    ${working && m$1`<g class="bee-working-halo" style=${`--working:${WORKING_HALO.color}`}>
+      <circle cx="27" cy="21" r="28" fill=${WORKING_HALO.fill} stroke=${WORKING_HALO.color} stroke-width="2.5" />
+    </g>`}
     <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
     <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
     <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />
@@ -1330,7 +1337,7 @@ function HiveView({ state, refresh, machine }) {
 				const primary = picked || assigned;
 				const extras = mine.filter((t) => !primary || t.id !== primary.id);
 				const phase = seed / 57;
-				const working = r.activity && r.activity.status === "working";
+				const working = agentStatus(r) === "working";
 				const busy = !!picked || working;
 				const speed = busy ? 2.5 : 1;
 				const clustered = r.team_id && positioned.has(r.team_id);
@@ -1385,7 +1392,7 @@ function HiveView({ state, refresh, machine }) {
 					bee.y = out.y;
 				}
 				bee.x = Math.max(16, Math.min(width - 16, bee.x));
-				bee.y = Math.max(34, Math.min(bee.picked ? 208 : 224, bee.y));
+				bee.y = Math.max(34, Math.min(bee.picked || bee.working ? 208 : 224, bee.y));
 			}
 			for (const bee of beeData) {
 				const { r, name, harness, x, y, dx, dy, q, picked, assigned, primary, extras, working, busy } = bee;
@@ -1406,10 +1413,17 @@ function HiveView({ state, refresh, machine }) {
 				ctx.translate(x, y);
 				ctx.rotate(bearing);
 				if (working) {
-					ctx.fillStyle = "rgba(143,191,111,.25)";
+					ctx.save();
+					ctx.fillStyle = WORKING_HALO.fill;
+					ctx.strokeStyle = WORKING_HALO.color;
+					ctx.lineWidth = 2.5;
+					ctx.shadowColor = WORKING_HALO.color;
+					ctx.shadowBlur = 12;
 					ctx.beginPath();
-					ctx.ellipse(0, 0, 18, 12, 0, 0, Math.PI * 2);
+					ctx.arc(0, 0, 24, 0, Math.PI * 2);
 					ctx.fill();
+					ctx.stroke();
+					ctx.restore();
 				}
 				const flap = still ? 0 : Math.sin(now / 1e3 * (busy ? 44 : 30)) * .35;
 				ctx.fillStyle = "rgba(240,230,210,.5)";
@@ -1446,7 +1460,7 @@ function HiveView({ state, refresh, machine }) {
 					ctx.textBaseline = "middle";
 					ctx.fillText(`+${extras.length - 4}`, x + 29, y + 12);
 				}
-				const labelY = y + (picked ? 35 : 19);
+				const labelY = y + (picked ? 35 : working ? 34 : 19);
 				ctx.font = "10px ui-monospace, monospace";
 				ctx.textBaseline = "alphabetic";
 				const markGap = 3;
@@ -1969,6 +1983,7 @@ function HiveView({ state, refresh, machine }) {
     aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
     <div class="harness-legend" aria-label="Bee harness legend">
       <span class="legend-title">Body = machine · stripes + symbol = harness</span>
+      <span class="working-halo-key" style=${`--working:${WORKING_HALO.color}`}><span aria-hidden="true"></span>Green halo = working</span>
       ${legendHarnesses.map((harness) => m$1`<span class="harness-key" key=${harness.key}>
         <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
         ${harness.label}
@@ -7843,7 +7858,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       onClick=${() => {
 		location.hash = focusHash(r.user_id);
 	}}>
-    <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
+    <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
     <div class="who">
       <${MachineBadge} node=${r.node} />
       ${team && m$1`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
@@ -8806,7 +8821,7 @@ function FocusView({ user, state, refresh, freshIds }) {
 		location.hash = "#/";
 	}}>← back to overview</button>
     <div class="fhead">
-      <${Bee} node=${r.node} flavor=${r.flavor} />
+      <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
       <div class="who">
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
