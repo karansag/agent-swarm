@@ -683,11 +683,11 @@ def test_ambiguous_nested_sessions_are_an_error_not_a_guess(monkeypatch, capsys)
     assert calls["post"][-1]["agent_id"] == "chosen"
 
 
-def test_task_commands_send_no_guessed_pane(monkeypatch):
+def test_task_commands_keep_unverified_identity_for_server_refusal(monkeypatch):
     # Not in the pane and no session: crediting tmux's active agent would be wrong.
     monkeypatch.setattr(client, "current_pane", lambda: "%49")
     monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
-    assert client._acting_fields() == {}
+    assert client._acting_fields()["pane_verified"] is False
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-x")
     fields = client._acting_fields()
     assert fields["agent_id"] == "sess-x" and fields["pane_verified"] is False

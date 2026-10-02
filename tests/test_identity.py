@@ -140,7 +140,7 @@ def test_an_empty_stored_id_is_adopted_too(client, tmp_path):
 def test_a_lost_adoption_race_is_not_reported_as_success(client, monkeypatch):
     from agent_swarm import db
     register(client, "0:0.0", "mongoose")
-    monkeypatch.setattr(db, "adopt_agent_id", lambda conn, user_id, agent_id: False)
+    monkeypatch.setattr(db, "adopt_agent_id", lambda conn, user_id, agent_id, **kwargs: False)
     r = send(client, tmux_pane="0:0.0", agent_id="sess-mongoose", pane_verified=True)
     assert r.status_code == 404 and "could not record this session" in r.json()["detail"]["detail"]
 
@@ -149,10 +149,10 @@ def test_adoption_is_atomic_in_the_database(tmp_path):
     from agent_swarm import db
     conn = db.connect(tmp_path / "db.sqlite")
     for user, pane in (("a", "%1"), ("b", "%2")):
-        db.register(conn, user, pane)
-    assert db.adopt_agent_id(conn, "a", "sess-1") is True
-    assert db.adopt_agent_id(conn, "a", "sess-2") is False  # a already has one
-    assert db.adopt_agent_id(conn, "b", "sess-1") is False  # sess-1 is a's
+        db.register(conn, user, pane, node="local", tmux_server="srv-1")
+    assert db.adopt_agent_id(conn, "a", "sess-1", node="local", tmux_pane="%1", tmux_server="srv-1") is True
+    assert db.adopt_agent_id(conn, "a", "sess-2", node="local", tmux_pane="%1", tmux_server="srv-1") is False  # a already has one
+    assert db.adopt_agent_id(conn, "b", "sess-1", node="local", tmux_pane="%2", tmux_server="srv-1") is False  # sess-1 is a's
     assert db.lookup_user_by_agent_id(conn, "sess-1") == "a"
 
 
@@ -160,9 +160,12 @@ def test_a_mismatched_id_says_how_to_reregister(client):
     register(client, "0:0.0", "heron", agent_id="old-imported-id")
     r = send(client, tmux_pane="0:0.0", agent_id="actual-session", pane_verified=True)
     detail = r.json()["detail"]["detail"]
-    assert r.status_code == 404 and "agent-swarm register --name heron" in detail
+    assert r.status_code == 404 and "agent-swarm register` from this pane (without --name)" in detail
     # Nothing was overwritten.
     assert whoami(client, agent_id="old-imported-id")["user_id"] == "heron"
+    repaired = client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "actual-session"})
+    assert repaired.status_code == 200 and repaired.json()["user_id"] == "heron"
+    assert send(client, agent_id="actual-session").status_code == 200
 
 
 def test_task_notifications_go_out_as_the_session_not_the_guessed_pane(client):
@@ -180,3 +183,17 @@ def test_task_notifications_go_out_as_the_session_not_the_guessed_pane(client):
                                                 "agent_id": "sess-stranger", "tmux_pane": "0:0.0",
                                                 "pane_verified": False})
     assert r.status_code == 404  # an unknown session can't act as numbat either
+
+
+def test_session_adoption_requires_the_same_pane_binding(tmp_path):
+    from agent_swarm import db
+    conn = db.connect(tmp_path / 'cas.sqlite')
+    db.register(conn, 'a', '%2', node='other-node', tmux_server='srv-2')
+    assert not db.adopt_agent_id(conn, 'a', 'sess-x', node='local', tmux_pane='%1', tmux_server='srv-1')
+    assert db.lookup_user_by_agent_id(conn, 'sess-x') is None
+
+
+def test_unverified_task_caller_is_not_treated_as_owner(client):
+    register(client, '0:0.0', 'otter')
+    r = client.post('/tasks', json={'title': 'not owner', 'tmux_pane': '0:0.0', 'pane_verified': False})
+    assert r.status_code == 404

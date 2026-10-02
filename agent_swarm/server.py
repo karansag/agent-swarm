@@ -727,13 +727,15 @@ def create_app(
         if held and held != agent_id:
             return None, "session", (
                 f"pane {tmux_pane} is registered to {pane_user} under a different session id. If this "
-                f"is {pane_user}, run `agent-swarm register --name {pane_user}` from this pane to move "
-                "the handle to this session; otherwise register under your own name"
+                f"is {pane_user}, run `agent-swarm register` from this pane (without --name) to move "
+                "its existing handle to this session; otherwise register from your own pane"
             ), where
-        if not db.adopt_agent_id(conn, pane_user, agent_id):
+        if not db.adopt_agent_id(conn, pane_user, agent_id, node=node.name, tmux_pane=pane, tmux_server=server):
             # Lost a race, or the id is already someone else's: re-check.
             now = db.lookup_user_by_agent_id(conn, agent_id)
-            if now != pane_user:
+            current = db.get_recipient(conn, pane_user) or {}
+            if (now != pane_user or current.get("node") != node.name
+                    or current.get("tmux_pane") != pane or current.get("tmux_server") != server):
                 return None, "session", (
                     f"could not record this session on {pane_user} (its registration changed); "
                     "retry, or run `agent-swarm register`"

@@ -288,14 +288,11 @@ def _parse_deps(raw: str) -> list[int]:
 def _acting_fields() -> dict:
     """Who is acting, so a task notification goes out in this agent's name.
 
-    The session id and a verified pane identify the agent. A guessed pane
-    (not in it, no session id) is not sent at all: it would credit whichever
-    agent tmux happens to show, so the request goes out as no one instead
-    (the owner, from the hub's own machine; a node token is refused).
+    Keep an explicitly unverified pane in the request so the server refuses
+    it. Dropping that evidence would make a loopback request look like an
+    owner action.
     """
     who = caller()
-    if not who["agent_id"] and who["pane_verified"] is False:
-        return {}
     if not who["pane"] and not who["agent_id"]:
         return {}
     return _identity_payload(who)
