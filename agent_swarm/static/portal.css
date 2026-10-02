@@ -59,14 +59,14 @@
   nav.views a.on { color: var(--honey); border-color: var(--honey-dim); background: rgba(242,169,59,.07); }
 
   main { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 0; align-items: start; }
-  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) { main { grid-template-columns: 1fr; } }
 
   .stage { padding: 26px 34px; min-width: 0; }
   aside.roster {
     border-left: 1px solid var(--line); padding: 22px 18px;
     position: sticky; top: 0; max-height: 100vh; overflow-y: auto;
   }
-  @media (max-width: 1000px) { aside.roster { border-left: none; border-top: 1px solid var(--line); position: static; max-height: none; } }
+  @media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) { aside.roster { border-left: none; border-top: 1px solid var(--line); position: static; max-height: none; } }
 
   h2 {
     font-family: var(--serif); font-weight: 500; font-size: 13px;
@@ -634,7 +634,7 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 .roster-heading h2 { flex: 1; }
 .roster-toggle { position: fixed; right: 0; top: 48%; z-index: 22; padding: 10px 8px; color: var(--cream); background: var(--panel-2); border: 1px solid var(--honey-dim); border-radius: 8px 0 0 8px; font: inherit; cursor: pointer; transition: right .22s ease; }
 .roster-toggle.is-open { right: 340px; }
-@media (max-width: 1000px) {
+@media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) {
   main.dashboard-layout, main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr); }
   .roster-drawer { position: static; width: 100%; transform: none; display: none; }
   .roster-drawer.is-open { display: block; }
@@ -649,3 +649,125 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 .bee-working-halo { filter: drop-shadow(0 0 5px var(--working)); }
 .working-halo-key { display: inline-flex; align-items: center; gap: 6px; color: var(--working); }
 .working-halo-key > span { width: 14px; height: 14px; border: 2px solid var(--working); border-radius: 50%; box-shadow: 0 0 7px var(--working); }
+
+/* Touch navigation uses real links, with the same bee identity and halo as
+   the desktop canvas. The canvas is unmounted at this breakpoint. */
+.compact-hive { padding: 14px; }
+.compact-hive-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; color: var(--cream-dim); font-size: 12px; margin-bottom: 12px; }
+.bee-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.bee-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-left: 3px solid var(--machine); border-radius: 8px; background: color-mix(in srgb, var(--machine) 5%, var(--ink-2)); color: var(--cream); text-decoration: none; overflow-wrap: anywhere; }
+.bee-tile:hover, .bee-tile:focus-visible { border-color: var(--machine); outline: 2px solid var(--cream); outline-offset: 2px; }
+.bee-tile .agent-bee { width: 48px; height: 36px; margin: 4px 0 6px; }
+.bee-name { font-family: var(--serif); font-size: 17px; line-height: 1.15; }
+.bee-machine { color: var(--machine); font-size: 11px; }
+.bee-state { color: var(--cream-dim); font-size: 11px; }
+.bee-state .status { margin: 0 5px 0 0; vertical-align: 0; }
+.compact-hive-empty { color: var(--cream-dim); font-size: 12px; }
+.hive-task-assignment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.hive-task-assignment select { min-width: 0; max-width: 100%; }
+.hive-task-detail h3 { overflow-wrap: anywhere; min-width: 0; }
+.hive-task-detail header button { flex: none; }
+.status-history > summary, .mobile-roster-label { display: none; }
+
+@media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) {
+  header.top { padding: 18px; gap: 10px 16px; }
+  header.top h1 { font-size: 26px; }
+  header.top .right { flex-wrap: wrap; font-size: 11px; }
+  nav.views { flex-wrap: wrap; margin-left: 0; }
+  nav.views a { display: inline-flex; align-items: center; min-height: 44px; }
+  .machine-bar { padding: 14px 18px; }
+  .machine-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .machine-choice { min-width: 0; }
+  .machine-choice strong, .machine-choice > span { overflow-wrap: anywhere; }
+  .machine-choice strong { flex-wrap: wrap; }
+  .machine-filter-note { overflow-wrap: anywhere; }
+  .stage { padding: 18px; }
+  .roster-toggle, .roster-toggle.is-open { position: static; display: block; width: calc(100% - 36px); margin: 12px 18px 0; border-radius: 8px; text-align: left; }
+  .desktop-roster-label { display: none; }
+  .mobile-roster-label { display: inline; }
+  .roster-drawer aside.roster { padding: 18px; }
+  .stage, .roster-drawer { scroll-margin-top: 12px; }
+  .board { grid-template-columns: 1fr; }
+  .col .cards { max-height: none; }
+  .h-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+
+  /* Controls remain reachable even with long handles, paths, or file names. */
+  button, select, input[type="text"], input:not([type]), summary, .file-link, a.col-more { min-height: 44px; }
+  button { min-width: 44px; }
+  input, select, textarea { max-width: 100%; }
+  input[type="text"], input:not([type]), select, textarea,
+  .task-composer input.task-title, .task-composer textarea,
+  .composer textarea, .composer .context, .tcard .foot select,
+  .fhead .model-edit input, .tnote-edit textarea { font-size: 16px; }
+  .tcard, .trow, .htile, .doing-box, .fhead, .chip-card, .h-agentchip { overflow-wrap: anywhere; }
+  .tcard .meta, .tnote-body, .h-field { font-size: 12px; }
+  .tcard .t { font-size: 14px; }
+  .tcard .foot select, .trow select { min-width: 0; width: 100%; }
+  .hive-task-picker label { display: grid; gap: 6px; }
+  .hive-task-picker select { width: 100%; min-width: 0; margin: 0; }
+  .hive-task-detail { margin: 0 10px 12px; padding: 12px; }
+  .hive-task-detail header { flex-wrap: wrap; }
+  .hive-task-detail h3 { font-size: 16px; }
+  .hive-task-assignment { display: grid; }
+  .hive-task-assignment select { width: 100%; }
+  .harness-legend { font-size: 11px; line-height: 1.4; }
+  .harness-legend .legend-title { flex-basis: 100%; }
+  .task-compose-actions label { flex: 1 1 100%; flex-wrap: wrap; }
+  .task-compose-actions select { width: 100%; }
+  .task-compose-actions .act { width: 100%; }
+  .trow .t { min-width: 0; flex-basis: 70%; }
+  h2 { flex-wrap: wrap; }
+  .h2-link { overflow-wrap: anywhere; }
+  .h-agentchip { min-width: 0; max-width: 100%; white-space: normal; }
+  .h-who { flex-wrap: wrap; }
+  .h-who .h-agent { white-space: normal; overflow-wrap: anywhere; }
+  .teamhead { flex-wrap: wrap; }
+  .teamhead .teamname { overflow-wrap: anywhere; min-width: 0; }
+  .chip-card { flex-wrap: wrap; }
+  .chip-card .controls { display: flex; flex-wrap: wrap; align-items: center; width: 100%; gap: 6px; justify-content: flex-end; }
+  .chip-card .controls .flav { margin-right: auto; }
+  .chip-card .machine-badge { white-space: normal; overflow-wrap: anywhere; }
+
+  .fhead { align-items: flex-start; gap: 12px; }
+  .fhead .nm { font-size: 23px; }
+  .fhead .agent-bee { width: 48px; height: 42px; }
+  .fhead .model-edit { flex-wrap: wrap; max-width: 100%; }
+  .fhead .jump-cmd { display: block; margin: 6px 0; }
+  .fhead .jump-cmd code { overflow-wrap: anywhere; }
+  .status-history > summary { display: flex; align-items: center; cursor: pointer; color: var(--honey); font-size: 12px; }
+  .status-history > summary::before { content: "▸"; margin-right: 6px; }
+  .status-history[open] > summary::before { content: "▾"; }
+  .scope .bar { flex-wrap: wrap; overflow-wrap: anywhere; gap: 6px 12px; }
+  .scope pre { height: min(380px, 45dvh); }
+  .composer { padding: 12px; }
+  .composer .compose-meta { flex-wrap: wrap; margin-left: 0; }
+  .composer .context { flex: 1 1 100%; width: 100%; }
+  .composer .hint { white-space: normal; margin-left: 0; }
+  .composer .actions { flex-wrap: wrap; width: 100%; }
+  .composer .actions .act { margin-left: auto; }
+  .composer .actions [role="status"] { flex-basis: 100%; overflow-wrap: anywhere; }
+  .composer .compose-images, .compose-images { display: flex; flex-wrap: wrap; gap: 12px; margin-left: 0; }
+  .compose-image { min-width: 0; max-width: 100%; }
+  .composer .compose-image .remove, .compose-image .remove { position: static; width: auto; min-width: 44px; min-height: 44px; margin: 4px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--cream); }
+  .attachment-tools > span { font-size: 11px; }
+  .file-link, .image-link { min-width: 0; max-width: 100%; }
+  .file-link { display: block; }
+  .attachment-list img { max-width: min(140px, 100%); }
+  .compose-image img { max-width: 100%; max-height: 140px; object-fit: contain; }
+  .thread > .bar { flex-wrap: wrap; overflow-wrap: anywhere; font-size: 16px; }
+  .thread > .bar .n { white-space: nowrap; }
+  .msgs { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .msg { min-width: 0; max-width: 100%; }
+  .msg .tag { overflow-wrap: anywhere; }
+  .msg .md pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg .md pre code { white-space: pre-wrap; }
+  .msg .bubble { min-width: 0; }
+  .history-resizer { min-height: 44px; }
+}
+
+@media (max-width: 360px) {
+  .stage, .roster-drawer aside.roster { padding: 12px; }
+  .compact-hive { padding: 10px; }
+  .bee-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .bee-tile { padding: 10px; }
+}

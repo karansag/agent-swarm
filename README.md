@@ -709,6 +709,20 @@ npm ci
 npm run build
 ```
 
+Phone/tablet regression checks run against that production bundle with mocked
+API responses (no live agents or messages are touched):
+
+```bash
+npx playwright install chromium
+npm run test:browser
+```
+
+The dashboard uses labeled, static bee links up to 1000px wide and on touch
+screens up to 1200px; wider desktop views keep the animated hive. Bee body
+colors identify machines, stripes identify harnesses, and green halos mark
+working agents. The task picker exposes details and assignment without dragging;
+the agent roster stacks below the content and has a jump button near the top.
+
 ## Security Model
 
 Every request carries a principal. A caller on loopback is the owner:
