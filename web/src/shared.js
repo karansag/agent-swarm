@@ -22,6 +22,8 @@ export function harnessStyle(flavor) {
 
 // Activity state -> dot class, display word, and color. One color per
 // state, matching the --state-* CSS custom properties.
+export const WORKING_HALO = { color: "#9be879", fill: "rgba(155,232,121,.14)" };
+
 export const STATE = {
   working:         { cls: "working",   word: "working",         color: "var(--state-working)" },
   needs_attention: { cls: "attention", word: "needs attention", color: "var(--state-attention)" },
@@ -94,10 +96,13 @@ export function MachineBadge({ node }) {
   return html`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
 }
 
-export function Bee({ node, flavor, size = "" }) {
+export function Bee({ node, flavor, size = "", working = false }) {
   const harness = harnessStyle(flavor);
-  return html`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+  return html`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness${working ? ", working" : ""}`}>
     <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
+    ${working && html`<g class="bee-working-halo" style=${`--working:${WORKING_HALO.color}`}>
+      <circle cx="27" cy="21" r="28" fill=${WORKING_HALO.fill} stroke=${WORKING_HALO.color} stroke-width="2.5" />
+    </g>`}
     <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
     <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
     <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />

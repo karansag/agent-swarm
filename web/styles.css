@@ -644,3 +644,8 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 @media (prefers-reduced-motion: reduce) {
   main.dashboard-layout, .roster-drawer, .roster-toggle { transition: none; }
 }
+
+/* One persistent, bright activity halo in both the hive and roster bees. */
+.bee-working-halo { filter: drop-shadow(0 0 5px var(--working)); }
+.working-halo-key { display: inline-flex; align-items: center; gap: 6px; color: var(--working); }
+.working-halo-key > span { width: 14px; height: 14px; border: 2px solid var(--working); border-radius: 50%; box-shadow: 0 0 7px var(--working); }

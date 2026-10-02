@@ -104,7 +104,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
       style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => { location.hash = focusHash(r.user_id); }}>
-    <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
+    <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
     <div class="who">
       <${MachineBadge} node=${r.node} />
       ${team && html`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
@@ -1008,7 +1008,7 @@ function FocusView({ user, state, refresh, freshIds }) {
   return html`<div>
     <button type="button" class="focus-back" onClick=${() => { location.hash = "#/"; }}>← back to overview</button>
     <div class="fhead">
-      <${Bee} node=${r.node} flavor=${r.flavor} />
+      <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
       <div class="who">
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
