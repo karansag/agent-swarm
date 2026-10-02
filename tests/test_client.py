@@ -11,7 +11,9 @@ from agent_swarm import client, config, tmux
 def test_unregister_defaults_to_current_pane(monkeypatch):
     calls = []
     monkeypatch.setattr(client, "current_pane", lambda: "marin:1.2")
-    monkeypatch.setattr(client, "registered_user", lambda pane: "marten" if pane == "marin:1.2" else None)
+    monkeypatch.setattr(
+        client, "whoami_lookup", lambda who: {"user_id": "marten" if who["pane"] == "marin:1.2" else None}
+    )
     monkeypatch.setattr(client, "base_url", lambda: "http://localhost:8765")
 
     def delete(url, headers, timeout):
@@ -411,20 +413,116 @@ def test_process_in_pane_is_unknown_without_tmux(monkeypatch):
     assert tmux.process_in_pane("%5", pid=1) is None
 
 
-def test_cli_warns_when_it_is_not_in_the_pane_it_claims(monkeypatch, capsys):
+def _fake_server(monkeypatch, answer):
+    """Stub /whoami (returning `answer`) and /send; returns the recorded calls."""
+    calls = {"get": [], "post": []}
+
+    def get(url, params, headers, timeout):
+        calls["get"].append(params)
+        return SimpleNamespace(is_success=True, json=lambda: answer)
+
+    def post(url, json, headers, timeout):
+        calls["post"].append(json)
+        return SimpleNamespace(is_success=True, text='{"ok": true}')
+
+    monkeypatch.setattr(client.httpx, "get", get)
+    monkeypatch.setattr(client.httpx, "post", post)
+    monkeypatch.setattr(client, "local_node", lambda: "laptop")
+    return calls
+
+
+def test_harness_session_id_comes_from_the_environment(monkeypatch):
+    assert client.harness_session_id() is None
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-thread")
+    assert client.harness_session_id() == "codex-thread"
+    monkeypatch.delenv("CODEX_THREAD_ID")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-session")
+    assert client.harness_session_id() == "claude-session"
+
+
+def test_with_both_ids_set_the_nearest_harness_wins(monkeypatch):
+    # A Codex agent that launched `claude -p`: inside it, Claude is the caller.
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-session")
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-thread")
+    monkeypatch.setattr(tmux, "ancestors", lambda pid=None: [
+        (3, "/bin/zsh -c x"), (2, "claude -p hi"), (1, "codex --no-daemon --yolo"),
+    ])
+    assert client.harness_session_id() == "claude-session"
+    monkeypatch.setattr(tmux, "ancestors", lambda pid=None: [
+        (3, "/bin/zsh -c x"), (2, "codex exec hi"), (1, "/Users/k/.local/share/claude/versions/2.1.280"),
+    ])
+    assert client.harness_session_id() == "codex-thread"
+
+
+def test_attached_command_sends_its_session_and_verified_pane(monkeypatch):
+    # A harness whose commands run inside its own pane.
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-a")
+    monkeypatch.setattr(client, "current_pane", lambda: "%5")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
+    calls = _fake_server(monkeypatch, {"user_id": "otter", "identified_by": "session"})
+    assert client.main(["send", "--to", "owner", "--message", "hi"]) == 0
+    assert calls["get"][0] == {"node": "laptop", "tmux_pane": "%5", "agent_id": "sess-a", "pane_verified": "true"}
+    assert calls["post"][0]["agent_id"] == "sess-a" and calls["post"][0]["pane_verified"] is True
+
+
+def test_daemon_command_sends_by_session_without_a_pane(monkeypatch, capsys):
+    # A Claude Code background host or Codex app-server: no TMUX_PANE, so the
+    # pane is tmux's active-pane guess and unverified. The session id decides.
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    monkeypatch.setenv("CODEX_THREAD_ID", "thread-b")
+    monkeypatch.setattr(client, "current_pane", lambda: "%49")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
+    calls = _fake_server(monkeypatch, {"user_id": "stoat", "identified_by": "session"})
+    assert client.main(["send", "--to", "owner", "--message", "hi"]) == 0
+    assert calls["post"][0]["agent_id"] == "thread-b" and calls["post"][0]["pane_verified"] is False
+
+
+def test_daemon_command_with_an_unregistered_session_is_refused(monkeypatch, capsys):
+    monkeypatch.setenv("CODEX_THREAD_ID", "thread-unknown")
+    monkeypatch.setattr(client, "current_pane", lambda: "%98")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
+    calls = _fake_server(monkeypatch, {"user_id": None, "detail": "this session is not registered"})
+    assert client.main(["send", "--to", "owner", "--message", "hi"]) == 2
+    assert calls["post"] == []  # nothing sent as the agent in %98
+    assert "not registered" in capsys.readouterr().err
+
+
+def test_without_a_session_id_a_borrowed_pane_is_refused(monkeypatch, capsys):
     monkeypatch.setenv("TMUX_PANE", "%98")
     monkeypatch.setattr(client, "current_pane", lambda: "%98")
     monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
-    assert client.detect_pane() == "%98"
-    err = capsys.readouterr().err
-    assert "not running inside tmux pane %98" in err and "--no-daemon" in err
+    calls = _fake_server(monkeypatch, {"user_id": None, "detail": "x"})
+    assert client.main(["send", "--to", "owner", "--message", "hi"]) == 2
+    assert calls["post"] == []
+    assert "not running inside tmux pane %98" in capsys.readouterr().err
 
 
-def test_cli_is_quiet_in_its_own_pane(monkeypatch, capsys):
+def test_register_refuses_a_pane_the_caller_is_not_in(monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-c")
     monkeypatch.setattr(client, "current_pane", lambda: "%49")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
+    calls = _fake_server(monkeypatch, {})
+    assert client.main(["register", "--name", "explainer"]) == 2
+    assert calls["post"] == []
+    assert "--pane" in capsys.readouterr().err
+
+
+def test_register_with_an_explicit_pane_binds_it_and_the_session(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-c")
+    monkeypatch.setattr(client, "current_pane", lambda: "%49")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
+    calls = _fake_server(monkeypatch, {})
+    assert client.main(["register", "--name", "explainer", "--pane", "%64"]) == 0
+    assert calls["post"][0]["tmux_pane"] == "%64" and calls["post"][0]["agent_id"] == "sess-c"
+
+
+def test_explicit_agent_id_beats_the_environment(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "from-env")
+    monkeypatch.setattr(client, "current_pane", lambda: "%5")
     monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
-    assert client.detect_pane() == "%49"
-    assert capsys.readouterr().err == ""
+    calls = _fake_server(monkeypatch, {})
+    assert client.main(["register", "--agent-id", "explicit"]) == 0
+    assert calls["post"][0]["agent_id"] == "explicit"
 
 
 def test_registered_user_asks_the_server_for_this_pane_on_this_node(monkeypatch):
@@ -439,9 +537,10 @@ def test_registered_user_asks_the_server_for_this_pane_on_this_node(monkeypatch)
         return SimpleNamespace(is_success=True, json=lambda: {"user_id": "laptop-agent"})
 
     monkeypatch.setattr(client.httpx, "get", get)
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
     assert client.registered_user("%1") == "laptop-agent"
     assert captured["url"] == "http://localhost:8765/whoami"
-    assert captured["params"] == {"tmux_pane": "%1", "node": "laptop"}
+    assert captured["params"] == {"tmux_pane": "%1", "node": "laptop", "pane_verified": "true"}
     monkeypatch.setattr(client.httpx, "get", lambda url, params, headers, timeout: SimpleNamespace(is_success=False))
     assert client.registered_user("%1") is None
 

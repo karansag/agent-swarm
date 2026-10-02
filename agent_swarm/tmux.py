@@ -531,6 +531,31 @@ def _tmux_out(*args: str, timeout: float = 2) -> str | None:
     return out.stdout
 
 
+def ancestors(pid: int | None = None) -> list[tuple[int, str]]:
+    """(pid, command) for a process and its parents, nearest first; [] without ps."""
+    try:
+        ps = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True, check=True, timeout=5
+        )
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return []
+    table: dict[int, tuple[int, str]] = {}
+    for line in ps.stdout.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) >= 2 and fields[0].isdigit() and fields[1].isdigit():
+            table[int(fields[0])] = (int(fields[1]), fields[2] if len(fields) > 2 else "")
+    chain, current = [], os.getpid() if pid is None else pid
+    for _ in range(256):
+        if current not in table:
+            break
+        ppid, command = table[current]
+        chain.append((current, command))
+        if current <= 1:
+            break
+        current = ppid
+    return chain
+
+
 def process_in_pane(pane: str, pid: int | None = None) -> bool | None:
     """Whether process `pid` (default: this one) runs inside tmux pane `pane`.
 

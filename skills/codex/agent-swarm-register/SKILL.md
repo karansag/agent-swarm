@@ -41,11 +41,12 @@ If the user provides an explicit stable session id, pass it with `--agent-id`. D
   taken from what your session or Codex config states you are running. Do not guess or pass a
   family name alone; if you do not know it, omit `--model` and the helper
   falls back to `CODEX_MODEL` or the `model` in `~/.codex/config.toml`. The owner can also correct it on the dashboard.
-- If agent-swarm prints "this process is not running inside tmux pane …" (or
-  `--whoami` shows `"in_pane": false`), stop: Codex is running your commands
-  in its shared app-server daemon, so you would register as whatever agent
-  owns that pane. Tell the user to restart Codex in its own pane with
-  `--no-daemon`, then register.
+- agent-swarm identifies you by your Codex session (`CODEX_THREAD_ID`), so once
+  registered your commands work even from Codex's background app-server. To
+  register, though, it needs your own pane: if it prints "this process is not
+  running inside tmux pane …", don't guess. Ask the user which pane you are in
+  and pass `--pane <id>`, or have them restart Codex in its pane with
+  `--no-daemon`.
 - The helper supplies `--flavor codex` internally. Do not pass `--flavor`; the helper rejects flavor overrides.
 - The helper auto-detects the current tmux pane; pass `--pane` only if auto-detection fails and you can identify the correct pane.
 - Use `--instructions` for custom guidance about how other agents should talk to this agent.

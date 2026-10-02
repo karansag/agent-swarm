@@ -159,7 +159,24 @@ class PruneReq(BaseModel):
 class StatusReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tmux_pane: str = Field(min_length=1)
+    tmux_pane: str | None = Field(
+        default=None,
+        description="The caller's pane, when it has one. A session in a "
+        "background host has none and is identified by agent_id alone.",
+    )
+    agent_id: str | None = Field(
+        default=None,
+        description="The caller's harness session id (CLAUDE_CODE_SESSION_ID, "
+        "CODEX_THREAD_ID). When given it identifies the caller; the pane is only "
+        "a fallback for a registration that has no session id yet.",
+    )
+    pane_verified: bool | None = Field(
+        default=None,
+        description="True when the CLI checked that it runs inside tmux_pane "
+        "(or the pane was given explicitly). Only a verified pane may vouch for "
+        "an unknown session id.",
+    )
+
     node: str | None = Field(
         default=None,
         description="Machine the caller's pane lives on; the CLI sends "
@@ -171,7 +188,24 @@ class StatusReq(BaseModel):
 class SendReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tmux_pane: str = Field(min_length=1)
+    tmux_pane: str | None = Field(
+        default=None,
+        description="The caller's pane, when it has one. A session in a "
+        "background host has none and is identified by agent_id alone.",
+    )
+    agent_id: str | None = Field(
+        default=None,
+        description="The caller's harness session id (CLAUDE_CODE_SESSION_ID, "
+        "CODEX_THREAD_ID). When given it identifies the caller; the pane is only "
+        "a fallback for a registration that has no session id yet.",
+    )
+    pane_verified: bool | None = Field(
+        default=None,
+        description="True when the CLI checked that it runs inside tmux_pane "
+        "(or the pane was given explicitly). Only a verified pane may vouch for "
+        "an unknown session id.",
+    )
+
     node: str | None = Field(
         default=None,
         description="Machine the caller's pane lives on; the CLI sends "
@@ -631,6 +665,72 @@ def create_app(
                 detail={"error": "owner only", "detail": "a node token cannot do this"},
             )
 
+    def _resolve_caller(
+        node: nodes.Node, tmux_pane: str | None, agent_id: str | None, pane_verified: bool | None
+    ) -> tuple[str | None, str, str | None, tuple]:
+        """Who is calling: (user_id, how, why_not, (pane, label)).
+
+        A harness session id is the caller's identity wherever its commands
+        run; Claude Code and Codex can run a session's tools in a background
+        host with no TMUX_PANE, or a stale one, so the pane alone can't say.
+        An id held by an agent on another node is refused, not resolved.
+
+        An unknown id never falls back to whatever agent holds the pane: a
+        daemon-hosted session naming someone else's pane would take that
+        agent's identity. Only a pane the CLI verified it runs inside may
+        vouch for it, and only by adopting the id onto a registration that
+        had none (one made before session ids were sent); a pane registered
+        to a different session is a refusal. With no id (an older CLI) the
+        pane is the identity, as before.
+        """
+        pane_user = None
+        where = (None, None)
+        if tmux_pane:
+            # Resolved once: on a remote node every resolve is a round trip.
+            pane, label, server = _pane_ref(tmux_pane, node)
+            where = (pane, label)
+            pane_user = db.lookup_user_by_pane(conn, node.name, pane, server)
+
+        def answer(user_id, how, why_not):
+            return user_id, how, why_not, where
+
+        if not agent_id:
+            return answer(pane_user, "pane", None if pane_user else "this pane is not registered")
+        by_id = db.lookup_user_by_agent_id(conn, agent_id)
+        if by_id:
+            # Session ids are public (recipients, the protocol brief), so an id
+            # held on another machine is a refusal, never this caller.
+            if (db.get_recipient(conn, by_id) or {}).get("node") != node.name:
+                return answer(None, "session", f"this session belongs to {by_id} on another node")
+            return answer(by_id, "session", None)
+        if pane_user is None:
+            return answer(None, "session", "this session is not registered; run `agent-swarm register`")
+        if not pane_verified:
+            return answer(None, "session", (
+                f"this session is not registered, and the caller is not verified to be in "
+                f"pane {tmux_pane} (held by {pane_user}); register from the agent's own pane, "
+                "or pass --pane"
+            ))
+        held = (db.get_recipient(conn, pane_user) or {}).get("agent_id")
+        if held and held != agent_id:
+            return answer(None, "session", (
+                f"pane {tmux_pane} is registered to {pane_user} under a different session; "
+                "register this session with `agent-swarm register`"
+            ))
+        db.adopt_agent_id(conn, pane_user, agent_id)
+        return answer(pane_user, "pane", None)
+
+    def _caller(
+        node: nodes.Node, tmux_pane: str | None, agent_id: str | None, pane_verified: bool | None
+    ) -> str:
+        user_id, _, why_not, _ = _resolve_caller(node, tmux_pane, agent_id, pane_verified)
+        if user_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "sender not registered", "detail": why_not, "tmux_pane": tmux_pane},
+            )
+        return user_id
+
     def _claimed_node(request: Request, node: str | None) -> nodes.Node:
         """The node a request says it is on, checked against who is asking.
 
@@ -1015,19 +1115,28 @@ def create_app(
         return {"recipients": _annotated_recipients()}
 
     @app.get("/whoami")
-    def whoami(request: Request, tmux_pane: str, node: str | None = None):
-        """Which agent, if any, a pane on a node is registered as.
+    def whoami(
+        request: Request,
+        tmux_pane: str | None = None,
+        node: str | None = None,
+        agent_id: str | None = None,
+        pane_verified: bool | None = None,
+    ):
+        """Which agent, if any, the caller is: by its harness session id when
+        it sends one, else by its pane (see _resolve_caller).
 
         The pane is resolved on its own node and matched with that node's
         tmux server, so the same pane id on another machine, or from an
         earlier tmux, is never mistaken for this one.
         """
         owner_node = _claimed_node(request, node)
-        pane, label, server = _pane_ref(tmux_pane, owner_node)
-        user_id = db.lookup_user_by_pane(conn, owner_node.name, pane, server)
+        user_id, how, why_not, (pane, label) = _resolve_caller(
+            owner_node, tmux_pane, agent_id, pane_verified
+        )
         return {
             "user_id": user_id, "node": owner_node.name,
             "tmux_pane": pane, "pane_label": label,
+            "identified_by": how if user_id else None, "detail": why_not,
         }
 
     @app.post("/recipients/prune")
@@ -1158,16 +1267,7 @@ def create_app(
     @app.post("/send")
     def send(req: SendReq, request: Request):
         node = _claimed_node(request, req.node)
-        pane, _, server = _pane_ref(req.tmux_pane, node)
-        sender = db.lookup_user_by_pane(conn, node.name, pane, server)
-        if sender is None:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error": "sender not registered",
-                    "tmux_pane": req.tmux_pane,
-                },
-            )
+        sender = _caller(node, req.tmux_pane, req.agent_id, req.pane_verified)
         if req.recipient == OWNER:
             # Messages to the human are recorded for the dashboard, not
             # injected into a pane.
@@ -1209,13 +1309,7 @@ def create_app(
     def set_status(req: StatusReq, request: Request):
         """An agent says, in a line, what it is working on."""
         node = _claimed_node(request, req.node)
-        pane, _, server = _pane_ref(req.tmux_pane, node)
-        user_id = db.lookup_user_by_pane(conn, node.name, pane, server)
-        if user_id is None:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": "sender not registered", "tmux_pane": req.tmux_pane},
-            )
+        user_id = _caller(node, req.tmux_pane, req.agent_id, req.pane_verified)
         text = " ".join(req.text.split())
         if not text:
             raise HTTPException(status_code=422, detail={"error": "status is empty"})

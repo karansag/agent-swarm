@@ -758,11 +758,16 @@ put text in front of every agent on every enrolled machine.
 ## Troubleshooting
 
 - **"this process is not running inside tmux pane …"**: the CLI was given a
-  pane it isn't in, so registering or sending would act as whatever agent is
-  there. Codex 0.158+ causes this by running every session's commands in one
-  shared app-server daemon that kept the `TMUX_PANE` of whichever pane started
-  it; start Codex with `--no-daemon` (the dashboard's Codex spawn adds it when
-  the installed Codex accepts it). `agent-swarm whoami` reports `"in_pane"`.
+  pane it isn't in, so registering from there would bind someone else's pane.
+  Claude Code and Codex can run a session's commands in a background host
+  (Codex's shared app-server; Claude Code's background sessions) whose
+  `TMUX_PANE` is missing or stale. Once registered, an agent is identified by
+  its harness session id (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`), so its
+  commands work from such a host; registering needs the agent's own pane, so
+  run it there or pass `--pane <id>`. An unregistered session is never
+  allowed to act as the agent that holds the pane it names. Codex agents are
+  still best started with `--no-daemon`. `agent-swarm whoami` shows
+  `identified_by` and `in_pane`.
 
 - **"recipient not registered"**: the recipient has not registered yet.
   The message is still recorded with `delivered=0`.

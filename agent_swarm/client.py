@@ -48,57 +48,129 @@ def _headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-def detect_pane() -> str | None:
-    """This process's tmux pane, warning on stderr when it looks borrowed.
+# Each harness tells its commands which session they belong to. That is the
+# caller's identity wherever the command runs: Claude Code and Codex can run a
+# session's tools in a background host whose TMUX_PANE is missing or names
+# another agent's pane, so the pane alone can't say who is calling.
+SESSION_ENV = (
+    ("claude", "CLAUDE_CODE_SESSION_ID"),
+    ("codex", "CODEX_THREAD_ID"),
+    ("codex", "CODEX_SESSION_ID"),
+)
 
-    A process can name a pane it isn't in: Codex 0.158+ runs commands in one
-    shared daemon that inherited the TMUX_PANE of whichever pane started it,
-    and a process outside tmux falls back to tmux's active pane. Acting on
-    that pane would register or send as whatever agent is really there.
+
+def harness_session_id() -> str | None:
+    """The calling harness's session id, or None outside a harness.
+
+    When ids from both harnesses are set (one launched the other), the nearer
+    harness in this process's ancestry is the caller.
     """
-    pane = current_pane()
-    if pane and tmux.process_in_pane(pane) is False:
-        source = (
-            "TMUX_PANE names it" if os.environ.get("TMUX_PANE")
-            else "TMUX_PANE is unset, so this is tmux's active pane"
-        )
-        print(
-            f"warning: this process is not running inside tmux pane {pane} ({source}).\n"
-            "  Registering or sending from here acts as whatever agent is in that pane.\n"
-            "  Codex 0.158+ does this when it shares one app-server daemon: start it with\n"
-            "  --no-daemon in the agent's own pane. Pass --pane only if you are sure.",
-            file=sys.stderr,
-        )
-    return pane
+    found: dict[str, str] = {}
+    for harness, var in SESSION_ENV:
+        value = os.environ.get(var, "").strip()
+        if value and harness not in found:
+            found[harness] = value
+    if len(found) < 2:
+        return next(iter(found.values()), None)
+    for _, command in tmux.ancestors():
+        program = command.split(" ", 1)[0].rsplit("/", 1)[-1]
+        if program == "codex" or "/codex/" in command.split(" ", 1)[0]:
+            return found["codex"]
+        if program == "claude" or "/claude/versions/" in command.split(" ", 1)[0]:
+            return found["claude"]
+    return found["claude"]
+
+
+def caller(pane_arg: str | None = None, agent_id_arg: str | None = None) -> dict:
+    """Who this process is, as far as it can tell, for the server to resolve.
+
+    `pane_verified` is True when the pane was given explicitly or this process
+    really runs inside it, False when it doesn't (a background host, or tmux's
+    active-pane guess with no TMUX_PANE), None when that can't be checked.
+    """
+    pane = pane_arg or current_pane()
+    if pane_arg:
+        verified: bool | None = True
+    else:
+        verified = tmux.process_in_pane(pane) if pane else None
+    return {
+        "pane": pane,
+        "pane_verified": verified,
+        "agent_id": agent_id_arg or harness_session_id(),
+        "explicit_pane": bool(pane_arg),
+    }
+
+
+def whoami_lookup(who: dict) -> dict:
+    """The server's view of `who`: user_id, identified_by, detail, pane label."""
+    params = {"node": local_node()}
+    if who["pane"]:
+        params["tmux_pane"] = who["pane"]
+    if who["agent_id"]:
+        params["agent_id"] = who["agent_id"]
+    if who["pane_verified"] is not None:
+        params["pane_verified"] = "true" if who["pane_verified"] else "false"
+    r = httpx.get(f"{base_url()}/whoami", params=params, headers=_headers(), timeout=5)
+    if not r.is_success:
+        code, text = getattr(r, "status_code", "?"), getattr(r, "text", "")
+        return {"user_id": None, "detail": f"server said {code}: {text[:200]}"}
+    return r.json()
 
 
 def registered_user(pane: str) -> str | None:
-    """The handle registered for this pane on this machine, or None.
+    """The handle registered for this caller (by session id, else this pane)."""
+    who = caller(pane)
+    who["explicit_pane"] = False
+    who["pane_verified"] = tmux.process_in_pane(pane)
+    return whoami_lookup(who).get("user_id")
 
-    Asked of the server rather than matched locally: it resolves the pane on
-    this node and checks the tmux server that issued it, so a pane with the
-    same id on another machine, or from an earlier tmux, never matches.
-    """
-    r = httpx.get(
-        f"{base_url()}/whoami", params={"tmux_pane": pane, "node": local_node()}, headers=_headers(), timeout=5
+
+def _not_in_pane_message(who: dict) -> str:
+    source = (
+        "TMUX_PANE names it" if os.environ.get("TMUX_PANE")
+        else "TMUX_PANE is unset, so this is tmux's active pane"
     )
-    if not r.is_success:
+    return (
+        f"this process is not running inside tmux pane {who['pane']} ({source}). Acting\n"
+        "  from here would act as whatever agent is in that pane. This happens when a harness\n"
+        "  runs commands in a background host: Codex's app-server (start it with --no-daemon)\n"
+        "  or a Claude Code background session. Run this from the agent's own pane, or pass\n"
+        "  --pane <its pane> if you are certain which pane the agent is in."
+    )
+
+
+def _identify_or_explain(who: dict) -> str | None:
+    """The calling agent's handle, or None after printing why it isn't known."""
+    if not who["pane"] and not who["agent_id"]:
+        print("error: not in a tmux pane and no harness session id; run inside the agent's pane", file=sys.stderr)
         return None
-    return r.json().get("user_id")
+    answer = whoami_lookup(who)
+    if answer.get("user_id"):
+        return answer["user_id"]
+    if who["pane_verified"] is False and not who["agent_id"]:
+        print(f"error: {_not_in_pane_message(who)}", file=sys.stderr)
+    else:
+        print(f"error: {answer.get('detail') or 'this caller is not registered'}; run `agent-swarm register`", file=sys.stderr)
+    return None
 
 
 def cmd_register(args: argparse.Namespace) -> int:
-    pane = args.pane or detect_pane()
-    if not pane:
+    who = caller(args.pane, args.agent_id)
+    if not who["pane"]:
         print(
             "error: could not detect tmux pane; pass --pane explicitly", file=sys.stderr
         )
         return 2
-    payload: dict = {"tmux_pane": pane, "node": local_node()}
+    if who["pane_verified"] is False:
+        # Registering binds a handle to this pane for delivery; from a process
+        # outside it, that would be someone else's pane.
+        print(f"error: {_not_in_pane_message(who)}", file=sys.stderr)
+        return 2
+    payload: dict = {"tmux_pane": who["pane"], "node": local_node()}
     if args.name:
         payload["requested_user"] = args.name
-    if args.agent_id:
-        payload["agent_id"] = args.agent_id
+    if who["agent_id"]:
+        payload["agent_id"] = who["agent_id"]
     if args.model:
         payload["model"] = args.model
     if args.flavor:
@@ -114,27 +186,22 @@ def cmd_register(args: argparse.Namespace) -> int:
     return 0 if r.is_success else 1
 
 
+def _identity_payload(who: dict) -> dict:
+    payload: dict = {"node": local_node()}
+    if who["pane"]:
+        payload["tmux_pane"] = who["pane"]
+    if who["agent_id"]:
+        payload["agent_id"] = who["agent_id"]
+    if who["pane_verified"] is not None:
+        payload["pane_verified"] = who["pane_verified"]
+    return payload
+
+
 def cmd_send(args: argparse.Namespace) -> int:
-    pane = detect_pane()
-    if not pane:
-        print(
-            "error: could not detect tmux pane; run inside tmux or register with --pane",
-            file=sys.stderr,
-        )
+    who = caller(getattr(args, "pane", None))
+    if not _identify_or_explain(who):
         return 2
-    sender = registered_user(pane)
-    if not sender:
-        print(
-            "error: current tmux pane is not registered; run `agent-swarm register` first",
-            file=sys.stderr,
-        )
-        return 2
-    payload = {
-        "tmux_pane": pane,
-        "node": local_node(),
-        "recipient": args.to,
-        "content": args.message,
-    }
+    payload = {**_identity_payload(who), "recipient": args.to, "content": args.message}
     if args.context:
         payload["context"] = args.context
     r = httpx.post(f"{base_url()}/send", json=payload, headers=_headers(), timeout=10)
@@ -143,12 +210,11 @@ def cmd_send(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    pane = detect_pane()
-    if not pane:
-        print("error: could not detect tmux pane; run inside tmux", file=sys.stderr)
+    who = caller(getattr(args, "pane", None))
+    if not _identify_or_explain(who):
         return 2
     r = httpx.post(
-        f"{base_url()}/status", json={"tmux_pane": pane, "node": local_node(), "text": args.text}, headers=_headers(), timeout=5
+        f"{base_url()}/status", json={**_identity_payload(who), "text": args.text}, headers=_headers(), timeout=5
     )
     print(r.text)
     return 0 if r.is_success else 1
@@ -182,8 +248,9 @@ def cmd_prune(args: argparse.Namespace) -> int:
 def cmd_unregister(args: argparse.Namespace) -> int:
     user = args.user
     if user is None:
-        pane = detect_pane()
-        user = registered_user(pane) if pane else None
+        who = caller()
+        if who["pane"] or who["agent_id"]:
+            user = whoami_lookup(who).get("user_id")
     if user is None:
         print("error: current pane is not registered; pass --user HANDLE", file=sys.stderr)
         return 2
@@ -376,12 +443,23 @@ def cmd_import(args: argparse.Namespace) -> int:
 
 
 def cmd_whoami(_: argparse.Namespace) -> int:
-    pane = detect_pane()
-    user = registered_user(pane) if pane else None
-    in_pane = tmux.process_in_pane(pane) if pane else None
+    who = caller()
+    answer = whoami_lookup(who) if (who["pane"] or who["agent_id"]) else {}
+    if who["pane_verified"] is False and not answer.get("identified_by") == "session":
+        print(f"warning: {_not_in_pane_message(who)}", file=sys.stderr)
+    session = who["agent_id"]
     print(
         json.dumps(
-            {"user": user, "pane": pane, "in_pane": in_pane, "node": local_node(), "server": base_url()},
+            {
+                "user": answer.get("user_id"),
+                "identified_by": answer.get("identified_by"),
+                "session": f"{session[:8]}…" if session else None,
+                "pane": who["pane"],
+                "in_pane": who["pane_verified"],
+                "node": local_node(),
+                "server": base_url(),
+                **({"detail": answer["detail"]} if answer.get("detail") else {}),
+            },
             indent=2,
         )
     )
@@ -432,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
     snd.add_argument("--to", required=True)
     snd.add_argument("--message", required=True)
     snd.add_argument("--context")
+    snd.add_argument("--pane", help="the agent's tmux pane, when this process isn't in it")
     snd.set_defaults(func=cmd_send)
 
     msg = sub.add_parser("messages")
@@ -485,6 +564,7 @@ def main(argv: list[str] | None = None) -> int:
         "status", help="say in a line what you are working on; shown on the dashboard"
     )
     st.add_argument("text", help='e.g. "working on #12: pane-id migration"')
+    st.add_argument("--pane", help="the agent's tmux pane, when this process isn't in it")
     st.set_defaults(func=cmd_status)
 
     who = sub.add_parser("whoami")

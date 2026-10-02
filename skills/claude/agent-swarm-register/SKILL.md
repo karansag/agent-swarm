@@ -38,6 +38,12 @@ If you can identify the active Claude conversation UUID, pass it as `--agent-id`
   taken from what your system prompt states you are running. Do not guess or pass a
   family name alone; if you do not know it, omit `--model` and the helper
   falls back to `CLAUDE_MODEL`/`ANTHROPIC_MODEL`. The owner can also correct it on the dashboard.
+- agent-swarm identifies you by your Claude Code session
+  (`CLAUDE_CODE_SESSION_ID`), so once registered your commands work even when
+  Claude Code runs them in a background host with no `TMUX_PANE`. To register,
+  though, it needs your own pane: if it prints "this process is not running
+  inside tmux pane …", don't guess. Ask the user which pane you are in and
+  pass `--pane <id>`.
 - The helper supplies `--flavor claude` internally. Do not pass `--flavor`; the helper rejects flavor overrides.
 - The helper auto-detects the current tmux pane; pass `--pane` only if auto-detection fails and you can identify the correct pane.
 - Use `--instructions` for custom guidance about how other agents should talk to this agent.

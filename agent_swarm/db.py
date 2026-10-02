@@ -390,12 +390,35 @@ def bind_pane(
 
 
 @_serialized
-def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | None:
+def lookup_user_by_agent_id(
+    conn: sqlite3.Connection, agent_id: str, node: str | None = None
+) -> str | None:
+    """The agent with this harness session id, on `node` when one is given.
+
+    A session id is only meaningful on the machine whose harness issued it,
+    so callers pass the node they are speaking for (a node token may only
+    speak for its own); an id held on another node is not this agent.
+    """
     _ensure_columns(conn)
-    row = conn.execute(
-        "SELECT user_id FROM recipients WHERE agent_id=?", (agent_id,)
-    ).fetchone()
+    if node is None:
+        row = conn.execute(
+            "SELECT user_id FROM recipients WHERE agent_id=?", (agent_id,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT user_id FROM recipients WHERE agent_id=? AND node=?", (agent_id, node)
+        ).fetchone()
     return row["user_id"] if row else None
+
+
+@_serialized
+def adopt_agent_id(conn: sqlite3.Connection, user_id: str, agent_id: str) -> None:
+    """Record a session id on a registration that had none (see server._caller)."""
+    conn.execute(
+        "UPDATE recipients SET agent_id=? WHERE user_id=? AND agent_id IS NULL",
+        (agent_id, user_id),
+    )
+    conn.commit()
 
 
 @_serialized
