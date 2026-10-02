@@ -968,6 +968,9 @@ def _hub_state(conn: sqlite3.Connection) -> dict:
     team names, and node names are already in use."""
     return {
         "handles": {r[0] for r in conn.execute("SELECT user_id FROM recipients")},
+        "panes": [dict(r) for r in conn.execute(
+            "SELECT node, tmux_server, tmux_pane FROM recipients WHERE reserved=0"
+        )],
         "agents_by_id": {
             r["agent_id"]: {"user_id": r["user_id"], "node": r["node"]}
             for r in conn.execute(
@@ -1052,18 +1055,22 @@ def apply_import(
                 team_ids[team["name"]] = int(cur.lastrowid)
 
         for agent in plan["agents"]:
+            binding = agent.get("binding")
             conn.execute(
                 "INSERT INTO recipients(user_id, tmux_pane, agent_id, model, flavor, instructions, "
                 "message_prefix, submit_key, registered_at, tmux_server, pane_label, node, team_id, reserved) "
-                "VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,1)",
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     agent["user_id"],
                     # Unique per handle, and never a pane id, so no two
                     # reservations collide and none matches a real pane.
-                    f"reserved:{agent['user_id']}",
+                    binding["pane"] if binding else f"reserved:{agent['user_id']}",
                     agent["agent_id"], agent["model"], agent["flavor"], agent["instructions"],
-                    agent["message_prefix"], agent["submit_key"], now, agent["node"],
+                    agent["message_prefix"], agent["submit_key"], now,
+                    binding["server"] if binding else None,
+                    binding["label"] if binding else None, agent["node"],
                     team_ids.get(agent["team"]) if agent["team"] else None,
+                    0 if binding else 1,
                 ),
             )
 

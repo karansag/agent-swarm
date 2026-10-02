@@ -415,3 +415,67 @@ def test_nothing_is_written_when_an_import_fails_after_it_has_begun(live, monkey
     assert owner.get("/tasks").json()["tasks"] == []
     # And the import was not recorded, so it can be taken in properly.
     assert owner.post("/import", json={"node": "macbook", "bundle": make()}).status_code == 200
+
+
+def test_import_reconnects_only_verified_panes(live, monkeypatch):
+    app, owner, _ = live
+    app.state.nodes.add(nodes.LocalNode('macbook'))
+    monkeypatch.setattr(tmux, 'pane_table', lambda: {
+        '%1': {'label': 'a:0.0', 'command': 'claude', 'title': '', 'agent_swarm': 'otter'},
+        '%2': {'label': 'a:0.1', 'command': 'codex', 'title': '', 'agent_swarm': 'someone-else'},
+    })
+    data = make()
+    for a, pane in zip(data['agents'], ['%1', '%2']):
+        a.update(tmux_pane=pane, tmux_server='srv-1')
+    preview = owner.post('/import', json={'node': 'macbook', 'bundle': data, 'dry_run': True}).json()
+    assert preview['report']['reconnected'] == ['otter']
+    assert len(preview['register']) == 1 and '--name tapir' in preview['register'][0]
+    assert owner.get('/recipients').json()['recipients'] == []
+    applied = owner.post('/import', json={'node': 'macbook', 'bundle': data}).json()
+    assert applied['report']['reconnected'] == ['otter']
+    rows = {r['user_id']: r for r in owner.get('/recipients').json()['recipients']}
+    assert rows['otter']['alive'] is True and rows['otter']['tmux_pane'] == '%1'
+    assert not rows['otter']['reserved']
+    assert rows['tapir']['reserved'] and rows['tapir']['alive'] is False
+    assert applied['report']['reservations'][0]['reason'] == 'pane does not identify the imported agent'
+
+
+@pytest.mark.parametrize('case,reason', [
+    ('old-server', 'tmux server changed'),
+    ('gone', 'pane no longer exists'),
+    ('shell', 'pane is not running the expected harness'),
+    ('claimed', 'pane already belongs to an agent on this hub'),
+    ('offline', 'node is disconnected or cannot observe tmux'),
+    ('duplicate', 'multiple imported agents claim this pane'),
+])
+def test_reconnection_never_steals_or_guesses_a_pane(case, reason):
+    data = make(teams=[], tasks=[])
+    data['agents'] = [{'user_id': 'otter', 'flavor': 'claude', 'tmux_pane': '%1', 'tmux_server': 'srv-1'}]
+    table = {'%1': {'label': 'a:0.0', 'command': 'claude', 'title': '', 'agent_swarm': 'otter'}}
+    state = hub()
+    if case == 'gone': table = {}
+    if case == 'shell': table['%1']['command'] = 'zsh'
+    if case == 'claimed': state['panes'] = [{'node': 'laptop', 'tmux_server': 'srv-1', 'tmux_pane': '%1'}]
+    if case == 'duplicate': data['agents'].append(dict(data['agents'][0], user_id='tapir'))
+    snapshot = nodes.PaneSnapshot('srv-2' if case == 'old-server' else 'srv-1', None, frozenset(table), frozenset(table), table)
+    plan = bundle.plan(data, 'laptop', state, snapshot=None if case == 'offline' else snapshot)
+    assert not bundle.summary(plan)['reconnected']
+    assert bundle.summary(plan)['reservations'][0]['reason'] == reason
+
+
+def test_collision_names_agree_between_preview_and_apply(live):
+    app, owner, _ = live
+    owner.post('/register', json={'tmux_pane': '%1', 'requested_user': 'otter'})
+    data = make()
+    preview = owner.post('/import', json={'node': 'macbook', 'bundle': data, 'dry_run': True}).json()
+    applied = owner.post('/import', json={'node': 'macbook', 'bundle': data}).json()
+    assert preview['report']['renamed'] == applied['report']['renamed']
+    assert preview['register'] == applied['register']
+
+
+def test_export_carries_optional_pane_provenance(tmp_path):
+    conn = db.connect(tmp_path / 'source.sqlite')
+    db.register(conn, 'otter', '%12', 'conv-1', None, 'claude', None, None, 'C-m', tmux_server='123:456', node='laptop')
+    data = bundle.read(conn)
+    assert data['agents'][0]['tmux_pane'] == '%12'
+    assert data['agents'][0]['tmux_server'] == '123:456'

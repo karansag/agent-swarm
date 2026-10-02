@@ -376,14 +376,24 @@ agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro
 
 The export reads that database without writing to it, so it is safe
 against a live server's file or an archived copy. The dry run decides
-everything and writes nothing, so you can read the report first.
+everything and writes nothing, so you can read the report first. Predicted names
+hold only while the destination roster and import options stay unchanged;
+pruning or unregistering agents before applying can change the chosen names.
 
 What the hub does with it:
 
-- Each agent becomes a reservation: an offline row holding its handle,
+- The hub reconnects an imported agent automatically only when the export's
+  pane id and tmux server still match the connected node, the pane runs the
+  expected harness, and its `@agent_swarm` tag (or legacy title) names the
+  original agent. It never takes a pane already registered on this hub or
+  claimed by multiple imported agents. This requires a recent export and
+  node daemon; missing evidence leaves a reservation, not a guessed binding.
+  The report lists `reconnected` agents and `reservations` with reasons.
+- Every other agent becomes a reservation: an offline row holding its handle,
   its harness, and its contact instructions until the agent registers
   here through the node daemon. The import prints the line to run in
-  each pane; an agent that reports a stable id reclaims its handle by
+  each remaining pane. Only agents that are still running need to run their
+  line now; stopped agents can wait until resumed. An agent that reports a stable id reclaims its handle by
   itself. A handle reserved for a named agent cannot be taken by a
   different one, and prune leaves reservations alone.
 - A handle already in use here is imported under a fresh one, and every

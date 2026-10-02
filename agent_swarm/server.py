@@ -1688,9 +1688,12 @@ def create_app(
         except bundle.Invalid as e:
             raise HTTPException(status_code=400, detail={"error": str(e)}) from e
 
+        import_node = fleet.get(req.node)
+        snapshot = _try_snapshot(import_node) if import_node is not None else None
+
         def make_plan(hub: dict) -> dict:
             hub["merge_teams"] = req.merge_teams
-            return bundle.plan(req.bundle, req.node, hub)
+            return bundle.plan(req.bundle, req.node, hub, snapshot=snapshot)
 
         earlier = db.imported_report(conn, source)
         try:
