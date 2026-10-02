@@ -613,3 +613,13 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 .thread-toggle[aria-expanded=false] { border-bottom:0; }
 .thread-chevron { width:12px; flex:none; color:var(--cream-dim); font:12px var(--mono); }
 .thread-body[hidden] { display:none; }
+
+.hive-task-picker { padding: 10px 14px; }
+.hive-task-picker select { max-width: 100%; margin-left: 8px; }
+.hive-task-detail { margin: 0 14px 14px; padding: 16px; border: 1px solid #b97f27; border-radius: 10px; background: var(--panel, #181c24); }
+.hive-task-detail header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hive-task-detail h3 { margin: 0; }
+.hive-task-detail p { overflow-wrap: anywhere; }
+.task-description { white-space: pre-wrap; }
+.task-trash { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.task-trash .danger { color: #ff9c91; }

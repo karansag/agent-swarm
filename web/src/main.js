@@ -1,3 +1,4 @@
+import { TaskTrash } from "./task-trash.js";
 import { html, render } from "htm/preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
@@ -533,6 +534,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     </div>`}
     ${err && html`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
+      <${TaskTrash} task=${t} refresh=${refresh} />
       <select title="assignee" value=${t.team_id ? `t:${t.team_id}` : (t.assignee || "")}
         onChange=${onAssign}>
         <option value="">unassigned</option>

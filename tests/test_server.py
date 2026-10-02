@@ -1498,3 +1498,21 @@ def test_dashboard_decisions_pass_their_own_tests():
         cwd=WEB_ROOT.parent, capture_output=True, text=True, timeout=120
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_owner_can_trash_task_but_dependencies_are_protected(client):
+    c = client
+    parent = c.post('/tasks', json={'title': 'parent'}).json()['task']
+    child = c.post('/tasks', json={'title': 'child', 'depends_on': [parent['id']]}).json()['task']
+    assert c.delete(f"/tasks/{parent['id']}").status_code == 409
+    assert c.delete(f"/tasks/{child['id']}").status_code == 200
+    assert c.delete(f"/tasks/{parent['id']}").status_code == 200
+    assert c.delete(f"/tasks/{parent['id']}").status_code == 404
+
+
+def test_node_cannot_trash_tasks(client):
+    c = client
+    task = c.post('/tasks', json={'title': 'keep'}).json()['task']
+    issued = c.post('/nodes/test-trash/token').json()
+    response = c.delete(f"/tasks/{task['id']}", headers={'Authorization': f"Bearer {issued['token']}"})
+    assert response.status_code == 403

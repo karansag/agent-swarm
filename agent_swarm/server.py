@@ -1394,6 +1394,16 @@ def create_app(
             _notify_team_assignment(task, actor)
         return {"ok": True, "task": task}
 
+    @app.delete("/tasks/{task_id}")
+    def tasks_delete(task_id: int, _: None = Depends(_require_owner)):
+        try:
+            removed = db.delete_task(conn, task_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail={"error": str(exc)}) from exc
+        if not removed:
+            raise HTTPException(status_code=404, detail={"error": "unknown task"})
+        return {"ok": True}
+
     @app.patch("/tasks/{task_id}")
     def tasks_update(task_id: int, req: TaskUpdateReq, request: Request):
         actor = _actor(request, req.tmux_pane, req.node)

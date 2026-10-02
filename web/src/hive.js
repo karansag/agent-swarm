@@ -1,3 +1,5 @@
+import { TaskTrash } from "./task-trash.js";
+import { AttachmentList } from "./attachments.js";
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -52,6 +54,8 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 }
 
 export function HiveView({ state, refresh, machine }) {
+  const [selectedTask, setSelectedTask] = useState(null);
+  const taskDetail = (state.tasks || []).find(t => t.id === selectedTask);
   const machineRef = useRef(machine);
   machineRef.current = machine;
   const canvasRef = useRef(null);
@@ -567,7 +571,7 @@ export function HiveView({ state, refresh, machine }) {
           : taskCell.team ? `team ${taskCell.team.name}` : "waiting";
         const blockedLabel = taskCell.blocked
           ? ` · blocked (after ${(task.depends_on || []).map(d => `#${d}`).join(" ")})` : "";
-        const label = `#${task.id} · ${task.title} · ${stateLabel}${blockedLabel} · drag onto a bee or team`;
+        const label = `#${task.id} · ${task.title} · ${stateLabel}${blockedLabel} · click to expand · drag to assign`;
         ctx.font = "10px ui-monospace, monospace";
         const w = Math.min(width - 16, ctx.measureText(label).width + 12);
         const tx = Math.max(8, Math.min(width - w - 8, taskCell.x - w / 2));
@@ -774,7 +778,10 @@ export function HiveView({ state, refresh, machine }) {
     };
     const click = (e) => {
       if (suppressClick) { suppressClick = false; return; }
-      const name = hit(e); if (name) location.hash = focusHash(name);
+      const name = hit(e);
+      if (name) { location.hash = focusHash(name); return; }
+      const cell = hitTask(e);
+      if (cell) setSelectedTask(id => id === cell.task.id ? null : cell.task.id);
     };
     const dragOver = (e) => {
       const id = taskId(e);
@@ -854,5 +861,21 @@ export function HiveView({ state, refresh, machine }) {
         ${harness.label}
       </span>`)}
     </div>
+    <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
+      onChange=${e => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>
+      <option value="">Click a honeycomb or choose a task…</option>
+      ${(state.tasks || []).filter(t => t.status !== "done" || t.id === selectedTask).map(t => html`<option value=${t.id}>#${t.id} · ${t.title}</option>`)}
+    </select></label></div>
+    ${taskDetail && html`<section class="hive-task-detail" aria-label=${`Task #${taskDetail.id} details`}>
+      <header><h3>#${taskDetail.id} · ${taskDetail.title}</h3>
+        <button type="button" class="mini" onClick=${() => setSelectedTask(null)}>Collapse</button></header>
+      <p>${taskDetail.status} · ${taskDetail.assignee || "unassigned"}${taskDetail.team_id ? ` · team ${(state.teams || []).find(t => t.id === taskDetail.team_id)?.name || taskDetail.team_id}` : ""}</p>
+      ${taskDetail.description && html`<p class="task-description">${taskDetail.description}</p>`}
+      ${taskDetail.depends_on?.length > 0 && html`<p>Depends on ${taskDetail.depends_on.map(id => `#${id}`).join(", ")}</p>`}
+      ${taskDetail.worktree && html`<p>Worktree: ${taskDetail.worktree_node || ""} ${taskDetail.worktree}</p>`}
+      <${AttachmentList} files=${taskDetail.attachments} />
+      ${taskDetail.note && html`<p class="task-description">${taskDetail.note}</p>`}
+      <${TaskTrash} key=${taskDetail.id} task=${taskDetail} refresh=${refresh} onDeleted=${() => setSelectedTask(null)} />
+    </section>`}
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
 }

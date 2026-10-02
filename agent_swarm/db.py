@@ -505,6 +505,19 @@ def create_task(
 
 
 @_serialized
+def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
+    """Remove a task without silently satisfying another task's dependency."""
+    with conn:
+        dependents = [r[0] for r in conn.execute(
+            "SELECT task_id FROM task_deps WHERE depends_on=?", (task_id,)
+        )]
+        if dependents:
+            raise ValueError("remove this dependency from tasks " +
+                             ", ".join(f"#{i}" for i in dependents) + " first")
+        conn.execute("DELETE FROM task_deps WHERE task_id=?", (task_id,))
+        return conn.execute("DELETE FROM tasks WHERE id=?", (task_id,)).rowcount > 0
+
+
 def get_task(conn: sqlite3.Connection, task_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
     if row is None:

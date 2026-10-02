@@ -482,6 +482,31 @@ function D(n, t) {
 	return "function" == typeof t ? t(n) : t;
 }
 //#endregion
+//#region web/src/task-trash.js
+function TaskTrash({ task, refresh, onDeleted }) {
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d("");
+	const remove = async () => {
+		if (!confirm(`Permanently trash task #${task.id}: ${task.title}? This cannot be undone. Agent conversations and working files will remain.`)) return;
+		setBusy(true);
+		setError("");
+		try {
+			const response = await fetch(`/tasks/${task.id}`, { method: "DELETE" });
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.detail?.error || "Could not trash task.");
+			onDeleted?.();
+			refresh();
+		} catch (err) {
+			setError(`${err.message} Refresh to check the task before retrying.`);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return m$1`<span class="task-trash"><button type="button" class="mini danger" disabled=${busy}
+    title=${`Permanently trash task #${task.id}`} onClick=${remove}>${busy ? "Trashing…" : "⌫ Trash"}</button>
+    ${error && m$1`<span role="alert" class="tnote-err">${error}</span>`}</span>`;
+}
+//#endregion
 //#region web/src/machines.js
 var COLORS = [
 	"#80bfff",
@@ -818,6 +843,122 @@ function spawnOutcome(httpOk, body) {
 	};
 }
 //#endregion
+//#region web/src/attachments.js
+var attachmentLabel = (name) => name.includes(".file.") ? name.slice(name.indexOf(".file.") + 6) : "Image";
+var isImage = (name) => /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.test(name);
+var MAX_FILES = 10;
+var MAX_BYTES = 10 * 1024 * 1024;
+var hasFiles = (e) => [...e.dataTransfer?.types || []].includes("Files");
+function useAttachments(files, setFiles, setStatus, scope) {
+	const [uploading, setUploading] = d(0);
+	const [dragging, setDragging] = d(false);
+	const session = A(null);
+	const filesRef = A(files);
+	filesRef.current = files;
+	h(() => {
+		const current = {
+			active: true,
+			pending: 0
+		};
+		session.current = current;
+		setUploading(0);
+		return () => {
+			current.active = false;
+		};
+	}, [scope]);
+	const addFiles = async (incoming) => {
+		const current = session.current;
+		if (!current?.active) return;
+		const batch = [...incoming || []];
+		if (filesRef.current.length + current.pending + batch.length > MAX_FILES) {
+			setStatus(`Up to ${MAX_FILES} attachments per task or message.`);
+			return;
+		}
+		current.pending += batch.length;
+		setUploading(current.pending);
+		for (const file of batch) {
+			if (!current.active) break;
+			try {
+				if (file.size > MAX_BYTES) throw Error("larger than 10 MB");
+				const response = await fetch("/attachments", {
+					method: "POST",
+					headers: {
+						"content-type": file.type || "application/octet-stream",
+						"x-attachment-filename": encodeURIComponent(file.name || "attachment")
+					},
+					body: file
+				});
+				const body = await response.json();
+				if (!response.ok || !body.name) throw Error(body.detail?.error || `upload failed (${response.status})`);
+				if (current.active) {
+					const next = [.../* @__PURE__ */ new Set([...filesRef.current, body.name])];
+					filesRef.current = next;
+					setFiles(next);
+				}
+			} catch (error) {
+				if (current.active) setStatus(`${file.name || "File"} not added: ${error.message}`);
+			} finally {
+				current.pending--;
+				if (current.active) setUploading(current.pending);
+			}
+		}
+	};
+	return {
+		uploading,
+		dragging,
+		addFiles,
+		remove: (name) => setFiles((prev) => prev.filter((x) => x !== name)),
+		onPaste: (e) => {
+			const pasted = [...e.clipboardData?.files || []];
+			if (pasted.length) {
+				e.preventDefault();
+				addFiles(pasted);
+			}
+		},
+		dropProps: {
+			onDragOver: (e) => {
+				if (hasFiles(e)) {
+					e.preventDefault();
+					setDragging(true);
+				}
+			},
+			onDragLeave: (e) => {
+				if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
+			},
+			onDrop: (e) => {
+				if (hasFiles(e)) {
+					e.preventDefault();
+					setDragging(false);
+					addFiles(e.dataTransfer.files);
+				}
+			}
+		}
+	};
+}
+function AttachmentLink({ name }) {
+	const [missing, setMissing] = d(false);
+	if (missing) return m$1`<span class="image-expired">Attachment unavailable</span>`;
+	return m$1`<a class=${isImage(name) ? "image-link" : "file-link"} href=${`/attachments/${name}`} target="_blank" rel="noopener" title=${isImage(name) ? "Open image" : `Download ${attachmentLabel(name)}`}>
+    ${isImage(name) ? m$1`<img src=${`/attachments/${name}`} alt="Attached image" loading="lazy" onError=${() => setMissing(true)} />` : m$1`<span aria-hidden="true">▤</span> ${attachmentLabel(name)} <span aria-hidden="true">↓</span>`}
+  </a>`;
+}
+function AttachmentList({ files = [] }) {
+	return files.length > 0 && m$1`<div class="attachment-list">${files.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}</div>`;
+}
+function AttachmentPicker({ files, controls, disabled = false }) {
+	const input = A(null);
+	return m$1`<div class="attachment-picker">
+    <div class="attachment-tools"><button type="button" class="mini" disabled=${disabled} onClick=${() => input.current?.click()}>+ attach files</button><span>Paste or drop files · 10 MB each · up to 10</span></div>
+    <input ref=${input} type="file" multiple hidden disabled=${disabled} onChange=${(e) => {
+		controls.addFiles(e.target.files);
+		e.target.value = "";
+	}} />
+    ${(files.length > 0 || controls.uploading > 0) && m$1`<div class="compose-images">${files.map((name) => m$1`<figure key=${name} class="compose-image">
+      <${AttachmentLink} name=${name} /><button type="button" class="remove" disabled=${disabled} onClick=${() => controls.remove(name)} aria-label=${`Remove ${attachmentLabel(name)}`}>×</button>
+    </figure>`)}${controls.uploading > 0 && m$1`<span role="status">Uploading ${controls.uploading}…</span>`}</div>`}
+  </div>`;
+}
+//#endregion
 //#region web/src/hive.js
 var TASK_CELL_RADIUS = 18;
 var TASK_CELL_CLEARANCE = 22;
@@ -851,6 +992,8 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 	return start;
 }
 function HiveView({ state, refresh, machine }) {
+	const [selectedTask, setSelectedTask] = d(null);
+	const taskDetail = (state.tasks || []).find((t) => t.id === selectedTask);
 	const machineRef = A(machine);
 	machineRef.current = machine;
 	const canvasRef = A(null);
@@ -1487,7 +1630,7 @@ function HiveView({ state, refresh, machine }) {
 				const task = taskCell.task;
 				const stateLabel = taskCell.stranded ? `assigned to stopped ${task.assignee}` : taskCell.team ? `team ${taskCell.team.name}` : "waiting";
 				const blockedLabel = taskCell.blocked ? ` · blocked (after ${(task.depends_on || []).map((d) => `#${d}`).join(" ")})` : "";
-				const label = `#${task.id} · ${task.title} · ${stateLabel}${blockedLabel} · drag onto a bee or team`;
+				const label = `#${task.id} · ${task.title} · ${stateLabel}${blockedLabel} · click to expand · drag to assign`;
 				ctx.font = "10px ui-monospace, monospace";
 				const w = Math.min(width - 16, ctx.measureText(label).width + 12);
 				const tx = Math.max(8, Math.min(width - w - 8, taskCell.x - w / 2));
@@ -1736,7 +1879,12 @@ function HiveView({ state, refresh, machine }) {
 				return;
 			}
 			const name = hit(e);
-			if (name) location.hash = focusHash(name);
+			if (name) {
+				location.hash = focusHash(name);
+				return;
+			}
+			const cell = hitTask(e);
+			if (cell) setSelectedTask((id) => id === cell.task.id ? null : cell.task.id);
 		};
 		const dragOver = (e) => {
 			const id = taskId(e);
@@ -1826,123 +1974,23 @@ function HiveView({ state, refresh, machine }) {
         ${harness.label}
       </span>`)}
     </div>
+    <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
+      onChange=${(e) => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>
+      <option value="">Click a honeycomb or choose a task…</option>
+      ${(state.tasks || []).filter((t) => t.status !== "done" || t.id === selectedTask).map((t) => m$1`<option value=${t.id}>#${t.id} · ${t.title}</option>`)}
+    </select></label></div>
+    ${taskDetail && m$1`<section class="hive-task-detail" aria-label=${`Task #${taskDetail.id} details`}>
+      <header><h3>#${taskDetail.id} · ${taskDetail.title}</h3>
+        <button type="button" class="mini" onClick=${() => setSelectedTask(null)}>Collapse</button></header>
+      <p>${taskDetail.status} · ${taskDetail.assignee || "unassigned"}${taskDetail.team_id ? ` · team ${(state.teams || []).find((t) => t.id === taskDetail.team_id)?.name || taskDetail.team_id}` : ""}</p>
+      ${taskDetail.description && m$1`<p class="task-description">${taskDetail.description}</p>`}
+      ${taskDetail.depends_on?.length > 0 && m$1`<p>Depends on ${taskDetail.depends_on.map((id) => `#${id}`).join(", ")}</p>`}
+      ${taskDetail.worktree && m$1`<p>Worktree: ${taskDetail.worktree_node || ""} ${taskDetail.worktree}</p>`}
+      <${AttachmentList} files=${taskDetail.attachments} />
+      ${taskDetail.note && m$1`<p class="task-description">${taskDetail.note}</p>`}
+      <${TaskTrash} key=${taskDetail.id} task=${taskDetail} refresh=${refresh} onDeleted=${() => setSelectedTask(null)} />
+    </section>`}
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
-}
-//#endregion
-//#region web/src/attachments.js
-var attachmentLabel = (name) => name.includes(".file.") ? name.slice(name.indexOf(".file.") + 6) : "Image";
-var isImage = (name) => /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.test(name);
-var MAX_FILES = 10;
-var MAX_BYTES = 10 * 1024 * 1024;
-var hasFiles = (e) => [...e.dataTransfer?.types || []].includes("Files");
-function useAttachments(files, setFiles, setStatus, scope) {
-	const [uploading, setUploading] = d(0);
-	const [dragging, setDragging] = d(false);
-	const session = A(null);
-	const filesRef = A(files);
-	filesRef.current = files;
-	h(() => {
-		const current = {
-			active: true,
-			pending: 0
-		};
-		session.current = current;
-		setUploading(0);
-		return () => {
-			current.active = false;
-		};
-	}, [scope]);
-	const addFiles = async (incoming) => {
-		const current = session.current;
-		if (!current?.active) return;
-		const batch = [...incoming || []];
-		if (filesRef.current.length + current.pending + batch.length > MAX_FILES) {
-			setStatus(`Up to ${MAX_FILES} attachments per task or message.`);
-			return;
-		}
-		current.pending += batch.length;
-		setUploading(current.pending);
-		for (const file of batch) {
-			if (!current.active) break;
-			try {
-				if (file.size > MAX_BYTES) throw Error("larger than 10 MB");
-				const response = await fetch("/attachments", {
-					method: "POST",
-					headers: {
-						"content-type": file.type || "application/octet-stream",
-						"x-attachment-filename": encodeURIComponent(file.name || "attachment")
-					},
-					body: file
-				});
-				const body = await response.json();
-				if (!response.ok || !body.name) throw Error(body.detail?.error || `upload failed (${response.status})`);
-				if (current.active) {
-					const next = [.../* @__PURE__ */ new Set([...filesRef.current, body.name])];
-					filesRef.current = next;
-					setFiles(next);
-				}
-			} catch (error) {
-				if (current.active) setStatus(`${file.name || "File"} not added: ${error.message}`);
-			} finally {
-				current.pending--;
-				if (current.active) setUploading(current.pending);
-			}
-		}
-	};
-	return {
-		uploading,
-		dragging,
-		addFiles,
-		remove: (name) => setFiles((prev) => prev.filter((x) => x !== name)),
-		onPaste: (e) => {
-			const pasted = [...e.clipboardData?.files || []];
-			if (pasted.length) {
-				e.preventDefault();
-				addFiles(pasted);
-			}
-		},
-		dropProps: {
-			onDragOver: (e) => {
-				if (hasFiles(e)) {
-					e.preventDefault();
-					setDragging(true);
-				}
-			},
-			onDragLeave: (e) => {
-				if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
-			},
-			onDrop: (e) => {
-				if (hasFiles(e)) {
-					e.preventDefault();
-					setDragging(false);
-					addFiles(e.dataTransfer.files);
-				}
-			}
-		}
-	};
-}
-function AttachmentLink({ name }) {
-	const [missing, setMissing] = d(false);
-	if (missing) return m$1`<span class="image-expired">Attachment unavailable</span>`;
-	return m$1`<a class=${isImage(name) ? "image-link" : "file-link"} href=${`/attachments/${name}`} target="_blank" rel="noopener" title=${isImage(name) ? "Open image" : `Download ${attachmentLabel(name)}`}>
-    ${isImage(name) ? m$1`<img src=${`/attachments/${name}`} alt="Attached image" loading="lazy" onError=${() => setMissing(true)} />` : m$1`<span aria-hidden="true">▤</span> ${attachmentLabel(name)} <span aria-hidden="true">↓</span>`}
-  </a>`;
-}
-function AttachmentList({ files = [] }) {
-	return files.length > 0 && m$1`<div class="attachment-list">${files.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}</div>`;
-}
-function AttachmentPicker({ files, controls, disabled = false }) {
-	const input = A(null);
-	return m$1`<div class="attachment-picker">
-    <div class="attachment-tools"><button type="button" class="mini" disabled=${disabled} onClick=${() => input.current?.click()}>+ attach files</button><span>Paste or drop files · 10 MB each · up to 10</span></div>
-    <input ref=${input} type="file" multiple hidden disabled=${disabled} onChange=${(e) => {
-		controls.addFiles(e.target.files);
-		e.target.value = "";
-	}} />
-    ${(files.length > 0 || controls.uploading > 0) && m$1`<div class="compose-images">${files.map((name) => m$1`<figure key=${name} class="compose-image">
-      <${AttachmentLink} name=${name} /><button type="button" class="remove" disabled=${disabled} onClick=${() => controls.remove(name)} aria-label=${`Remove ${attachmentLabel(name)}`}>×</button>
-    </figure>`)}${controls.uploading > 0 && m$1`<span role="status">Uploading ${controls.uploading}…</span>`}</div>`}
-  </div>`;
 }
 //#endregion
 //#region web/src/history.js
@@ -8245,6 +8293,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     </div>`}
     ${err && m$1`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
+      <${TaskTrash} task=${t} refresh=${refresh} />
       <select title="assignee" value=${t.team_id ? `t:${t.team_id}` : t.assignee || ""}
         onChange=${onAssign}>
         <option value="">unassigned</option>
