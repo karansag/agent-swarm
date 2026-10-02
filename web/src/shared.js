@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { machineColor, machineName } from "./machines.js";
 
 export const POLL_MS = 2000;
 export const PEEK_MS = 2000;
@@ -6,8 +7,7 @@ export const JSONH = { "content-type": "application/json" };
 
 export const FLAVOR_ICON = { claude: "✳", codex: "◇", pi: "π", hermes: "☿", generic: "▪" };
 
-// Harness identity has its own palette and glyph so it remains distinct from
-// activity state (green/amber/red) and is never communicated by color alone.
+// Harness glyphs identify the runtime; machine colors live in machines.js.
 export const HARNESSES = Object.freeze({
   claude:  { key: "claude",  label: "Claude",  color: "#d8905f", mark: "✳" },
   codex:   { key: "codex",   label: "Codex",   color: "#56b4e9", mark: "◇" },
@@ -88,4 +88,21 @@ export function Avatar({ name, size }) {
   return html`<div class=${`hex ${size || ""}`} style=${`--hue: hsl(${hue(name)} 42% 58%)`}>
     ${emoji || html`<span class="mono2">${base.slice(0, 2)}</span>`}
   </div>`;
+}
+
+export function MachineBadge({ node }) {
+  return html`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
+}
+
+export function Bee({ node, flavor, size = "" }) {
+  const harness = harnessStyle(flavor);
+  return html`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+    <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
+    <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
+    <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
+    <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />
+    <path d="M19 12v18M29 11v20" stroke="#16120c" stroke-width="7" />
+    <path d="M19 12v18M29 11v20" stroke=${harness.color} stroke-width="4" />
+    <circle cx="44" cy="21" r="6" fill="#16120c" /><circle cx="46" cy="19" r="1.3" fill="#f0e6d2" />
+  </svg>`;
 }

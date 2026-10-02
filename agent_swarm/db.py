@@ -300,6 +300,8 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN note TEXT")
     if "worktree_node" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN worktree_node TEXT")
+    if "attachments" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN attachments TEXT")
     msg_cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     if "attachments" not in msg_cols:
         conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT")
@@ -481,25 +483,47 @@ def create_task(
     description: str | None = None,
     assignee: str | None = None,
     team_id: int | None = None,
+    attachments: list[str] | None = None,
+    depends_on: list[int] | None = None,
 ) -> dict:
     now = time.time()
     if team_id is not None:
         assignee = None
-    cur = conn.execute(
-        "INSERT INTO tasks(title, description, assignee, team_id, status, created_at, updated_at) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (title, description, assignee, team_id, "open", now, now),
-    )
-    conn.commit()
+    with conn:
+        deps = sorted(set(depends_on or []))
+        for dep in deps:
+            if conn.execute("SELECT 1 FROM tasks WHERE id=?", (dep,)).fetchone() is None:
+                raise ValueError(f"unknown dependency: #{dep}")
+        cur = conn.execute(
+            "INSERT INTO tasks(title, description, assignee, team_id, status, created_at, updated_at, attachments) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (title, description, assignee, team_id, "open", now, now, json.dumps(attachments or [])),
+        )
+        task_id = int(cur.lastrowid)
+        conn.executemany("INSERT INTO task_deps(task_id, depends_on) VALUES(?,?)", [(task_id, d) for d in deps])
     return get_task(conn, int(cur.lastrowid))
 
 
 @_serialized
+def delete_task(conn: sqlite3.Connection, task_id: int) -> bool:
+    """Remove a task without silently satisfying another task's dependency."""
+    with conn:
+        dependents = [r[0] for r in conn.execute(
+            "SELECT task_id FROM task_deps WHERE depends_on=?", (task_id,)
+        )]
+        if dependents:
+            raise ValueError("remove this dependency from tasks " +
+                             ", ".join(f"#{i}" for i in dependents) + " first")
+        conn.execute("DELETE FROM task_deps WHERE task_id=?", (task_id,))
+        return conn.execute("DELETE FROM tasks WHERE id=?", (task_id,)).rowcount > 0
+
+
 def get_task(conn: sqlite3.Connection, task_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
     if row is None:
         return None
     task = dict(row)
+    task["attachments"] = json.loads(task.get("attachments") or "[]")
     task["depends_on"] = [
         r["depends_on"]
         for r in conn.execute(
@@ -519,6 +543,7 @@ def list_tasks(conn: sqlite3.Connection) -> list[dict]:
     tasks = []
     for row in rows:
         task = dict(row)
+        task["attachments"] = json.loads(task.get("attachments") or "[]")
         task["depends_on"] = deps.get(task["id"], [])
         tasks.append(task)
     return tasks
@@ -823,13 +848,18 @@ def delete_messages_before(conn: sqlite3.Connection, cutoff: float) -> int:
 
 @_serialized
 def attachment_last_used(conn: sqlite3.Connection) -> dict[str, float]:
-    """Each attachment name mapped to the time of the newest message carrying it."""
+    """Message last use, plus current use for attachments retained by tasks."""
     rows = conn.execute(
         "SELECT j.value AS name, MAX(m.ts) AS ts "
         "FROM messages m, json_each(m.attachments) j "
         "WHERE m.attachments IS NOT NULL GROUP BY j.value"
     ).fetchall()
-    return {r["name"]: r["ts"] for r in rows}
+    used = {r["name"]: r["ts"] for r in rows}
+    # Task references remain available for the lifetime of the task, including
+    # unassigned work that has never generated a message.
+    for row in conn.execute("SELECT DISTINCT j.value FROM tasks t, json_each(t.attachments) j"):
+        used[row[0]] = time.time()
+    return used
 
 
 def _message(row: sqlite3.Row) -> dict:

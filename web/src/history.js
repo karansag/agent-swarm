@@ -1,3 +1,4 @@
+import { AttachmentList } from "./attachments.js";
 import { html } from "htm/preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
@@ -158,6 +159,7 @@ function TaskTile({ rec, re, now, filterAgent }) {
     </div>
     <div class="h-title"><span class="h-id">#${t.id}</span> ${hl(f.title, re)}</div>
     <${Clipped} text=${f.description} re=${re} />
+    <${AttachmentList} files=${t.attachments} />
     <${Clipped} label="how to verify" text=${f.note} re=${re} />
     <div class="h-meta">
       <span title=${fmtDate(t.created_at)}>created ${fmtDate(t.created_at)}</span>

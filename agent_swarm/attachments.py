@@ -1,9 +1,9 @@
-"""Images attached to messages, stored by content hash next to the database.
+"""Files attached to messages and tasks, stored by content hash.
 
 Delivery into a tmux pane is text-only, so an agent receives an attachment as
 an absolute file path it can open with its own file-reading tool. The file
 type is decided by sniffing the bytes, never by the client's claimed type, and
-only raster formats are accepted so nothing served back can run script.
+raster images are shown inline; all other files are forced downloads.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
-_NAME = re.compile(r"^[0-9a-f]{64}\.(png|jpg|gif|webp)$")
+_NAME = re.compile(r"^[0-9a-f]{64}\.(?:png|jpg|gif|webp|file\.[A-Za-z0-9][A-Za-z0-9._-]{0,119})$")
 
 
 def sniff(data: bytes) -> str | None:
@@ -45,15 +45,19 @@ def sniff(data: bytes) -> str | None:
     return None
 
 
-def save(root: Path, data: bytes) -> str:
-    """Store an image and return its name. Raises ValueError if unsupported."""
+def save(root: Path, data: bytes, filename: str | None = None) -> str:
+    """Store bytes. Non-image uploads require a filename and are downloads."""
     if not data:
         raise ValueError("empty upload")
     if len(data) > MAX_BYTES:
-        raise ValueError(f"image larger than {MAX_BYTES // (1024 * 1024)} MB")
+        raise ValueError(f"file larger than {MAX_BYTES // (1024 * 1024)} MB")
     ext = sniff(data)
     if ext is None:
-        raise ValueError("not a PNG, JPEG, GIF, or WebP image")
+        if not filename:
+            raise ValueError("not a PNG, JPEG, GIF, or WebP image; provide a filename for other files")
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", filename.replace("\\", "/").rsplit("/", 1)[-1])
+        safe = safe.lstrip("._-")[:120] or "attachment"
+        ext = f"file.{safe}"
     name = f"{hashlib.sha256(data).hexdigest()}.{ext}"
     root.mkdir(parents=True, exist_ok=True)
     path = root / name
@@ -75,8 +79,16 @@ def resolve(root: Path, name: str) -> Path | None:
     return path if path.is_file() else None
 
 
+def is_image(name: str) -> bool:
+    return bool(_NAME.fullmatch(name)) and ".file." not in name
+
+
+def download_name(name: str) -> str:
+    return name.split(".file.", 1)[-1] if ".file." in name else name
+
+
 def media_type(name: str) -> str:
-    return MEDIA_TYPES[name.rsplit(".", 1)[1]]
+    return MEDIA_TYPES[name.rsplit(".", 1)[1]] if is_image(name) else "application/octet-stream"
 
 
 def sweep(

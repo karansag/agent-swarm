@@ -765,3 +765,22 @@ put text in front of every agent on every enrolled machine.
 - **`agent-swarm` command not found**: run `uv tool install --editable .`
   from the repo root, or use `uv run agent-swarm ...` if you installed
   with `uv pip install -e .` instead.
+
+### Tasks with attachments
+
+The task composer on the board accepts a title, optional details, an agent or
+team assignment, and up to ten files (10 MB each). The same composer appears
+below the terminal on an agent's page, with that agent preselected. Paste,
+drop, or choose files just as in the message composer. Failed or unconfirmed
+creation keeps the draft; check the board before retrying an unconfirmed request.
+
+Images have previews; other files have download links. Files stay available
+while their task exists, including unassigned and completed tasks, and are
+included in assignment notifications. Remote nodes fetch attachments to their
+own disk. Update and restart the node daemon as well as the hub when upgrading
+to non-image file support; older daemons understand only image attachments.
+
+`POST /tasks` accepts `attachments: [name, ...]` using names returned by
+`POST /attachments`. Upload raw bytes; provide `X-Attachment-Filename` (URL-encoded)
+for a non-image file. Non-images are always served as downloads with
+`application/octet-stream` and `nosniff`, never rendered as an active page.

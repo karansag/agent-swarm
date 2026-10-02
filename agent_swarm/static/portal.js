@@ -58,7 +58,7 @@ var p$1;
 var v$1;
 var d$1 = {};
 var w$1 = [];
-var _ = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+var _$1 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
 var g = Array.isArray;
 function m$2(n, l) {
 	for (var u in l) n[u] = l[u];
@@ -155,7 +155,7 @@ function O(n, l, u, t) {
 	return -1;
 }
 function z$1(n, l, u) {
-	"-" == l[0] ? n.setProperty(l, null == u ? "" : u) : n[l] = null == u ? "" : "number" != typeof u || _.test(l) ? u : u + "px";
+	"-" == l[0] ? n.setProperty(l, null == u ? "" : u) : n[l] = null == u ? "" : "number" != typeof u || _$1.test(l) ? u : u + "px";
 }
 function N(n, l, u, t, i) {
 	var r, o;
@@ -396,6 +396,10 @@ function h(n, u) {
 	var i = s(t++, 3);
 	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__H.__h.push(i));
 }
+function _(n, u) {
+	var i = s(t++, 4);
+	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__h.push(i));
+}
 function A(n) {
 	return o = 5, T(function() {
 		return { current: n };
@@ -476,6 +480,71 @@ function C(n, t) {
 }
 function D(n, t) {
 	return "function" == typeof t ? t(n) : t;
+}
+//#endregion
+//#region web/src/task-trash.js
+function TaskTrash({ task, refresh, onDeleted }) {
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d("");
+	const remove = async () => {
+		if (!confirm(`Permanently trash task #${task.id}: ${task.title}? This cannot be undone. Agent conversations and working files will remain.`)) return;
+		setBusy(true);
+		setError("");
+		try {
+			const response = await fetch(`/tasks/${task.id}`, { method: "DELETE" });
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.detail?.error || "Could not trash task.");
+			onDeleted?.();
+			refresh();
+		} catch (err) {
+			setError(`${err.message} Refresh to check the task before retrying.`);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return m$1`<span class="task-trash"><button type="button" class="mini danger" disabled=${busy}
+    title=${`Permanently trash task #${task.id}`} onClick=${remove}>${busy ? "Trashing…" : "⌫ Trash"}</button>
+    ${error && m$1`<span role="alert" class="tnote-err">${error}</span>`}</span>`;
+}
+//#endregion
+//#region web/src/machines.js
+var COLORS = [
+	"#80bfff",
+	"#c4a0f5",
+	"#91a4ee",
+	"#ed9bc4",
+	"#adc87f",
+	"#edba83",
+	"#65d5c0",
+	"#d2bd79"
+];
+var machineName = (name) => name || "Unknown machine";
+function machineColor(name) {
+	let hash = 2166136261;
+	for (const c of machineName(name)) hash = Math.imul(hash ^ c.codePointAt(0), 16777619);
+	return COLORS[(hash >>> 0) % COLORS.length];
+}
+function machineList(nodes = [], recipients = []) {
+	const all = new Map(nodes.map((n) => [machineName(n.name), {
+		...n,
+		name: machineName(n.name)
+	}]));
+	for (const r of recipients) {
+		const name = machineName(r.node);
+		if (!all.has(name)) all.set(name, {
+			name,
+			connected: false,
+			missing: true
+		});
+	}
+	return [...all.values()].map((n) => {
+		const agents = recipients.filter((r) => machineName(r.node) === n.name);
+		return {
+			...n,
+			total: agents.length,
+			live: agents.filter((r) => r.pane_alive).length
+		};
+	}).sort((a, b) => Number(!!b.local) - Number(!!a.local) || a.name.localeCompare(b.name));
 }
 //#endregion
 //#region web/src/shared.js
@@ -637,6 +706,21 @@ function Avatar({ name, size }) {
     ${emoji || m$1`<span class="mono2">${base.slice(0, 2)}</span>`}
   </div>`;
 }
+function MachineBadge({ node }) {
+	return m$1`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
+}
+function Bee({ node, flavor, size = "" }) {
+	const harness = harnessStyle(flavor);
+	return m$1`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness`}>
+    <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
+    <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
+    <ellipse cx="23" cy="32" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(25 23 32)" />
+    <ellipse cx="26" cy="21" rx="19" ry="10" fill=${machineColor(node)} />
+    <path d="M19 12v18M29 11v20" stroke="#16120c" stroke-width="7" />
+    <path d="M19 12v18M29 11v20" stroke=${harness.color} stroke-width="4" />
+    <circle cx="44" cy="21" r="6" fill="#16120c" /><circle cx="46" cy="19" r="1.3" fill="#f0e6d2" />
+  </svg>`;
+}
 //#endregion
 //#region web/src/outcome.js
 function structured(body) {
@@ -759,6 +843,122 @@ function spawnOutcome(httpOk, body) {
 	};
 }
 //#endregion
+//#region web/src/attachments.js
+var attachmentLabel = (name) => name.includes(".file.") ? name.slice(name.indexOf(".file.") + 6) : "Image";
+var isImage = (name) => /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.test(name);
+var MAX_FILES = 10;
+var MAX_BYTES = 10 * 1024 * 1024;
+var hasFiles = (e) => [...e.dataTransfer?.types || []].includes("Files");
+function useAttachments(files, setFiles, setStatus, scope) {
+	const [uploading, setUploading] = d(0);
+	const [dragging, setDragging] = d(false);
+	const session = A(null);
+	const filesRef = A(files);
+	filesRef.current = files;
+	h(() => {
+		const current = {
+			active: true,
+			pending: 0
+		};
+		session.current = current;
+		setUploading(0);
+		return () => {
+			current.active = false;
+		};
+	}, [scope]);
+	const addFiles = async (incoming) => {
+		const current = session.current;
+		if (!current?.active) return;
+		const batch = [...incoming || []];
+		if (filesRef.current.length + current.pending + batch.length > MAX_FILES) {
+			setStatus(`Up to ${MAX_FILES} attachments per task or message.`);
+			return;
+		}
+		current.pending += batch.length;
+		setUploading(current.pending);
+		for (const file of batch) {
+			if (!current.active) break;
+			try {
+				if (file.size > MAX_BYTES) throw Error("larger than 10 MB");
+				const response = await fetch("/attachments", {
+					method: "POST",
+					headers: {
+						"content-type": file.type || "application/octet-stream",
+						"x-attachment-filename": encodeURIComponent(file.name || "attachment")
+					},
+					body: file
+				});
+				const body = await response.json();
+				if (!response.ok || !body.name) throw Error(body.detail?.error || `upload failed (${response.status})`);
+				if (current.active) {
+					const next = [.../* @__PURE__ */ new Set([...filesRef.current, body.name])];
+					filesRef.current = next;
+					setFiles(next);
+				}
+			} catch (error) {
+				if (current.active) setStatus(`${file.name || "File"} not added: ${error.message}`);
+			} finally {
+				current.pending--;
+				if (current.active) setUploading(current.pending);
+			}
+		}
+	};
+	return {
+		uploading,
+		dragging,
+		addFiles,
+		remove: (name) => setFiles((prev) => prev.filter((x) => x !== name)),
+		onPaste: (e) => {
+			const pasted = [...e.clipboardData?.files || []];
+			if (pasted.length) {
+				e.preventDefault();
+				addFiles(pasted);
+			}
+		},
+		dropProps: {
+			onDragOver: (e) => {
+				if (hasFiles(e)) {
+					e.preventDefault();
+					setDragging(true);
+				}
+			},
+			onDragLeave: (e) => {
+				if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
+			},
+			onDrop: (e) => {
+				if (hasFiles(e)) {
+					e.preventDefault();
+					setDragging(false);
+					addFiles(e.dataTransfer.files);
+				}
+			}
+		}
+	};
+}
+function AttachmentLink({ name }) {
+	const [missing, setMissing] = d(false);
+	if (missing) return m$1`<span class="image-expired">Attachment unavailable</span>`;
+	return m$1`<a class=${isImage(name) ? "image-link" : "file-link"} href=${`/attachments/${name}`} target="_blank" rel="noopener" title=${isImage(name) ? "Open image" : `Download ${attachmentLabel(name)}`}>
+    ${isImage(name) ? m$1`<img src=${`/attachments/${name}`} alt="Attached image" loading="lazy" onError=${() => setMissing(true)} />` : m$1`<span aria-hidden="true">▤</span> ${attachmentLabel(name)} <span aria-hidden="true">↓</span>`}
+  </a>`;
+}
+function AttachmentList({ files = [] }) {
+	return files.length > 0 && m$1`<div class="attachment-list">${files.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}</div>`;
+}
+function AttachmentPicker({ files, controls, disabled = false }) {
+	const input = A(null);
+	return m$1`<div class="attachment-picker">
+    <div class="attachment-tools"><button type="button" class="mini" disabled=${disabled} onClick=${() => input.current?.click()}>+ attach files</button><span>Paste or drop files · 10 MB each · up to 10</span></div>
+    <input ref=${input} type="file" multiple hidden disabled=${disabled} onChange=${(e) => {
+		controls.addFiles(e.target.files);
+		e.target.value = "";
+	}} />
+    ${(files.length > 0 || controls.uploading > 0) && m$1`<div class="compose-images">${files.map((name) => m$1`<figure key=${name} class="compose-image">
+      <${AttachmentLink} name=${name} /><button type="button" class="remove" disabled=${disabled} onClick=${() => controls.remove(name)} aria-label=${`Remove ${attachmentLabel(name)}`}>×</button>
+    </figure>`)}${controls.uploading > 0 && m$1`<span role="status">Uploading ${controls.uploading}…</span>`}</div>`}
+  </div>`;
+}
+//#endregion
 //#region web/src/hive.js
 var TASK_CELL_RADIUS = 18;
 var TASK_CELL_CLEARANCE = 22;
@@ -791,7 +991,11 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 	}
 	return start;
 }
-function HiveView({ state, refresh }) {
+function HiveView({ state, refresh, machine }) {
+	const [selectedTask, setSelectedTask] = d(null);
+	const taskDetail = (state.tasks || []).find((t) => t.id === selectedTask);
+	const machineRef = A(machine);
+	machineRef.current = machine;
 	const canvasRef = A(null);
 	const stateRef = A(state);
 	const beesRef = A(/* @__PURE__ */ new Map());
@@ -1181,7 +1385,7 @@ function HiveView({ state, refresh }) {
 					bee.y = out.y;
 				}
 				bee.x = Math.max(16, Math.min(width - 16, bee.x));
-				bee.y = Math.max(34, Math.min(244, bee.y));
+				bee.y = Math.max(34, Math.min(bee.picked ? 208 : 224, bee.y));
 			}
 			for (const bee of beeData) {
 				const { r, name, harness, x, y, dx, dy, q, picked, assigned, primary, extras, working, busy } = bee;
@@ -1190,9 +1394,12 @@ function HiveView({ state, refresh }) {
 					x,
 					y,
 					task: primary,
+					node: machineName(r.node),
 					harness: harness.key,
 					doing: doing && doing.text
 				});
+				ctx.save();
+				if (machineRef.current !== null && machineName(r.node) !== machineRef.current) ctx.globalAlpha = .18;
 				if (assigned) token(assigned, x + 22, y + Math.sin(q * .8) * 3);
 				const bearing = Math.atan2(dy, dx);
 				ctx.save();
@@ -1212,11 +1419,14 @@ function HiveView({ state, refresh }) {
 				ctx.beginPath();
 				ctx.ellipse(-2, 7, 6, 3, .45 + flap, 0, Math.PI * 2);
 				ctx.fill();
-				ctx.fillStyle = harness.color;
+				ctx.fillStyle = machineColor(r.node);
 				ctx.beginPath();
 				ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2);
 				ctx.fill();
-				ctx.fillStyle = "rgba(22,18,12,.5)";
+				ctx.fillStyle = "#16120c";
+				ctx.fillRect(-5, -6, 4.5, 12);
+				ctx.fillRect(1, -6, 4.5, 12);
+				ctx.fillStyle = harness.color;
 				ctx.fillRect(-4, -6, 2.5, 12);
 				ctx.fillRect(2, -6, 2.5, 12);
 				ctx.fillStyle = "#16120c";
@@ -1241,14 +1451,18 @@ function HiveView({ state, refresh }) {
 				ctx.textBaseline = "alphabetic";
 				const markGap = 3;
 				const markW = ctx.measureText(harness.mark).width;
-				const nameW = ctx.measureText(name).width;
+				const shortName = name.length > 20 ? `${name.slice(0, 19)}…` : name;
+				const nameW = ctx.measureText(shortName).width;
 				const labelLeft = x - (markW + markGap + nameW) / 2;
 				ctx.textAlign = "left";
 				ctx.fillStyle = harness.color;
 				ctx.fillText(harness.mark, labelLeft, labelY);
 				ctx.fillStyle = "#a89878";
-				ctx.fillText(name, labelLeft + markW + markGap, labelY);
+				ctx.fillText(shortName, labelLeft + markW + markGap, labelY);
 				ctx.textAlign = "center";
+				ctx.font = "8px ui-monospace, monospace";
+				ctx.fillStyle = machineColor(r.node);
+				ctx.fillText(machineName(r.node), x, labelY + 11);
 				const attention = r.activity && r.activity.status === "needs_attention";
 				if (attention) {
 					ctx.fillStyle = "#f2a93b";
@@ -1264,6 +1478,7 @@ function HiveView({ state, refresh }) {
 					ctx.textBaseline = "alphabetic";
 					ctx.fillText("♛", x, y - (attention ? 26 : 14));
 				}
+				ctx.restore();
 			}
 			if (dragTaskRef.current !== null && dragPointRef.current) {
 				const dragged = (data.tasks || []).find((t) => t.id === dragTaskRef.current);
@@ -1273,7 +1488,6 @@ function HiveView({ state, refresh }) {
 			if (dragBee && dragPointRef.current) {
 				const p = dragPointRef.current;
 				const draggedRecipient = grouped.find((r) => r.user_id === dragBeeRef.current);
-				const draggedHarness = harnessStyle(draggedRecipient && draggedRecipient.flavor);
 				ctx.save();
 				ctx.strokeStyle = "rgba(240,230,210,.3)";
 				ctx.setLineDash([3, 4]);
@@ -1284,11 +1498,11 @@ function HiveView({ state, refresh }) {
 				ctx.restore();
 				ctx.save();
 				ctx.globalAlpha = .85;
-				ctx.fillStyle = draggedHarness.color;
+				ctx.fillStyle = machineColor(draggedRecipient?.node);
 				ctx.beginPath();
 				ctx.ellipse(p.x, p.y, 12, 6, 0, 0, Math.PI * 2);
 				ctx.fill();
-				ctx.fillStyle = "rgba(22,18,12,.5)";
+				ctx.fillStyle = harnessStyle(draggedRecipient?.flavor).color;
 				ctx.fillRect(p.x - 4, p.y - 6, 2.5, 12);
 				ctx.fillRect(p.x + 2, p.y - 6, 2.5, 12);
 				ctx.restore();
@@ -1395,7 +1609,7 @@ function HiveView({ state, refresh }) {
 				const said = hovered.doing || hovered.task && hovered.task.title;
 				const title = said ? ` · ${said.length > 70 ? `${said.slice(0, 69)}…` : said}` : "";
 				const harnessLabel = (HARNESSES[hovered.harness] || HARNESSES.generic).label;
-				const label = `${hoverRef.current} · ${harnessLabel}${title}`;
+				const label = `${hoverRef.current} · ${hovered.node} · ${harnessLabel}${title}`;
 				ctx.font = "10px ui-monospace, monospace";
 				const w = ctx.measureText(label).width + 12;
 				const tx = Math.max(4, Math.min(width - w - 4, hovered.x - w / 2));
@@ -1416,7 +1630,7 @@ function HiveView({ state, refresh }) {
 				const task = taskCell.task;
 				const stateLabel = taskCell.stranded ? `assigned to stopped ${task.assignee}` : taskCell.team ? `team ${taskCell.team.name}` : "waiting";
 				const blockedLabel = taskCell.blocked ? ` · blocked (after ${(task.depends_on || []).map((d) => `#${d}`).join(" ")})` : "";
-				const label = `#${task.id} · ${task.title} · ${stateLabel}${blockedLabel} · drag onto a bee or team`;
+				const label = `#${task.id} · ${task.title} · ${stateLabel}${blockedLabel} · click to expand · drag to assign`;
 				ctx.font = "10px ui-monospace, monospace";
 				const w = Math.min(width - 16, ctx.measureText(label).width + 12);
 				const tx = Math.max(8, Math.min(width - w - 8, taskCell.x - w / 2));
@@ -1665,7 +1879,12 @@ function HiveView({ state, refresh }) {
 				return;
 			}
 			const name = hit(e);
-			if (name) location.hash = focusHash(name);
+			if (name) {
+				location.hash = focusHash(name);
+				return;
+			}
+			const cell = hitTask(e);
+			if (cell) setSelectedTask((id) => id === cell.task.id ? null : cell.task.id);
 		};
 		const dragOver = (e) => {
 			const id = taskId(e);
@@ -1709,6 +1928,10 @@ function HiveView({ state, refresh }) {
 		canvas.addEventListener("drop", drop);
 		canvas.addEventListener("dragend", clearDrop);
 		window.addEventListener("dragend", clearDrop);
+		const resize = new ResizeObserver(() => {
+			if (reduced) draw(performance.now(), true);
+		});
+		resize.observe(canvas);
 		if (reduced) draw(performance.now(), true);
 		else {
 			const tick = (now) => {
@@ -1721,6 +1944,7 @@ function HiveView({ state, refresh }) {
 			frame = requestAnimationFrame(tick);
 		}
 		return () => {
+			resize.disconnect();
 			cancelAnimationFrame(frame);
 			drawRef.current = null;
 			delete window.__hive;
@@ -1740,16 +1964,32 @@ function HiveView({ state, refresh }) {
 	}, []);
 	h(() => {
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current) drawRef.current(performance.now(), true);
-	}, [state]);
-	return m$1`<div class="hive-panel"><canvas ref=${canvasRef} tabindex="0"
-    aria-label="Live activity. Bee body color and the harness mark beside each bee's name identify the agent harness as listed in the legend. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas>
+	}, [state, machine]);
+	return m$1`<div class="hive-panel"><div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
     <div class="harness-legend" aria-label="Bee harness legend">
-      <span class="legend-title">harness</span>
+      <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       ${legendHarnesses.map((harness) => m$1`<span class="harness-key" key=${harness.key}>
         <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
         ${harness.label}
       </span>`)}
     </div>
+    <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
+      onChange=${(e) => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>
+      <option value="">Click a honeycomb or choose a task…</option>
+      ${(state.tasks || []).filter((t) => t.status !== "done" || t.id === selectedTask).map((t) => m$1`<option value=${t.id}>#${t.id} · ${t.title}</option>`)}
+    </select></label></div>
+    ${taskDetail && m$1`<section class="hive-task-detail" aria-label=${`Task #${taskDetail.id} details`}>
+      <header><h3>#${taskDetail.id} · ${taskDetail.title}</h3>
+        <button type="button" class="mini" onClick=${() => setSelectedTask(null)}>Collapse</button></header>
+      <p>${taskDetail.status} · ${taskDetail.assignee || "unassigned"}${taskDetail.team_id ? ` · team ${(state.teams || []).find((t) => t.id === taskDetail.team_id)?.name || taskDetail.team_id}` : ""}</p>
+      ${taskDetail.description && m$1`<p class="task-description">${taskDetail.description}</p>`}
+      ${taskDetail.depends_on?.length > 0 && m$1`<p>Depends on ${taskDetail.depends_on.map((id) => `#${id}`).join(", ")}</p>`}
+      ${taskDetail.worktree && m$1`<p>Worktree: ${taskDetail.worktree_node || ""} ${taskDetail.worktree}</p>`}
+      <${AttachmentList} files=${taskDetail.attachments} />
+      ${taskDetail.note && m$1`<p class="task-description">${taskDetail.note}</p>`}
+      <${TaskTrash} key=${taskDetail.id} task=${taskDetail} refresh=${refresh} onDeleted=${() => setSelectedTask(null)} />
+    </section>`}
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
 }
 //#endregion
@@ -1878,6 +2118,7 @@ function TaskTile({ rec, re, now, filterAgent }) {
     </div>
     <div class="h-title"><span class="h-id">#${t.id}</span> ${hl(f.title, re)}</div>
     <${Clipped} text=${f.description} re=${re} />
+    <${AttachmentList} files=${t.attachments} />
     <${Clipped} label="how to verify" text=${f.note} re=${re} />
     <div class="h-meta">
       <span title=${fmtDate(t.created_at)}>created ${fmtDate(t.created_at)}</span>
@@ -2005,6 +2246,24 @@ function HistoryView({ state }) {
 	})}
         </div>`}
   </div>`;
+}
+//#endregion
+//#region web/src/scroll-follow.js
+function createBottomFollower() {
+	let pinned = true;
+	let lastTop = 0;
+	return {
+		onScroll(el) {
+			const top = Math.max(0, el.scrollTop);
+			if (top + el.clientHeight >= el.scrollHeight - 8) pinned = true;
+			else if (top < lastTop - 1) pinned = false;
+			lastTop = top;
+		},
+		follow(el) {
+			if (pinned) el.scrollTop = el.scrollHeight;
+			lastTop = Math.max(0, el.scrollTop);
+		}
+	};
 }
 //#endregion
 //#region node_modules/mdurl/lib/decode.mjs
@@ -7579,12 +7838,15 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 		e.dataTransfer.setData("text/plain", r.user_id);
 	};
 	return m$1`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
+      style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => {
-		location.hash = selected ? "#/" : focusHash(r.user_id);
+		location.hash = focusHash(r.user_id);
 	}}>
-    <${Avatar} name=${r.user_id} size="small" />
+    <${Bee} node=${r.node} flavor=${r.flavor} size="small" />
     <div class="who">
+      <${MachineBadge} node=${r.node} />
+      ${team && m$1`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
       <div class="nm">${r.user_id}${isQueen && m$1`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
       <div class="tech" title=${[
@@ -7593,7 +7855,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 		r.node,
 		r.pane_label,
 		r.tmux_pane
-	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`}${r.node && m$1` · <span class="node">${r.node}</span>`} · ${r.pane_label}</div>
+	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
@@ -7765,6 +8027,7 @@ function SpawnControl({ refresh, nodes }) {
 	};
 	const flavors = offered.length ? offered.map((h) => h.flavor) : [];
 	return m$1`<form class="spawn" onSubmit=${spawn}>
+    <div class="spawn-heading">Spawn agent · choose destination</div>
     ${(enrolled.length > 1 || node) && m$1`<select title="machine" value=${node} onChange=${(e) => pickNode(e.target.value)}>
       ${choices.map((n) => m$1`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
     </select>`}
@@ -7895,29 +8158,47 @@ function Resend({ m, refresh }) {
 	return m$1`<button type="button" class="resend" disabled=${busy} onClick=${resend}
     title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && m$1` <span class="ctx">${note}</span>`}`;
 }
-function NodeStrip({ nodes, recipients }) {
-	if (!nodes || nodes.length < 2) return null;
-	const count = (name) => recipients.filter((r) => r.node === name && r.pane_alive).length;
-	return m$1`<div class="nodes" aria-label="machines">
-    ${nodes.map((n) => m$1`<span key=${n.name} class=${`node-chip ${n.connected ? "on" : "off"}`}
-      title=${n.local ? "this machine" : n.connected ? "connected" : `not connected${n.last_seen ? ` · last seen ${rel(n.last_seen, Date.now() / 1e3)}` : ""}`}>
-      <span class="dot"></span>${n.name}${n.local && m$1`<span class="you"> · hub</span>`} · ${count(n.name)}</span>`)}
-  </div>`;
+function MachineBar({ state, machine, selectMachine }) {
+	const machines = machineList(state.nodes, state.recipients);
+	return m$1`<section class="machine-bar" aria-label="Machine selector">
+    <div class="machine-heading"><span>Machines</span><small>Color identifies the machine</small></div>
+    <div class="machine-choices">
+      <button class=${`machine-choice all ${machine === null ? "active" : ""}`} aria-pressed=${machine === null}
+        onClick=${() => selectMachine(null)}><strong>All machines</strong><span>${machines.length} machines · ${state.recipients.filter((r) => r.pane_alive).length} live agents</span></button>
+      ${machines.map((n) => m$1`<button key=${n.name} class=${`machine-choice ${machine === n.name ? "active" : ""} ${n.connected ? "" : "disconnected"}`}
+          style=${`--machine:${machineColor(n.name)}`} aria-pressed=${machine === n.name}
+          onClick=${() => selectMachine(machine === n.name ? null : n.name)}>
+        <strong><span class="machine-mark" aria-hidden="true"></span>${n.name}${n.local && m$1`<small>hub</small>`}</strong>
+        <span>${n.connected ? "Connected" : n.missing ? "Not enrolled" : "Disconnected"} · ${n.live} live${n.total > n.live ? ` / ${n.total} registered` : " agents"}</span>
+      </button>`)}
+    </div>
+    ${machine !== null && m$1`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
+  </section>`;
 }
-function Roster({ state, focusUser, unreadFor, pings, refresh }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose }) {
+	const [groupBy, setGroupBy] = d("team");
 	const [overUnteam, setOverUnteam] = d(false);
 	const teams = state.teams || [];
 	const teamById = new Map(teams.map((t) => [t.id, t]));
-	const running = sortByActivity(state.recipients.filter((r) => r.pane_alive));
-	const stopped = state.recipients.filter((r) => !r.pane_alive);
+	const visible = state.recipients.filter((r) => machine === null || machineName(r.node) === machine);
+	const running = sortByActivity(visible.filter((r) => r.pane_alive));
+	const stopped = visible.filter((r) => !r.pane_alive);
 	const unteamed = running.filter((r) => !teamById.has(r.team_id));
 	const chip = (r) => m$1`<${RosterChip} key=${r.user_id} r=${r} state=${state}
     team=${teamById.get(r.team_id) || null}
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
 	return m$1`<aside class="roster">
-    <h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2>
-    <${NodeStrip} nodes=${state.nodes} recipients=${state.recipients} />
+    <div class="roster-heading"><h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2><button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>
+    <div class="roster-grouping" aria-label="Group agents by">
+      <span>Group by</span>${["machine", "team"].map((g) => m$1`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
+    </div>
+    ${groupBy === "machine" ? machineList(state.nodes, state.recipients).filter((n) => machine === null || machine === n.name).map((n) => m$1`<section class="machine-group" key=${n.name} style=${`--machine:${machineColor(n.name)}`}>
+      <h3><${MachineBadge} node=${n.name} /><span>${running.filter((r) => machineName(r.node) === n.name).length} live</span></h3>
+      ${running.filter((r) => machineName(r.node) === n.name).map(chip)}
+      ${!running.some((r) => machineName(r.node) === n.name) && m$1`<p class="machine-empty">${n.connected ? "No live agents" : n.missing ? "Machine no longer enrolled" : "Machine disconnected"}</p>`}
+      ${stopped.some((r) => machineName(r.node) === n.name) && m$1`<details class="stopped"><summary>Offline / stopped · ${stopped.filter((r) => machineName(r.node) === n.name).length}</summary>${stopped.filter((r) => machineName(r.node) === n.name).map(chip)}</details>`}
+    </section>`) : m$1`<div>
     ${teams.map((t) => m$1`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
       members=${running.filter((r) => r.team_id === t.id)} />`)}
     <${NewTeam} refresh=${refresh} />
@@ -7931,6 +8212,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh }) {
       <summary>stopped · ${stopped.length}</summary>
       ${stopped.map(chip)}
     </details>`}
+    </div>`}
     <${SpawnControl} refresh=${refresh} nodes=${state.nodes || []} />
   </aside>`;
 }
@@ -7989,6 +8271,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     <div class="t">${t.title}</div>
     <div class="meta">#${t.id} · created ${when}${deps.length > 0 ? ` · after ${deps.map((d) => `#${d}`).join(" ")}` : ""}${t.description ? ` · ${t.description}` : ""}${t.worktree ? ` · worktree ${t.worktree}` : ""}</div>
     ${blocked && m$1`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map((d) => `#${d}`).join(" ")}</div>`}
+    <${AttachmentList} files=${t.attachments} />
     ${t.assignee && m$1`<div class="meta">${t.status === "open" ? "assigned to" : t.status === "done" ? "done by" : "picked up by"} <a class="agent-link" href=${focusHash(t.assignee)}
         title=${`Open ${t.assignee} and message it`}>${t.assignee}</a></div>`}
     ${t.note && m$1`<div class="tnote">
@@ -8010,6 +8293,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     </div>`}
     ${err && m$1`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
+      <${TaskTrash} task=${t} refresh=${refresh} />
       <select title="assignee" value=${t.team_id ? `t:${t.team_id}` : t.assignee || ""}
         onChange=${onAssign}>
         <option value="">unassigned</option>
@@ -8026,40 +8310,98 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
   </div>`;
 }
 var DONE_ON_BOARD = 10;
+function TaskComposer({ state, refresh, user = "" }) {
+	const draftKey = `agent-swarm:task-draft:${user || "board"}`;
+	const [draft] = d(() => {
+		try {
+			return JSON.parse(localStorage.getItem(draftKey) || "null") || {};
+		} catch {
+			return {};
+		}
+	});
+	const [title, setTitle] = d(draft.title || "");
+	const [description, setDescription] = d(draft.description || "");
+	const [assignee, setAssignee] = d(draft.assignee ?? user);
+	const [files, setFiles] = d(Array.isArray(draft.files) ? draft.files.filter((f) => typeof f === "string") : []);
+	const [status, setStatus] = d("");
+	const [busy, setBusy] = d(false);
+	const attachments = useAttachments(files, setFiles, setStatus, draftKey);
+	h(() => {
+		try {
+			if (title || description || files.length) localStorage.setItem(draftKey, JSON.stringify({
+				title,
+				description,
+				assignee,
+				files
+			}));
+			else localStorage.removeItem(draftKey);
+		} catch {}
+	}, [
+		draftKey,
+		title,
+		description,
+		assignee,
+		files
+	]);
+	const agents = state.recipients.filter((r) => r.pane_alive || r.user_id === user || r.user_id === assignee);
+	const teams = state.teams || [];
+	const targetExists = !assignee || (assignee.startsWith("t:") ? teams.some((t) => `t:${t.id}` === assignee) : agents.some((r) => r.user_id === assignee));
+	const create = async (e) => {
+		e.preventDefault();
+		if (busy || attachments.uploading || !title.trim() || !targetExists) return;
+		setBusy(true);
+		setStatus("Creating task…");
+		const body = {
+			title: title.trim(),
+			description: description.trim() || null,
+			attachments: files
+		};
+		if (assignee.startsWith("t:")) body.team_id = Number(assignee.slice(2));
+		else if (assignee) body.assignee = assignee;
+		try {
+			const response = await fetch("/tasks", {
+				method: "POST",
+				headers: JSONH,
+				body: JSON.stringify(body)
+			});
+			const result = await response.json().catch(() => null);
+			if (!response.ok || !result?.task?.id) {
+				setStatus(result?.detail?.error ? `Task not created: ${result.detail.error}. Draft kept.` : "Creation not confirmed. Check the board before retrying; draft kept.");
+				return;
+			}
+			setTitle("");
+			setDescription("");
+			setFiles([]);
+			setStatus(`Created task #${result.task.id}${result.task.assignee ? ` · assigned to ${result.task.assignee}` : result.task.team_id ? " · assigned to team" : " · unassigned"}.`);
+			await refresh();
+		} catch {
+			setStatus("Creation not confirmed. Check the board before retrying; draft kept.");
+		} finally {
+			setBusy(false);
+		}
+	};
+	return m$1`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
+    <div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>
+    <input class="task-title" aria-label="Task title" placeholder="What needs doing?" value=${title} disabled=${busy} onInput=${(e) => setTitle(e.target.value)} onPaste=${attachments.onPaste} required />
+    <textarea aria-label="Task details" placeholder="Details, context, or steps to reproduce… (optional)" rows="2" value=${description} disabled=${busy} onInput=${(e) => setDescription(e.target.value)} onPaste=${attachments.onPaste} />
+    <${AttachmentPicker} files=${files} controls=${attachments} disabled=${busy} />
+    <div class="task-compose-actions"><label>Assign to <select aria-label="Task assignee" value=${assignee} disabled=${busy} onChange=${(e) => setAssignee(e.target.value)}>
+      <option value="">Unassigned</option>
+      ${!targetExists && m$1`<option value=${assignee} disabled>${assignee} (unavailable)</option>`}
+      ${teams.length > 0 && m$1`<optgroup label="Teams">${teams.map((t) => m$1`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>`}
+      <optgroup label="Agents">${agents.map((r) => m$1`<option value=${r.user_id}>${r.user_id} · ${machineName(r.node)}${r.pane_alive ? "" : " (offline)"}</option>`)}</optgroup>
+    </select></label><button class="act" disabled=${busy || attachments.uploading > 0 || !title.trim() || !targetExists}>${busy ? "Creating…" : "create task"}</button></div>
+    ${!targetExists && m$1`<p class="task-compose-status">The selected assignee is unavailable. Choose another destination.</p>`}
+    ${status && m$1`<p class="task-compose-status" role="status">${status}</p>`}
+  </form>`;
+}
 function Kanban({ state, refresh }) {
-	const [title, setTitle] = d("");
-	const [assignee, setAssignee] = d("");
 	const agentIds = state.recipients.filter((r) => r.pane_alive).map((r) => r.user_id);
 	const teams = state.teams || [];
 	const byId = new Map(state.tasks.map((t) => [t.id, t]));
-	const create = async (e) => {
-		e.preventDefault();
-		if (!title.trim()) return;
-		const body = { title: title.trim() };
-		if (assignee.startsWith("t:")) body.team_id = Number(assignee.slice(2));
-		else if (assignee) body.assignee = assignee;
-		await fetch("/tasks", {
-			method: "POST",
-			headers: JSONH,
-			body: JSON.stringify(body)
-		});
-		setTitle("");
-		refresh();
-	};
 	return m$1`<div>
     <h2>tasks ${state.tasks.length > 0 && m$1`<span class="count">· ${state.tasks.length}</span>`}</h2>
-    <form class="newtask" onSubmit=${create}>
-      <input type="text" placeholder="task title"
-        value=${title} onInput=${(e) => setTitle(e.target.value)} />
-      <select value=${assignee} onChange=${(e) => setAssignee(e.target.value)}>
-        <option value="">unassigned</option>
-        ${teams.length > 0 && m$1`<optgroup label="teams">
-          ${teams.map((x) => m$1`<option key=${`t:${x.id}`} value=${`t:${x.id}`}>team ${x.name}</option>`)}
-        </optgroup>`}
-        ${agentIds.map((a) => m$1`<option key=${a} value=${a}>${a}</option>`)}
-      </select>
-      <button class="act" type="submit">create task</button>
-    </form>
+    <${TaskComposer} key="board" state=${state} refresh=${refresh} />
     <div class="board">
       ${[
 		["open", "open"],
@@ -8083,10 +8425,10 @@ function Kanban({ state, refresh }) {
     </div>
   </div>`;
 }
-function Overview({ state, refresh }) {
+function Overview({ state, refresh, machine }) {
 	return m$1`<div>
     <h2>activity</h2>
-    <${HiveView} state=${state} refresh=${refresh} />
+    <${HiveView} state=${state} refresh=${refresh} machine=${machine} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -8130,28 +8472,16 @@ function Scope({ user, refresh }) {
 }
 var pendingSends = new EventTarget();
 var pendingSeq = 0;
-async function uploadImage(file) {
-	const r = await fetch("/attachments", {
-		method: "POST",
-		headers: { "content-type": file.type || "application/octet-stream" },
-		body: file
-	});
-	const body = await r.json().catch(() => ({}));
-	if (!r.ok) throw new Error(body.detail?.error || `upload failed (${r.status})`);
-	return body.name;
-}
-var imageFiles = (list) => [...list || []].filter((f) => f.type.startsWith("image/"));
 function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 	const [text, setText] = d("");
 	const [context, setContext] = d("");
 	const [images, setImages] = d([]);
-	const [uploading, setUploading] = d(0);
-	const [dragging, setDragging] = d(false);
 	const [status, setStatus] = d("");
 	const [sending, setSending] = d(false);
 	const composerRef = A(null);
-	const fileRef = A(null);
 	const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
+	const attachments = useAttachments(images, setImages, setStatus, draftKey);
+	const { uploading, dragging } = attachments;
 	h(() => {
 		try {
 			const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -8207,20 +8537,6 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 		context,
 		images
 	]);
-	const addFiles = async (files) => {
-		if (!files.length) return;
-		setStatus("");
-		setUploading((n) => n + files.length);
-		for (const file of files) try {
-			const name = await uploadImage(file);
-			setImages((prev) => prev.includes(name) ? prev : [...prev, name]);
-		} catch (err) {
-			setStatus(`image not added: ${err.message}`);
-		} finally {
-			setUploading((n) => n - 1);
-		}
-	};
-	const removeImage = (name) => setImages((prev) => prev.filter((x) => x !== name));
 	const canSend = !sending && uploading === 0 && (text.trim() || images.length > 0);
 	const send = async (e) => {
 		e.preventDefault();
@@ -8306,58 +8622,22 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
 		setStatus("");
 		composerRef.current?.focus();
 	};
-	const hasFiles = (e) => [...e.dataTransfer?.types || []].includes("Files");
-	return m$1`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send}
-      onDragOver=${(e) => {
-		if (hasFiles(e)) {
-			e.preventDefault();
-			setDragging(true);
-		}
-	}}
-      onDragLeave=${(e) => {
-		if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
-	}}
-      onDrop=${(e) => {
-		if (!hasFiles(e)) return;
-		e.preventDefault();
-		setDragging(false);
-		addFiles(imageFiles(e.dataTransfer.files));
-	}}>
+	return m$1`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send} ...${sending ? {} : attachments.dropProps}>
     <div class="compose-row">
       <span class="mark">❯</span>
       <textarea ref=${composerRef} value=${text} rows="2"
         onInput=${(e) => setText(e.target.value)}
-        onPaste=${(e) => {
-		const files = imageFiles(e.clipboardData?.files);
-		if (files.length) {
-			e.preventDefault();
-			addFiles(files);
-		}
-	}}
+        onPaste=${sending ? void 0 : attachments.onPaste}
         onKeyDown=${(e) => {
 		if (e.key === "Enter" && !e.shiftKey && !(e.metaKey || e.ctrlKey)) send(e);
 	}}
-        placeholder=${`Message ${recipient}… (paste or drop images)`} aria-label=${`Message ${recipient} as owner`} />
+        placeholder=${`Message ${recipient}… (paste or drop files)`} aria-label=${`Message ${recipient} as owner`} />
     </div>
-    ${(images.length > 0 || uploading > 0) && m$1`<div class="compose-images">
-      ${images.map((name) => m$1`<figure key=${name} class="compose-image">
-        <img src=${`/attachments/${name}`} alt="attached image" onError=${() => removeImage(name)} />
-        <button type="button" class="remove" onClick=${() => removeImage(name)}
-          title="remove image" aria-label="Remove image">×</button>
-      </figure>`)}
-      ${uploading > 0 && m$1`<span class="uploading" role="status">uploading ${uploading}…</span>`}
-    </div>`}
+    <${AttachmentPicker} files=${images} controls=${attachments} disabled=${sending} />
     <div class="compose-meta">
       <input class="context" type="text" value=${context} onInput=${(e) => setContext(e.target.value)}
         placeholder="context tag (optional)" aria-label="Optional context tag" />
-      <button type="button" class="mini" onClick=${() => fileRef.current?.click()}
-        title="attach images (or paste / drop them)">+ image</button>
-      <input ref=${fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
-        onChange=${(e) => {
-		addFiles(imageFiles(e.target.files));
-		e.target.value = "";
-	}} />
-      <span class="count">${text.length} character${text.length === 1 ? "" : "s"}${images.length > 0 ? ` · ${images.length} image${images.length === 1 ? "" : "s"}` : ""}</span>
+      <span class="count">${text.length} character${text.length === 1 ? "" : "s"}${images.length > 0 ? ` · ${images.length} file${images.length === 1 ? "" : "s"}` : ""}</span>
       <span class="hint">Enter to send · Shift + Enter for a new line</span>
       <div class="actions">
         ${status && m$1`<span class=${status.startsWith("delivery failed") || status.startsWith("image not added") ? "error" : "sent"} role="status">${status}</span>`}
@@ -8369,35 +8649,39 @@ function MessageComposer({ recipient, refresh, draftId = "thread" }) {
     </div>
   </form>`;
 }
-function MessageImage({ name }) {
-	const [expired, setExpired] = d(false);
-	if (expired) return m$1`<span class="image-expired" title="images are removed after a retention period">image expired</span>`;
-	return m$1`<a href=${`/attachments/${name}`} target="_blank" rel="noopener" title="open full size">
-    <img src=${`/attachments/${name}`} alt="attached image" loading="lazy" onError=${() => setExpired(true)} />
-  </a>`;
-}
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const boxRef = A(null);
-	const pinned = A(true);
+	const follower = A(null);
+	if (!follower.current) follower.current = createBottomFollower();
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
+	const [expanded, setExpanded] = d(!!recipient);
+	const savedScroll = A(0);
+	const bodyId = `thread-${encodeURIComponent(pairKey(a, b))}`;
+	_(() => {
+		if (expanded && boxRef.current) boxRef.current.scrollTop = savedScroll.current;
+	}, [expanded]);
 	const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
-	h(() => {
+	_(() => {
 		const el = boxRef.current;
-		if (!el) return;
-		const stick = () => {
-			if (pinned.current) el.scrollTop = el.scrollHeight;
-		};
+		if (!el || !expanded) return;
+		const stick = () => follower.current.follow(el);
 		const ro = new ResizeObserver(stick);
 		ro.observe(el);
 		for (const child of el.children) ro.observe(child);
 		stick();
 		return () => ro.disconnect();
-	}, [msgs.length, lastId]);
+	}, [
+		msgs.length,
+		lastId,
+		historyHeight,
+		expanded
+	]);
 	const onScroll = (e) => {
-		const el = e.target;
-		pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+		if (!expanded) return;
+		savedScroll.current = e.currentTarget.scrollTop;
+		follower.current.onScroll(e.currentTarget);
 	};
 	const resizeBounds = () => ({
 		min: 120,
@@ -8433,8 +8717,13 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 		resizeTo(next);
 	};
 	return m$1`<div class="thread">
-    <div class="bar">${disp(a)} <span class="swap">⇄</span> ${disp(b)}
-      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span></div>
+    <button type="button" class="bar thread-toggle" aria-expanded=${expanded} aria-controls=${bodyId}
+        onClick=${() => setExpanded((v) => !v)}>
+      <span class="thread-chevron" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
+      ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
+      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
+    </button>
+    <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}
       style=${historyHeight === null ? null : { height: `${historyHeight}px` }}>
       ${msgs.slice(-40).map((m) => m$1`
@@ -8448,7 +8737,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	].join(" ")}>
           <div class="bubble">${m.content && m$1`<div class="md"
             dangerouslySetInnerHTML=${{ __html: renderMarkdown(m.content) }} />`}${m.attachments?.length > 0 && m$1`<div class=${`msg-images ${m.content ? "" : "only"}`}>
-            ${m.attachments.map((name) => m$1`<${MessageImage} key=${name} name=${name} />`)}
+            ${m.attachments.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && m$1` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${m.status === "failed" && m$1` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}${m.status === "unknown" && m$1` · <span class="ctx">outcome unknown${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>${m.sender === "owner" && m$1` <${Resend} m=${m} refresh=${refresh} />`}`}</div>
         </div>`)}
@@ -8462,6 +8751,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
       <span>drag to resize history</span>
     </button>
     ${recipient && m$1`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
+    </div>
   </div>`;
 }
 function Doing({ summaries, now }) {
@@ -8516,12 +8806,12 @@ function FocusView({ user, state, refresh, freshIds }) {
 		location.hash = "#/";
 	}}>← back to overview</button>
     <div class="fhead">
-      <${Avatar} name=${user} />
+      <${Bee} node=${r.node} flavor=${r.flavor} />
       <div class="who">
         <div class="nm">${user}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
         <div class="meta">
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
-          <${ModelLabel} r=${r} refresh=${refresh} />${r.node && m$1` · on <b>${r.node}</b>`} · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
+          <${ModelLabel} r=${r} refresh=${refresh} /> · <${MachineBadge} node=${r.node} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? m$1` <span class="attn">${detail}</span>` : ""}
@@ -8531,6 +8821,7 @@ function FocusView({ user, state, refresh, freshIds }) {
     </div>
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} user=${user} refresh=${refresh} />
+    <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && m$1`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>` : threads.map((msgs) => {
@@ -8546,7 +8837,7 @@ function FocusView({ user, state, refresh, freshIds }) {
       ${myTasks.length > 0 && m$1`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>
     ${myTasks.length === 0 ? m$1`<div class="empty">No tasks assigned to ${user}. Assign one from the overview board.</div>` : myTasks.map((t) => m$1`<div key=${t.id} class=${`trow ${t.status}`}>
           <span class="tid">#${t.id}</span>
-          <span class="t">${t.title}</span>
+          <span class="t">${t.title}<${AttachmentList} files=${t.attachments} /></span>
           <span class=${`pill ${t.status}`}>${t.status.replace("_", " ")}</span>
           <select title="assignee" value=${t.assignee || ""}
             onChange=${(e) => act(t.id, { assignee: e.target.value })}>
@@ -8559,6 +8850,38 @@ function FocusView({ user, state, refresh, freshIds }) {
 }
 function App() {
 	const [state, setState] = d(null);
+	const [machine, setMachine] = d(null);
+	const [rosterOpen, setRosterOpen] = d(() => {
+		try {
+			const saved = localStorage.getItem("swarm-roster-open");
+			return saved === null ? true : saved === "true";
+		} catch {
+			return true;
+		}
+	});
+	const rosterOpenRef = A(rosterOpen);
+	rosterOpenRef.current = rosterOpen;
+	const toggleRef = A(null);
+	const updateRoster = (open) => {
+		setRosterOpen(open);
+		try {
+			localStorage.setItem("swarm-roster-open", String(open));
+		} catch {}
+	};
+	const toggleRoster = () => {
+		const opening = !rosterOpen;
+		updateRoster(opening);
+		if (opening && innerWidth <= 1e3) requestAnimationFrame(() => {
+			document.getElementById("agent-sidebar")?.scrollIntoView({
+				behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+				block: "start"
+			});
+		});
+	};
+	const closeRoster = () => {
+		updateRoster(false);
+		toggleRef.current?.focus();
+	};
 	const [connected, setConnected] = d(true);
 	const [clock, setClock] = d((/* @__PURE__ */ new Date()).toLocaleTimeString());
 	const [route, setRoute] = d(location.hash);
@@ -8612,7 +8935,8 @@ function App() {
 				"INPUT",
 				"SELECT",
 				"TEXTAREA"
-			].includes(document.activeElement.tagName)) location.hash = "#/";
+			].includes(document.activeElement.tagName)) if (rosterOpenRef.current) closeRoster();
+			else location.hash = "#/";
 		};
 		addEventListener("hashchange", onHash);
 		addEventListener("keydown", onKey);
@@ -8648,12 +8972,19 @@ function App() {
 		messages: [...state.messages, ...pending]
 	} : state;
 	return m$1`${header}
-  <main>
+  <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
+  <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+    aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
+    ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length}
+  </button>
+  <main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} />`}
+      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
-    <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-      pings=${pings} refresh=${poll} />
+    <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
+      <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
+        pings=${pings} refresh=${poll} machine=${machine} onClose=${closeRoster} />
+    </div>
   </main>`;
 }
 R(m$1`<${App} />`, document.getElementById("app"));

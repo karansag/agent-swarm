@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
 import time
@@ -208,6 +209,7 @@ class ActorFields(BaseModel):
 
 
 class TaskCreateReq(ActorFields):
+    attachments: list[str] = Field(default_factory=list, max_length=attachments.MAX_PER_MESSAGE)
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
@@ -1244,13 +1246,19 @@ def create_app(
 
     @app.post("/attachments")
     async def attachments_upload(request: Request, _: None = Depends(_require_owner)):
-        """Store a pasted or dropped image; the raw bytes are the request body."""
+        """Store raw file bytes; raster images are inline, other files download."""
         declared = request.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > attachments.MAX_BYTES:
-            raise HTTPException(status_code=413, detail={"error": "image too large"})
-        data = await request.body()
+            raise HTTPException(status_code=413, detail={"error": "file too large"})
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > attachments.MAX_BYTES:
+                raise HTTPException(status_code=413, detail={"error": "file too large"})
+        from urllib.parse import unquote
+        filename = unquote(request.headers.get("x-attachment-filename", "")) or None
         try:
-            name = await asyncio.to_thread(attachments.save, attachments_root, data)
+            name = await asyncio.to_thread(attachments.save, attachments_root, bytes(data), filename)
         except ValueError as exc:
             status = 413 if len(data) > attachments.MAX_BYTES else 415
             raise HTTPException(status_code=status, detail={"error": str(exc)})
@@ -1269,6 +1277,7 @@ def create_app(
         return FileResponse(
             path,
             media_type=attachments.media_type(name),
+            filename=None if attachments.is_image(name) else attachments.download_name(name),
             headers={
                 "Cache-Control": "private, max-age=31536000, immutable",
                 "X-Content-Type-Options": "nosniff",
@@ -1306,7 +1315,7 @@ def create_app(
             content += f" Details: {task['description']}."
         content += f" {hint}{_team_line(task['assignee'])}"
         try:
-            _deliver_as(actor, task["assignee"], content, f"task #{task['id']}")
+            _deliver_as(actor, task["assignee"], content, f"task #{task['id']}", task.get("attachments") or [])
         except HTTPException:
             pass  # assignee validated by callers; pane may still be gone
 
@@ -1334,7 +1343,7 @@ def create_app(
             targets = team["members"]
         for target in targets:
             try:
-                _deliver_as(actor, target, content + _team_line(target), context)
+                _deliver_as(actor, target, content + _team_line(target), context, task.get("attachments") or [])
             except HTTPException:
                 pass  # membership validated; a pane may still be gone
 
@@ -1367,17 +1376,33 @@ def create_app(
         actor = _actor(request, req.tmux_pane, req.node)
         _require_registered_assignee(req.assignee)
         _require_known_team(req.team_id)
-        task = db.create_task(
-            conn, req.title, req.description, req.assignee, req.team_id
-        )
-        if req.depends_on:
-            _set_deps(task["id"], req.depends_on)
-            task = db.get_task(conn, task["id"])
+        if not req.title.strip():
+            raise HTTPException(status_code=400, detail={"error": "task title is required"})
+        unknown = [name for name in req.attachments if attachments.resolve(attachments_root, name) is None]
+        if unknown:
+            raise HTTPException(status_code=400, detail={"error": "unknown attachment", "attachments": unknown})
+        try:
+            task = db.create_task(
+                conn, req.title.strip(), req.description, req.assignee, req.team_id,
+                attachments=req.attachments, depends_on=req.depends_on,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
         if task["assignee"]:
             _notify_assignment(task, actor)
         elif task["team_id"]:
             _notify_team_assignment(task, actor)
         return {"ok": True, "task": task}
+
+    @app.delete("/tasks/{task_id}")
+    def tasks_delete(task_id: int, _: None = Depends(_require_owner)):
+        try:
+            removed = db.delete_task(conn, task_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail={"error": str(exc)}) from exc
+        if not removed:
+            raise HTTPException(status_code=404, detail={"error": "unknown task"})
+        return {"ok": True}
 
     @app.patch("/tasks/{task_id}")
     def tasks_update(task_id: int, req: TaskUpdateReq, request: Request):
@@ -1740,7 +1765,13 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     def portal(_: None = Depends(_require_owner)):
-        return PORTAL_PATH.read_text()
+        # Asset filenames are stable across builds. Version their URLs by
+        # content so a normal refresh cannot reuse an older JS/CSS bundle.
+        page = PORTAL_PATH.read_text()
+        for name in ("portal.js", "portal.css"):
+            digest = hashlib.sha256((PORTAL_STATIC_PATH / name).read_bytes()).hexdigest()[:16]
+            page = page.replace(f'"/static/{name}"', f'"/static/{name}?v={digest}"')
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/state")
     def state(limit: int = 300, _: None = Depends(_require_owner)):

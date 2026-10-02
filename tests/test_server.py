@@ -376,6 +376,28 @@ def test_portal_page_served_at_root(client):
     )
 
 
+def test_portal_versions_assets_by_content_and_does_not_cache_html(client, tmp_path, monkeypatch):
+    import re
+    from agent_swarm import server
+
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "portal.js").write_text("first build")
+    (assets / "portal.css").write_text("styles")
+    monkeypatch.setattr(server, "PORTAL_STATIC_PATH", assets)
+    def versions(response):
+        return dict(re.findall(r'/static/(portal\.(?:js|css))\?v=([0-9a-f]+)', response.text))
+    first = client.get("/")
+    assert first.headers["cache-control"] == "no-store"
+    before = versions(first)
+    assert set(before) == {"portal.js", "portal.css"}
+    assert versions(client.get("/")) == before
+    (assets / "portal.js").write_text("other build")
+    after = versions(client.get("/"))
+    assert after["portal.js"] != before["portal.js"]
+    assert after["portal.css"] == before["portal.css"]
+
+
 def test_portal_task_drag_drop_contract(client):
     portal = portal_source()
     assert 'const draggable = t.status !== "done";' in portal
@@ -424,8 +446,8 @@ def test_portal_dead_pane_overrides_stale_activity(client):
     portal = portal_source()
     assert 'if (!r.pane_alive) return "stopped";' in portal
     assert "chip-card state-${st.cls}" in portal
-    assert ".chip-card.state-working" in portal
-    assert ".chip-card.state-attention" in portal
+    assert ".status.working" in portal
+    assert ".status.attention" in portal
 
 
 def test_portal_conversation_history_has_full_width_resize_handle(client):
@@ -1460,7 +1482,7 @@ def test_portal_shows_machines_and_unknown_deliveries():
     # An unknown outcome is resent only on purpose, as a new message.
     assert "may already have it" in portal and "send again" in portal
     # Machines: a strip of nodes and a spawn target.
-    assert "function NodeStrip" in portal and 'title="machine"' in portal and "body.node = target.node" in portal
+    assert "function MachineBar" in portal and 'title="machine"' in portal and "body.node = target.node" in portal
 
 
 def test_dashboard_decisions_pass_their_own_tests():
@@ -1476,3 +1498,21 @@ def test_dashboard_decisions_pass_their_own_tests():
         cwd=WEB_ROOT.parent, capture_output=True, text=True, timeout=120
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_owner_can_trash_task_but_dependencies_are_protected(client):
+    c = client
+    parent = c.post('/tasks', json={'title': 'parent'}).json()['task']
+    child = c.post('/tasks', json={'title': 'child', 'depends_on': [parent['id']]}).json()['task']
+    assert c.delete(f"/tasks/{parent['id']}").status_code == 409
+    assert c.delete(f"/tasks/{child['id']}").status_code == 200
+    assert c.delete(f"/tasks/{parent['id']}").status_code == 200
+    assert c.delete(f"/tasks/{parent['id']}").status_code == 404
+
+
+def test_node_cannot_trash_tasks(client):
+    c = client
+    task = c.post('/tasks', json={'title': 'keep'}).json()['task']
+    issued = c.post('/nodes/test-trash/token').json()
+    response = c.delete(f"/tasks/{task['id']}", headers={'Authorization': f"Bearer {issued['token']}"})
+    assert response.status_code == 403
