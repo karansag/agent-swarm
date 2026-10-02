@@ -412,13 +412,19 @@ def lookup_user_by_agent_id(
 
 
 @_serialized
-def adopt_agent_id(conn: sqlite3.Connection, user_id: str, agent_id: str) -> None:
-    """Record a session id on a registration that had none (see server._caller)."""
-    conn.execute(
-        "UPDATE recipients SET agent_id=? WHERE user_id=? AND agent_id IS NULL",
-        (agent_id, user_id),
+def adopt_agent_id(conn: sqlite3.Connection, user_id: str, agent_id: str) -> bool:
+    """Record a session id on a registration that has none (see
+    server._resolve_caller). One statement, so it can't half-happen: it only
+    applies while the row's id is still empty and no row holds this id.
+    True when this call recorded it."""
+    cur = conn.execute(
+        "UPDATE recipients SET agent_id=? WHERE user_id=? "
+        "AND (agent_id IS NULL OR agent_id='') "
+        "AND NOT EXISTS (SELECT 1 FROM recipients WHERE agent_id=?)",
+        (agent_id, user_id, agent_id),
     )
     conn.commit()
+    return cur.rowcount == 1
 
 
 @_serialized

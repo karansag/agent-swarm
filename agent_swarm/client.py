@@ -59,11 +59,16 @@ SESSION_ENV = (
 )
 
 
+class AmbiguousSession(RuntimeError):
+    """Both harnesses' session ids are set and the caller can't be told apart."""
+
+
 def harness_session_id() -> str | None:
     """The calling harness's session id, or None outside a harness.
 
     When ids from both harnesses are set (one launched the other), the nearer
-    harness in this process's ancestry is the caller.
+    harness in this process's ancestry is the caller. If neither appears in
+    the ancestry, guessing could act as the outer session, so it's an error.
     """
     found: dict[str, str] = {}
     for harness, var in SESSION_ENV:
@@ -78,7 +83,11 @@ def harness_session_id() -> str | None:
             return found["codex"]
         if program == "claude" or "/claude/versions/" in command.split(" ", 1)[0]:
             return found["claude"]
-    return found["claude"]
+    raise AmbiguousSession(
+        "both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID are set and neither harness is in this\n"
+        "  process's ancestry, so it can't tell which session is calling. Pass --agent-id <id>\n"
+        "  (register), or unset the outer harness's variable, e.g. env -u CLAUDE_CODE_SESSION_ID"
+    )
 
 
 def caller(pane_arg: str | None = None, agent_id_arg: str | None = None) -> dict:
@@ -277,9 +286,19 @@ def _parse_deps(raw: str) -> list[int]:
 
 
 def _acting_fields() -> dict:
-    """This pane and node, so a task notification goes out in this agent's name."""
-    pane = current_pane()
-    return {"tmux_pane": pane, "node": local_node()} if pane else {}
+    """Who is acting, so a task notification goes out in this agent's name.
+
+    The session id and a verified pane identify the agent. A guessed pane
+    (not in it, no session id) is not sent at all: it would credit whichever
+    agent tmux happens to show, so the request goes out as no one instead
+    (the owner, from the hub's own machine; a node token is refused).
+    """
+    who = caller()
+    if not who["agent_id"] and who["pane_verified"] is False:
+        return {}
+    if not who["pane"] and not who["agent_id"]:
+        return {}
+    return _identity_payload(who)
 
 
 def cmd_task_create(args: argparse.Namespace) -> int:
@@ -610,7 +629,11 @@ def main(argv: list[str] | None = None) -> int:
     imp.set_defaults(func=cmd_import)
 
     args = p.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except AmbiguousSession as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

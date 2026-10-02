@@ -666,3 +666,28 @@ def test_an_unwritable_settings_file_does_not_break_the_cli(monkeypatch, tmp_pat
         assert config.load().node == "box"
     finally:
         (tmp_path / "ro").chmod(0o700)
+
+
+def test_ambiguous_nested_sessions_are_an_error_not_a_guess(monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-session")
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-thread")
+    monkeypatch.setattr(tmux, "ancestors", lambda pid=None: [(3, "/bin/zsh -c x"), (1, "launchd")])
+    monkeypatch.setattr(client, "current_pane", lambda: "%5")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
+    calls = _fake_server(monkeypatch, {"user_id": "otter", "identified_by": "session"})
+    assert client.main(["send", "--to", "owner", "--message", "hi"]) == 2
+    assert calls["post"] == []
+    assert "--agent-id" in capsys.readouterr().err
+    # An explicit id bypasses detection.
+    assert client.main(["register", "--agent-id", "chosen"]) == 0
+    assert calls["post"][-1]["agent_id"] == "chosen"
+
+
+def test_task_commands_send_no_guessed_pane(monkeypatch):
+    # Not in the pane and no session: crediting tmux's active agent would be wrong.
+    monkeypatch.setattr(client, "current_pane", lambda: "%49")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: False)
+    assert client._acting_fields() == {}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-x")
+    fields = client._acting_fields()
+    assert fields["agent_id"] == "sess-x" and fields["pane_verified"] is False
