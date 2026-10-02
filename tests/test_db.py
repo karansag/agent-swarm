@@ -178,3 +178,16 @@ def test_rows_written_by_an_older_server_read_their_status_from_the_flag(tmp_pat
     db.set_message_status(conn, bad, "unknown", "result lost")
     m = next(m for m in db.fetch_messages(conn) if m["id"] == bad)
     assert (m["status"], m["delivered"], m["delivery_error"]) == ("unknown", 0, "result lost")
+
+
+def test_owner_reminder_history_survives_database_reopen(tmp_path):
+    path = tmp_path / 'reminders.sqlite'
+    conn = db.connect(path)
+    db.record_message(conn, 'owner', 'otter', None, 'hello', 'delivered')
+    conn.execute('UPDATE messages SET ts=1000')
+    conn.commit()
+    conn.close()
+    conn = db.connect(path)
+    assert not db.owner_reply_reminder_due(conn, 'otter', since=900, now=1100, idle_seconds=1500)
+    assert db.owner_reply_reminder_due(conn, 'otter', since=900, now=2500, idle_seconds=1500)
+    conn.close()

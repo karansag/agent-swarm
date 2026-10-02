@@ -209,7 +209,11 @@ grace are set by `AGENT_SWARM_MONITOR_INTERVAL` (default 5s) and
 `AGENT_SWARM_ATTENTION_GRACE` (default 60s).
 
 Agents reply to the human with `agent-swarm send --to owner`; those
-messages appear only on the dashboard.
+messages appear only on the dashboard. Owner messages include a short reply
+reminder on the first delivery after registration and after 25 minutes of
+conversation inactivity. Successful messages in either direction keep the
+conversation active; failed or unconfirmed deliveries do not suppress the
+reminder. The history-based check survives a hub restart.
 
 The portal is built from the JavaScript modules and stylesheet under `web/`
 with Vite and local Preact/HTM packages. The generated `agent_swarm/portal.html`

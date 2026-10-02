@@ -708,15 +708,17 @@ def capture_pane(pane: str) -> tuple[str | None, str | None]:
     return out.stdout, None
 
 
-def format_message(sender: str, context: str | None, content: str) -> str:
+def format_message(
+    sender: str, context: str | None, content: str, *, owner_reply_reminder: bool = True,
+) -> str:
     """Compose the inbound message body that lands in the recipient's pane."""
     head = f"[agent-msg from {sender}"
     if context:
         head += f" · {context}"
     head += "] "
-    if sender == "owner":
+    if sender == "owner" and owner_reply_reminder:
         head += (
-            'Reply to owner via the agent-swarm API (POST /send with recipient "owner", '
-            'or `agent-msg send --to owner --message "..."`) so your response appears on the dashboard.\n\n'
+            'Reply via `agent-swarm send --to owner --message "..."` '
+            'so it appears on the dashboard.\n\n'
         )
     return head + content
