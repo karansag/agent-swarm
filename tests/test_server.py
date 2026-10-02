@@ -573,8 +573,7 @@ def test_owner_send_delivers_to_pane_and_records(client):
     pane, text, *_ = client._calls[-1]
     assert pane == "0:1.0"
     assert "[agent-msg from owner]" in text and "status update please" in text
-    assert 'POST /send with recipient "owner"' in text
-    assert 'agent-msg send --to owner --message "..."' in text
+    assert 'agent-swarm send --to owner --message "..."' in text
 
     msgs = client.get("/messages", params={"user": user}).json()["messages"]
     assert msgs[0]["sender"] == "owner"
@@ -592,7 +591,7 @@ def test_owner_send_preserves_multiline_content_and_context(client):
 
     _, delivered, *_ = client._calls[-1]
     assert "[agent-msg from owner · investigation]" in delivered
-    assert 'POST /send with recipient "owner"' in delivered
+    assert 'agent-swarm send --to owner --message' in delivered
     assert content in delivered
 
     msgs = client.get("/messages", params={"user": user}).json()["messages"]
@@ -1516,3 +1515,41 @@ def test_node_cannot_trash_tasks(client):
     issued = c.post('/nodes/test-trash/token').json()
     response = c.delete(f"/tasks/{task['id']}", headers={'Authorization': f"Bearer {issued['token']}"})
     assert response.status_code == 403
+
+
+def test_owner_reminder_follows_per_agent_conversation_inactivity(client, monkeypatch):
+    clock = [10000.0]
+    monkeypatch.setattr(server.time, 'time', lambda: clock[0])
+    a = client.post('/register', json={'tmux_pane': '0:0.0'}).json()['user_id']
+    b = client.post('/register', json={'tmux_pane': '0:1.0'}).json()['user_id']
+    def send(user, text='hello'):
+        assert client.post('/owner/send', json={'recipient': user, 'content': text}).status_code == 200
+        return client._calls[-1][1]
+    hint = 'Reply via `agent-swarm send --to owner'
+    assert hint in send(a)
+    clock[0] += 60
+    assert send(a, 'follow-up') == '[agent-msg from owner] follow-up'
+    assert hint in send(b)  # independent conversation
+    clock[0] += 24 * 60
+    # An agent reply keeps the established exchange active.
+    assert client.post('/send', json={'tmux_pane': '0:0.0', 'recipient': 'owner', 'content': 'reply'}).status_code == 200
+    clock[0] += 2 * 60
+    assert hint not in send(a)
+    clock[0] += 25 * 60
+    assert hint in send(a)  # exactly 25 quiet minutes
+    clock[0] += 1
+    client.post('/register', json={'tmux_pane': '0:0.0'})
+    assert hint in send(a)  # fresh registration gets its first reminder
+
+
+def test_unsuccessful_owner_delivery_does_not_suppress_reminder(client, monkeypatch):
+    user = client.post('/register', json={'tmux_pane': '0:0.0'}).json()['user_id']
+    calls = []
+    def fail(pane, body, *args, **kwargs):
+        calls.append(body)
+        return False, 'paste failed'
+    monkeypatch.setattr(tmux, 'deliver', fail)
+    for _ in range(2):
+        r = client.post('/owner/send', json={'recipient': user, 'content': 'hello'})
+        assert r.json()['status'] == 'failed'
+    assert all('Reply via `agent-swarm send --to owner' in body for body in calls)

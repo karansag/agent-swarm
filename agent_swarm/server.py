@@ -1244,6 +1244,7 @@ def create_app(
 
     # Node result -> message status.
     MESSAGE_STATUS = {"ok": "delivered", "failed": "failed", "unknown": "unknown"}
+    OWNER_REPLY_IDLE_SECONDS = 25 * 60
 
     def _dispatch(
         node: nodes.Node,
@@ -1267,7 +1268,11 @@ def create_app(
         )
         # Attachment names travel as names; the node renders them as paths on
         # the machine the pane is on, fetching them from the hub if remote.
-        body = tmux.format_message(sender, context, content)
+        reminder = sender == OWNER and db.owner_reply_reminder_due(
+            conn, recipient["user_id"], since=recipient["registered_at"],
+            now=time.time(), idle_seconds=OWNER_REPLY_IDLE_SECONDS,
+        )
+        body = tmux.format_message(sender, context, content, owner_reply_reminder=reminder)
         try:
             result = node.deliver(
                 str(mid),

@@ -812,6 +812,26 @@ def record_message(
 
 
 @_serialized
+def owner_reply_reminder_due(
+    conn: sqlite3.Connection, recipient: str, *, since: float, now: float,
+    idle_seconds: float,
+) -> bool:
+    """Remind once per active owner conversation, after a quiet interval.
+
+    Failed, pending, and unknown deliveries do not prove the agent saw the
+    reminder. Replies to the owner keep an established conversation active.
+    Registration starts a fresh interval; history keeps this restart-safe.
+    """
+    row = conn.execute(
+        "SELECT MAX(CASE WHEN sender='owner' THEN ts END), MAX(ts) FROM messages "
+        "WHERE delivered=1 AND ts>=? AND "
+        "((sender='owner' AND recipient=?) OR (sender=? AND recipient='owner'))",
+        (since, recipient, recipient),
+    ).fetchone()
+    return row[0] is None or now - row[1] >= idle_seconds
+
+
+@_serialized
 def abandon_pending_messages(conn: sqlite3.Connection, reason: str) -> int:
     """Mark every pending message unknown.
 
