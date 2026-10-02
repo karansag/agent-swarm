@@ -3,7 +3,9 @@ import { AttachmentList } from "./attachments.js";
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { HARNESSES, JSONH, WORKING_HALO, agentStatus, focusHash, harnessStyle, hue } from "./shared.js";
+import { Bee, HARNESSES, JSONH, STATE, WORKING_HALO, agentStatus, focusHash, harnessStyle, hue, patchTask } from "./shared.js";
+
+import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 
 import { machineColor, machineName } from "./machines.js";
 
@@ -53,7 +55,66 @@ function placeTaskCell(ideal, boxes, occupied, width) {
   return start;
 }
 
+// Native links keep every agent reachable by touch and keyboard without a map.
+function CompactBees({ state, machine }) {
+  const agents = (state.recipients || []).filter(r => r.pane_alive &&
+    (machine === null || machineName(r.node) === machine));
+  return html`<nav class="compact-hive" aria-label="Live agents">
+    <div class="compact-hive-heading"><span>${agents.length} live agents</span><span>Tap a bee to open</span></div>
+    <div class="bee-grid">${agents.map(r => {
+      const status = agentStatus(r);
+      const st = STATE[status] || STATE.unknown;
+      const harness = harnessStyle(r.flavor);
+      return html`<a key=${r.user_id} class="bee-tile" href=${focusHash(r.user_id)} style=${`--machine:${machineColor(r.node)}`}>
+        <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
+        <span class="bee-name">${r.user_id}</span>
+        <span class="bee-machine">${machineName(r.node)}</span>
+        <span class="bee-state"><span class=${`status ${st.cls}`} aria-hidden="true"></span>${st.word} · ${harness.mark} ${harness.label}</span>
+      </a>`;
+    })}</div>
+    ${!agents.length && html`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
+  </nav>`;
+}
+
+function HiveTaskDetail({ task, state, refresh, onClose }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const assign = async e => {
+    const value = e.target.value;
+    setBusy(true); setError("");
+    try {
+      const result = await patchTask(task.id, value.startsWith("t:")
+        ? { team_id: Number(value.slice(2)) }
+        : { assignee: value || null, team_id: null });
+      if (!result.ok) setError(result.error);
+      else refresh();
+    } catch { setError("Could not assign task. Try again."); }
+    finally { setBusy(false); }
+  };
+  const agents = [...new Set([...(state.recipients || []).map(r => r.user_id), ...(task.assignee ? [task.assignee] : [])])];
+  return html`<section class="hive-task-detail" aria-label=${`Task #${task.id} details`}>
+    <header><h3>#${task.id} · ${task.title}</h3>
+      <button type="button" class="mini" onClick=${onClose}>Collapse</button></header>
+    <p>${task.status.replaceAll("_", " ")} · ${task.assignee || "unassigned"}${task.team_id ? ` · team ${(state.teams || []).find(t => t.id === task.team_id)?.name || task.team_id}` : ""}</p>
+    ${task.description && html`<p class="task-description">${task.description}</p>`}
+    ${task.depends_on?.length > 0 && html`<p>Depends on ${task.depends_on.map(id => `#${id}`).join(", ")}</p>`}
+    ${task.worktree && html`<p>Worktree: ${task.worktree_node || ""} ${task.worktree}</p>`}
+    <${AttachmentList} files=${task.attachments} />
+    ${task.note && html`<p class="task-description">${task.note}</p>`}
+    <label class="hive-task-assignment">Assign to
+      <select aria-label=${`Assign task #${task.id}`} value=${task.team_id ? `t:${task.team_id}` : task.assignee || ""} disabled=${busy} onChange=${assign}>
+        <option value="">unassigned</option>
+        <optgroup label="Teams">${(state.teams || []).map(t => html`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>
+        <optgroup label="Agents">${agents.map(a => html`<option value=${a}>${a}</option>`)}</optgroup>
+      </select>
+    </label>
+    ${error && html`<p role="alert">${error}</p>`}
+    <${TaskTrash} task=${task} refresh=${refresh} onDeleted=${onClose} />
+  </section>`;
+}
+
 export function HiveView({ state, refresh, machine }) {
+  const compact = useMedia(COMPACT_LAYOUT);
   const [selectedTask, setSelectedTask] = useState(null);
   const taskDetail = (state.tasks || []).find(t => t.id === selectedTask);
   const machineRef = useRef(machine);
@@ -92,7 +153,7 @@ export function HiveView({ state, refresh, machine }) {
   const maxId = Math.max(0, ...messages.map(m => m.id));
   if (lastSeenRef.current === null) lastSeenRef.current = maxId;
   else if (maxId > lastSeenRef.current) {
-    pendingRef.current.push(...messages.filter(m => m.id > lastSeenRef.current).slice(-8));
+    if (!compact) pendingRef.current.push(...messages.filter(m => m.id > lastSeenRef.current).slice(-8));
     lastSeenRef.current = maxId;
   }
   const taskSnapshot = new Map((state.tasks || []).map(t => [t.id, t]));
@@ -100,13 +161,17 @@ export function HiveView({ state, refresh, machine }) {
   else {
     for (const task of state.tasks || []) {
       const before = taskStatusesRef.current.get(task.id);
-      if (before && before.status !== "done" && task.status === "done")
+      if (!compact && before && before.status !== "done" && task.status === "done")
         pendingShipmentsRef.current.push(task);
     }
     taskStatusesRef.current = taskSnapshot;
   }
 
   useEffect(() => {
+    if (compact) {
+      pendingRef.current = []; pendingShipmentsRef.current = [];
+      return;
+    }
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -853,14 +918,14 @@ export function HiveView({ state, refresh, machine }) {
       canvas.removeEventListener("drop", drop); canvas.removeEventListener("dragend", clearDrop);
       window.removeEventListener("dragend", clearDrop);
     };
-  }, []);
+  }, [compact]);
   useEffect(() => {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current)
       drawRef.current(performance.now(), true);
   }, [state, machine]);
 
-  return html`<div class="hive-panel"><div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
-    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div><div class="hive-scroll-hint">Swipe across to explore the hive</div>
+  return html`<div class="hive-panel">${compact ? html`<${CompactBees} state=${state} machine=${machine} />` : html`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+    aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div>`}
     <div class="harness-legend" aria-label="Bee harness legend">
       <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       <span class="working-halo-key" style=${`--working:${WORKING_HALO.color}`}><span aria-hidden="true"></span>Green halo = working</span>
@@ -871,19 +936,9 @@ export function HiveView({ state, refresh, machine }) {
     </div>
     <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
       onChange=${e => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>
-      <option value="">Click a honeycomb or choose a task…</option>
+      <option value="">${compact ? "Choose a task…" : "Click a honeycomb or choose a task…"}</option>
       ${(state.tasks || []).filter(t => t.status !== "done" || t.id === selectedTask).map(t => html`<option value=${t.id}>#${t.id} · ${t.title}</option>`)}
     </select></label></div>
-    ${taskDetail && html`<section class="hive-task-detail" aria-label=${`Task #${taskDetail.id} details`}>
-      <header><h3>#${taskDetail.id} · ${taskDetail.title}</h3>
-        <button type="button" class="mini" onClick=${() => setSelectedTask(null)}>Collapse</button></header>
-      <p>${taskDetail.status} · ${taskDetail.assignee || "unassigned"}${taskDetail.team_id ? ` · team ${(state.teams || []).find(t => t.id === taskDetail.team_id)?.name || taskDetail.team_id}` : ""}</p>
-      ${taskDetail.description && html`<p class="task-description">${taskDetail.description}</p>`}
-      ${taskDetail.depends_on?.length > 0 && html`<p>Depends on ${taskDetail.depends_on.map(id => `#${id}`).join(", ")}</p>`}
-      ${taskDetail.worktree && html`<p>Worktree: ${taskDetail.worktree_node || ""} ${taskDetail.worktree}</p>`}
-      <${AttachmentList} files=${taskDetail.attachments} />
-      ${taskDetail.note && html`<p class="task-description">${taskDetail.note}</p>`}
-      <${TaskTrash} key=${taskDetail.id} task=${taskDetail} refresh=${refresh} onDeleted=${() => setSelectedTask(null)} />
-    </section>`}
+    ${taskDetail && html`<${HiveTaskDetail} key=${taskDetail.id} task=${taskDetail} state=${state} refresh=${refresh} onClose=${() => setSelectedTask(null)} />`}
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
 }

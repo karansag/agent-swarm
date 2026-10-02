@@ -22,6 +22,7 @@ import {
 } from "./shared.js";
 import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
 import { machineColor, machineList, machineName } from "./machines.js";
+import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 import { HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
@@ -953,6 +954,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 
 // What the agent is doing now, then what it did before, newest first.
 function Doing({ summaries, now }) {
+  const compact = useMedia(COMPACT_LAYOUT);
   if (summaries.length === 0) {
     return html`<div class="doing-box empty-doing">No status yet. Agents post one with
       <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
@@ -962,9 +964,9 @@ function Doing({ summaries, now }) {
   const line = (s) => html`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
   return html`<div class="doing-box">
     <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>
-    ${past.length > 0 && html`<ol class="past">
+    ${past.length > 0 && html`<details class="status-history" open=${!compact}><summary>Recent status history</summary><ol class="past">
       ${past.map(s => html`<li>${line(s)} ${s.text} <span class="age">· ${rel(s.ts, now)}</span></li>`)}
-    </ol>`}
+    </ol></details>`}
   </div>`;
 }
 
@@ -1060,6 +1062,7 @@ function FocusView({ user, state, refresh, freshIds }) {
 /* ---------- app ---------- */
 
 function App() {
+  const compact = useMedia(COMPACT_LAYOUT);
   const [state, setState] = useState(null);
   const [machine, setMachine] = useState(null);
   const [rosterOpen, setRosterOpen] = useState(() => {
@@ -1074,9 +1077,9 @@ function App() {
     try { localStorage.setItem("swarm-roster-open", String(open)); } catch {}
   };
   const toggleRoster = () => {
-    const opening = !rosterOpen;
+    const opening = compact || !rosterOpen;
     updateRoster(opening);
-    if (opening && innerWidth <= 1000) requestAnimationFrame(() => {
+    if (opening && compact) requestAnimationFrame(() => {
       document.getElementById("agent-sidebar")?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
     });
   };
@@ -1102,6 +1105,15 @@ function App() {
   const focusUser = route.startsWith("#/agent/")
     ? decodeURIComponent(route.slice("#/agent/".length)) : null;
   const onHistory = route.startsWith(HISTORY_ROUTE);
+  // A roster link may be several screens down on a phone. Bring the new
+  // view into sight; polling and task-history filters must not move it.
+  const previousView = useRef({ focusUser, onHistory });
+  useEffect(() => {
+    const before = previousView.current;
+    previousView.current = { focusUser, onHistory };
+    if ((before.focusUser !== focusUser || before.onHistory !== onHistory) && compact)
+      document.querySelector(".stage")?.scrollIntoView({ block: "start" });
+  }, [focusUser, onHistory, compact]);
 
   const poll = async () => {
     try {
@@ -1176,7 +1188,7 @@ function App() {
   <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
   <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
     aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
-    ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter(r => r.pane_alive).length}
+    <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter(r => r.pane_alive).length}
   </button>
   <main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
     <div class="stage">
