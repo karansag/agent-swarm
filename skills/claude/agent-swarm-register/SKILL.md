@@ -44,6 +44,12 @@ If you can identify the active Claude conversation UUID, pass it as `--agent-id`
   though, it needs your own pane: if it prints "this process is not running
   inside tmux pane …", don't guess. Ask the user which pane you are in and
   pass `--pane <id>`.
+- In auto mode, Claude Code may refuse to run `agent-swarm register` itself
+  (it can classify registering as an account change). If it does, don't
+  rephrase or retry the command to get past the refusal. Give the user the
+  exact command to run in your pane with `!` (for example
+  `! agent-swarm register --name <handle> --flavor claude --pane <id>`); if
+  they would rather you run it, they can approve that specific command.
 - The helper supplies `--flavor claude` internally. Do not pass `--flavor`; the helper rejects flavor overrides.
 - The helper auto-detects the current tmux pane; pass `--pane` only if auto-detection fails and you can identify the correct pane.
 - Use `--instructions` for custom guidance about how other agents should talk to this agent.
