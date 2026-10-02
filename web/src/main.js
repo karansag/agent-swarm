@@ -427,8 +427,8 @@ function MachineBar({ state, machine, selectMachine }) {
   </section>`;
 }
 
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine }) {
-  const [groupBy, setGroupBy] = useState("machine");
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose }) {
+  const [groupBy, setGroupBy] = useState("team");
   const [overUnteam, setOverUnteam] = useState(false);
   const teams = state.teams || [];
   const teamById = new Map(teams.map(t => [t.id, t]));
@@ -441,7 +441,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine }) {
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
   return html`<aside class="roster">
-    <h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>
+    <div class="roster-heading"><h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2><button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>
     <div class="roster-grouping" aria-label="Group agents by">
       <span>Group by</span>${["machine", "team"].map(g => html`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
     </div>
@@ -1062,6 +1062,25 @@ function FocusView({ user, state, refresh, freshIds }) {
 function App() {
   const [state, setState] = useState(null);
   const [machine, setMachine] = useState(null);
+  const [rosterOpen, setRosterOpen] = useState(() => {
+    try { const saved = localStorage.getItem("swarm-roster-open"); return saved === null ? true : saved === "true"; }
+    catch { return true; }
+  });
+  const rosterOpenRef = useRef(rosterOpen);
+  rosterOpenRef.current = rosterOpen;
+  const toggleRef = useRef(null);
+  const updateRoster = open => {
+    setRosterOpen(open);
+    try { localStorage.setItem("swarm-roster-open", String(open)); } catch {}
+  };
+  const toggleRoster = () => {
+    const opening = !rosterOpen;
+    updateRoster(opening);
+    if (opening && innerWidth <= 1000) requestAnimationFrame(() => {
+      document.getElementById("agent-sidebar")?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+    });
+  };
+  const closeRoster = () => { updateRoster(false); toggleRef.current?.focus(); };
   const [connected, setConnected] = useState(true);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [route, setRoute] = useState(location.hash);
@@ -1114,7 +1133,8 @@ function App() {
     const onHash = () => setRoute(location.hash);
     const onKey = (e) => {
       if (e.key === "Escape" && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) {
-        location.hash = "#/";
+        if (rosterOpenRef.current) closeRoster();
+        else location.hash = "#/";
       }
     };
     addEventListener("hashchange", onHash);
@@ -1154,7 +1174,11 @@ function App() {
 
   return html`${header}
   <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
-  <main>
+  <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+    aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
+    ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter(r => r.pane_alive).length}
+  </button>
+  <main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
     <div class="stage">
       ${focusUser
         ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />`
@@ -1162,8 +1186,10 @@ function App() {
           ? html`<${HistoryView} state=${state} />`
           : html`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
-    <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-      pings=${pings} refresh=${poll} machine=${machine} />
+    <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
+      <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
+        pings=${pings} refresh=${poll} machine=${machine} onClose=${closeRoster} />
+    </div>
   </main>`;
 }
 

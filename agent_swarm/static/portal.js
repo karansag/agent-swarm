@@ -8175,8 +8175,8 @@ function MachineBar({ state, machine, selectMachine }) {
     ${machine !== null && m$1`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
   </section>`;
 }
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine }) {
-	const [groupBy, setGroupBy] = d("machine");
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose }) {
+	const [groupBy, setGroupBy] = d("team");
 	const [overUnteam, setOverUnteam] = d(false);
 	const teams = state.teams || [];
 	const teamById = new Map(teams.map((t) => [t.id, t]));
@@ -8189,7 +8189,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine }) {
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
 	return m$1`<aside class="roster">
-    <h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2>
+    <div class="roster-heading"><h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2><button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>
     <div class="roster-grouping" aria-label="Group agents by">
       <span>Group by</span>${["machine", "team"].map((g) => m$1`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
     </div>
@@ -8851,6 +8851,37 @@ function FocusView({ user, state, refresh, freshIds }) {
 function App() {
 	const [state, setState] = d(null);
 	const [machine, setMachine] = d(null);
+	const [rosterOpen, setRosterOpen] = d(() => {
+		try {
+			const saved = localStorage.getItem("swarm-roster-open");
+			return saved === null ? true : saved === "true";
+		} catch {
+			return true;
+		}
+	});
+	const rosterOpenRef = A(rosterOpen);
+	rosterOpenRef.current = rosterOpen;
+	const toggleRef = A(null);
+	const updateRoster = (open) => {
+		setRosterOpen(open);
+		try {
+			localStorage.setItem("swarm-roster-open", String(open));
+		} catch {}
+	};
+	const toggleRoster = () => {
+		const opening = !rosterOpen;
+		updateRoster(opening);
+		if (opening && innerWidth <= 1e3) requestAnimationFrame(() => {
+			document.getElementById("agent-sidebar")?.scrollIntoView({
+				behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+				block: "start"
+			});
+		});
+	};
+	const closeRoster = () => {
+		updateRoster(false);
+		toggleRef.current?.focus();
+	};
 	const [connected, setConnected] = d(true);
 	const [clock, setClock] = d((/* @__PURE__ */ new Date()).toLocaleTimeString());
 	const [route, setRoute] = d(location.hash);
@@ -8904,7 +8935,8 @@ function App() {
 				"INPUT",
 				"SELECT",
 				"TEXTAREA"
-			].includes(document.activeElement.tagName)) location.hash = "#/";
+			].includes(document.activeElement.tagName)) if (rosterOpenRef.current) closeRoster();
+			else location.hash = "#/";
 		};
 		addEventListener("hashchange", onHash);
 		addEventListener("keydown", onKey);
@@ -8941,12 +8973,18 @@ function App() {
 	} : state;
 	return m$1`${header}
   <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
-  <main>
+  <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+    aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
+    ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length}
+  </button>
+  <main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
     <div class="stage">
       ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
-    <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-      pings=${pings} refresh=${poll} machine=${machine} />
+    <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
+      <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
+        pings=${pings} refresh=${poll} machine=${machine} onClose=${closeRoster} />
+    </div>
   </main>`;
 }
 R(m$1`<${App} />`, document.getElementById("app"));

@@ -623,3 +623,24 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 .task-description { white-space: pre-wrap; }
 .task-trash { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .task-trash .danger { color: #ff9c91; }
+
+/* Slide the desktop roster; keep the mobile roster stacked below the page. */
+main.dashboard-layout { grid-template-columns: minmax(0,1fr) 0px; transition: grid-template-columns .22s ease; overflow: clip; }
+main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; }
+.roster-drawer { width: 340px; min-width: 0; position: sticky; top: 0; transform: translateX(100%); visibility: hidden; transition: transform .22s ease, visibility .22s; background: var(--ink); z-index: 20; }
+.roster-drawer.is-open { transform: translateX(0); visibility: visible; }
+.roster-drawer aside.roster { position: static; max-height: 100dvh; overflow-y: auto; border-left: 1px solid var(--line); border-top: 0; }
+.roster-heading { display: flex; align-items: baseline; gap: 12px; }
+.roster-heading h2 { flex: 1; }
+.roster-toggle { position: fixed; right: 0; top: 48%; z-index: 22; padding: 10px 8px; color: var(--cream); background: var(--panel-2); border: 1px solid var(--honey-dim); border-radius: 8px 0 0 8px; font: inherit; cursor: pointer; transition: right .22s ease; }
+.roster-toggle.is-open { right: 340px; }
+@media (max-width: 1000px) {
+  main.dashboard-layout, main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr); }
+  .roster-drawer { position: static; width: 100%; transform: none; display: none; }
+  .roster-drawer.is-open { display: block; }
+  .roster-drawer aside.roster { max-height: none; border-left: 0; border-top: 1px solid var(--line); }
+  .roster-toggle, .roster-toggle.is-open { right: 0; top: auto; bottom: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  main.dashboard-layout, .roster-drawer, .roster-toggle { transition: none; }
+}
