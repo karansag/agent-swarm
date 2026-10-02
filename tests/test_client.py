@@ -149,6 +149,7 @@ def test_deliver_reports_tmux_failure(monkeypatch):
 
 
 def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane: None)
     captured = {}
 
     def fake_post(url, json, headers, timeout):
@@ -179,6 +180,7 @@ def test_cmd_register_uses_detected_current_pane(monkeypatch, capsys):
 
 
 def test_cmd_task_update_records_worktree(monkeypatch, capsys):
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane: None)
     captured = {}
 
     def fake_patch(url, json, headers, timeout):
@@ -241,6 +243,7 @@ def test_cmd_task_create_files_task(monkeypatch, capsys):
 
 
 def test_cmd_register_sends_requested_name(monkeypatch, capsys):
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane: None)
     captured = {}
 
     def fake_post(url, json, headers, timeout):
@@ -691,3 +694,9 @@ def test_task_commands_keep_unverified_identity_for_server_refusal(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-x")
     fields = client._acting_fields()
     assert fields["agent_id"] == "sess-x" and fields["pane_verified"] is False
+
+
+def test_process_in_pane_refuses_a_dead_pane_on_a_reachable_server(monkeypatch):
+    monkeypatch.setattr(tmux, "_tmux_out", lambda *args: None)
+    monkeypatch.setattr(tmux, "server_id", lambda: "running-server")
+    assert tmux.process_in_pane("%115") is False

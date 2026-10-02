@@ -569,7 +569,9 @@ def process_in_pane(pane: str, pid: int | None = None) -> bool | None:
     try:
         pane_pid = int((out or "").strip())
     except ValueError:
-        return None
+        # A reachable server with no matching pane is negative evidence,
+        # not an unverifiable caller (e.g. a daemon holding a dead pane id).
+        return False if server_id() is not None else None
     try:
         ps = subprocess.run(
             ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=True, timeout=5

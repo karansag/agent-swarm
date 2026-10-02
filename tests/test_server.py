@@ -510,8 +510,9 @@ def test_portal_spawn_offers_autonomy_choice(client):
     assert "model === DEFAULT_MODEL ? null : model, autonomy" in portal
 
 
-def test_state_reports_agents_liveness_and_ordered_messages(client):
+def test_state_reports_agents_liveness_and_ordered_messages(client, monkeypatch):
     a = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    monkeypatch.setattr(tmux, "resolve_pane", lambda target: (target, target))
     b = client.post("/register", json={"tmux_pane": "0:9.0"}).json()["user_id"]
     for i in range(2):
         client.post(
@@ -918,7 +919,9 @@ def _register(client, pane, **extra):
     return client.post("/register", json={"tmux_pane": pane, **extra}).json()["user_id"]
 
 
-def test_recipients_report_liveness(client):
+def test_recipients_report_liveness(client, monkeypatch):
+    # Registration sees the pane; the subsequent snapshot no longer contains it.
+    monkeypatch.setattr(tmux, "resolve_pane", lambda target: (target, target))
     live = _register(client, "0:1.0")
     shell = _register(client, "0:2.0")
     gone = _register(client, "9:9.9")
@@ -944,7 +947,9 @@ def test_send_to_bare_shell_pane_is_refused_and_recorded(client):
     assert "bare shell" in msg["delivery_error"]
 
 
-def test_owner_send_to_gone_pane_is_refused(client):
+def test_owner_send_to_gone_pane_is_refused(client, monkeypatch):
+    # Registration sees the pane; the subsequent snapshot no longer contains it.
+    monkeypatch.setattr(tmux, "resolve_pane", lambda target: (target, target))
     gone = _register(client, "9:9.9")
     r = client.post("/owner/send", json={"recipient": gone, "content": "hi"})
     assert r.status_code == 409
@@ -958,7 +963,9 @@ def test_register_brief_tags_offline_peers(client):
     assert "refused until they restart" in brief
 
 
-def test_prune_keeps_shell_panes_unless_asked(client):
+def test_prune_keeps_shell_panes_unless_asked(client, monkeypatch):
+    # Registration sees the pane; the subsequent snapshot no longer contains it.
+    monkeypatch.setattr(tmux, "resolve_pane", lambda target: (target, target))
     live = _register(client, "0:1.0")
     shell = _register(client, "0:2.0")
     gone = _register(client, "9:9.9")
@@ -1553,3 +1560,16 @@ def test_unsuccessful_owner_delivery_does_not_suppress_reminder(client, monkeypa
         r = client.post('/owner/send', json={'recipient': user, 'content': 'hello'})
         assert r.json()['status'] == 'failed'
     assert all('Reply via `agent-swarm send --to owner' in body for body in calls)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_register_refuses_missing_pane_without_changing_identity(client, existing):
+    if existing:
+        client.post("/register", json={"tmux_pane": "0:0.0", "agent_id": "session-1"})
+    before = client.get("/recipients").json()
+    response = client.post("/register", json={
+        "tmux_pane": "%115", "agent_id": "session-1", "requested_user": "quokka"
+    })
+    assert response.status_code == 404
+    assert "does not resolve" in response.json()["detail"]["error"]
+    assert client.get("/recipients").json() == before
