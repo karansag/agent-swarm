@@ -661,12 +661,15 @@ function Overview({ state, refresh, machine }) {
 /* ---------- agent focus mode ---------- */
 
 function Scope({ user, refresh }) {
+  const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const preRef = useRef(null);
   const pinned = useRef(true);
   useEffect(() => {
     let live = true;
     setData(null);
+    if (!open) return;
+    pinned.current = true;
     const load = async () => {
       try {
         const r = await fetch(`/api/peek/${encodeURIComponent(user)}`);
@@ -677,7 +680,7 @@ function Scope({ user, refresh }) {
     load();
     const t = setInterval(load, PEEK_MS);
     return () => { live = false; clearInterval(t); };
-  }, [user]);
+  }, [user, open]);
   useEffect(() => {
     const pre = preRef.current;
     if (pre && pinned.current) pre.scrollTop = pre.scrollHeight;
@@ -686,19 +689,19 @@ function Scope({ user, refresh }) {
     const el = e.target;
     pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
   };
-  return html`<div class="scope">
-    <div class="bar">
+  return html`<details class="scope" onToggle=${e => setOpen(e.currentTarget.open)}>
+    <summary class="bar">
       <span class="t">terminal</span>
       <span>${data ? data.pane_label : ""}</span>
-      <span style="margin-left:auto">live capture · 2s</span>
-    </div>
+      <span style="margin-left:auto">${open ? "live capture · 2s" : "show terminal"}</span>
+    </summary>
     ${data && data.error
       ? html`<div class="err">could not capture pane: ${data.error}</div>`
       : html`<pre ref=${preRef} onScroll=${onScroll}>${data
           ? ((data.text || "").replace(/\s+$/, "") || "(pane is blank)")
           : "capturing pane…"}</pre>`}
     <${MessageComposer} recipient=${user} refresh=${refresh} draftId="terminal" />
-  </div>`;
+  </details>`;
 }
 
 // Messages the owner has sent that the server has not confirmed yet. Composers
@@ -1024,7 +1027,7 @@ function FocusView({ user, state, refresh, freshIds }) {
       </div>
     </div>
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
-    <${Scope} user=${user} refresh=${refresh} />
+    <${Scope} key=${user} user=${user} refresh=${refresh} />
     <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && html`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0

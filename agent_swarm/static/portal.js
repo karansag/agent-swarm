@@ -8517,12 +8517,15 @@ function Overview({ state, refresh, machine }) {
   </div>`;
 }
 function Scope({ user, refresh }) {
+	const [open, setOpen] = d(false);
 	const [data, setData] = d(null);
 	const preRef = A(null);
 	const pinned = A(true);
 	h(() => {
 		let live = true;
 		setData(null);
+		if (!open) return;
+		pinned.current = true;
 		const load = async () => {
 			try {
 				const d = await (await fetch(`/api/peek/${encodeURIComponent(user)}`)).json();
@@ -8535,7 +8538,7 @@ function Scope({ user, refresh }) {
 			live = false;
 			clearInterval(t);
 		};
-	}, [user]);
+	}, [user, open]);
 	h(() => {
 		const pre = preRef.current;
 		if (pre && pinned.current) pre.scrollTop = pre.scrollHeight;
@@ -8544,15 +8547,15 @@ function Scope({ user, refresh }) {
 		const el = e.target;
 		pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
 	};
-	return m$1`<div class="scope">
-    <div class="bar">
+	return m$1`<details class="scope" onToggle=${(e) => setOpen(e.currentTarget.open)}>
+    <summary class="bar">
       <span class="t">terminal</span>
       <span>${data ? data.pane_label : ""}</span>
-      <span style="margin-left:auto">live capture · 2s</span>
-    </div>
+      <span style="margin-left:auto">${open ? "live capture · 2s" : "show terminal"}</span>
+    </summary>
     ${data && data.error ? m$1`<div class="err">could not capture pane: ${data.error}</div>` : m$1`<pre ref=${preRef} onScroll=${onScroll}>${data ? (data.text || "").replace(/\s+$/, "") || "(pane is blank)" : "capturing pane…"}</pre>`}
     <${MessageComposer} recipient=${user} refresh=${refresh} draftId="terminal" />
-  </div>`;
+  </details>`;
 }
 var pendingSends = new EventTarget();
 var pendingSeq = 0;
@@ -8905,7 +8908,7 @@ function FocusView({ user, state, refresh, freshIds }) {
       </div>
     </div>
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
-    <${Scope} user=${user} refresh=${refresh} />
+    <${Scope} key=${user} user=${user} refresh=${refresh} />
     <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && m$1`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
