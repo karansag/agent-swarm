@@ -8,10 +8,10 @@ written (`--dry-run`) and tested without a database. `db.apply_import`
 computes a plan and performs it inside one write transaction, so a
 registration that lands in between cannot invalidate the names it chose.
 
-What does not travel: attachments (their bytes are on the other machine),
-pane addresses (meaningless here), and node tokens. An imported agent
-arrives as a reservation, an offline row holding its handle until the
-agent registers here through the node daemon. Imported messages are
+Attachments (their bytes are on the other machine) and node tokens do not
+travel. Pane addresses are hints verified against the target node. An agent
+whose pane cannot be verified arrives as a reservation, an offline row
+holding its handle until it registers here through the node daemon. Imported messages are
 history: they are written as they were recorded, never delivered again,
 and tagged so that task numbers inside their text read as the old board's.
 """
@@ -24,7 +24,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import names
+from . import names, panes, tmux
 
 FORMAT = 1
 MAX_MESSAGES = 5000
@@ -94,7 +94,7 @@ def read(conn: sqlite3.Connection, with_messages: bool = False, source: str | No
 
         agents = []
         wanted = ("user_id", "agent_id", "model", "flavor", "instructions",
-                  "message_prefix", "submit_key", "node")
+                  "message_prefix", "submit_key", "node", "tmux_pane", "tmux_server")
         for row in conn.execute("SELECT * FROM recipients ORDER BY user_id"):
             if "reserved" in recipient_cols and row["reserved"]:
                 continue  # a reservation on the source is not an agent
@@ -209,7 +209,7 @@ def validate(bundle: dict) -> None:
         if agent_id:
             _require(agent_id not in ids, f"two agents share the id {agent_id!r}")
             ids.add(agent_id)
-        for field in ("model", "flavor", "instructions", "message_prefix", "submit_key", "team"):
+        for field in ("model", "flavor", "instructions", "message_prefix", "submit_key", "team", "tmux_pane", "tmux_server"):
             _text(raw.get(field), f"{handle}'s {field}")
 
     names_seen, members_seen = set(), {}
@@ -276,7 +276,7 @@ def _unique_team_name(name: str, node: str, taken: set[str]) -> str:
     return candidate
 
 
-def plan(bundle: dict, node: str, hub: dict, rng=None) -> dict:
+def plan(bundle: dict, node: str, hub: dict, rng=None, snapshot=None) -> dict:
     """Decide what importing `bundle` onto `node` would do.
 
     `hub` describes this hub as it is right now:
@@ -348,7 +348,45 @@ def plan(bundle: dict, node: str, hub: dict, rng=None) -> dict:
             "submit_key": raw.get("submit_key"),
             "team": raw.get("team"),
             "node": node,
+            "source_handle": old,
+            "source_pane": raw.get("tmux_pane"),
+            "source_server": raw.get("tmux_server"),
         })
+
+    # A pane id alone can point to an unrelated agent after tmux restarts.
+    # Require both server provenance and the pane's own agent identity tag.
+    occupied = {(p["node"], p["tmux_server"], p["tmux_pane"])
+                for p in hub.get("panes", [])}
+    claims = {}
+    for agent in agents:
+        key = (agent["source_server"], agent["source_pane"])
+        claims[key] = claims.get(key, 0) + 1
+    for agent in agents:
+        pane, server = agent["source_pane"], agent["source_server"]
+        row = snapshot.table.get(pane) if snapshot and pane else None
+        agent["binding"] = None
+        if not pane or not pane.startswith("%") or not server:
+            reason = "export has no stable pane/server identity"
+        elif snapshot is None:
+            reason = "node is disconnected or cannot observe tmux"
+        elif server != snapshot.server:
+            reason = "tmux server changed"
+        elif not row:
+            reason = "pane no longer exists"
+        elif claims[(server, pane)] != 1:
+            reason = "multiple imported agents claim this pane"
+        elif (node, server, pane) in occupied:
+            reason = "pane already belongs to an agent on this hub"
+        elif not panes.harness_matches(agent["flavor"], row.get("command", "")):
+            reason = "pane is not running the expected harness"
+        elif (row.get("agent_swarm") != agent["source_handle"]
+              and row.get("title") != tmux.status_title(agent["source_handle"], agent["flavor"])):
+            reason = "pane does not identify the imported agent"
+        else:
+            agent["binding"] = {"pane": pane, "server": server, "label": row["label"]}
+            reason = None
+            occupied.add((node, server, pane))
+        agent["reservation_reason"] = reason
 
     def resolve(handle, what: str):
         """A bundle handle as it will read here.
@@ -521,6 +559,9 @@ def summary(plan_result: dict) -> dict:
         "renamed": plan_result["renamed"],
         "merged": plan_result["merged"],
         "warnings": plan_result["warnings"],
+        "reconnected": [a["user_id"] for a in plan_result["agents"] if a.get("binding")],
+        "reservations": [{"user_id": a["user_id"], "reason": a.get("reservation_reason")}
+                         for a in plan_result["agents"] if not a.get("binding")],
     }
 
 
@@ -532,6 +573,8 @@ def register_commands(plan_result: dict) -> list[str]:
     """
     lines = []
     for agent in plan_result["agents"]:
+        if agent.get("binding"):
+            continue
         flavor = f" --flavor {agent['flavor']}" if agent.get("flavor") else ""
         # A handle held for a named conversation is given only to that
         # conversation, so the line has to carry its id.

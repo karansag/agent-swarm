@@ -376,14 +376,24 @@ agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro
 
 The export reads that database without writing to it, so it is safe
 against a live server's file or an archived copy. The dry run decides
-everything and writes nothing, so you can read the report first.
+everything and writes nothing, so you can read the report first. Predicted names
+hold only while the destination roster and import options stay unchanged;
+pruning or unregistering agents before applying can change the chosen names.
 
 What the hub does with it:
 
-- Each agent becomes a reservation: an offline row holding its handle,
+- The hub reconnects an imported agent automatically only when the export's
+  pane id and tmux server still match the connected node, the pane runs the
+  expected harness, and its `@agent_swarm` tag (or legacy title) names the
+  original agent. It never takes a pane already registered on this hub or
+  claimed by multiple imported agents. This requires a recent export and
+  node daemon; missing evidence leaves a reservation, not a guessed binding.
+  The report lists `reconnected` agents and `reservations` with reasons.
+- Every other agent becomes a reservation: an offline row holding its handle,
   its harness, and its contact instructions until the agent registers
   here through the node daemon. The import prints the line to run in
-  each pane; an agent that reports a stable id reclaims its handle by
+  each remaining pane. Only agents that are still running need to run their
+  line now; stopped agents can wait until resumed. An agent that reports a stable id reclaims its handle by
   itself. A handle reserved for a named agent cannot be taken by a
   different one, and prune leaves reservations alone.
 - A handle already in use here is imported under a fresh one, and every
@@ -748,11 +758,16 @@ put text in front of every agent on every enrolled machine.
 ## Troubleshooting
 
 - **"this process is not running inside tmux pane …"**: the CLI was given a
-  pane it isn't in, so registering or sending would act as whatever agent is
-  there. Codex 0.158+ causes this by running every session's commands in one
-  shared app-server daemon that kept the `TMUX_PANE` of whichever pane started
-  it; start Codex with `--no-daemon` (the dashboard's Codex spawn adds it when
-  the installed Codex accepts it). `agent-swarm whoami` reports `"in_pane"`.
+  pane it isn't in, so registering from there would bind someone else's pane.
+  Claude Code and Codex can run a session's commands in a background host
+  (Codex's shared app-server; Claude Code's background sessions) whose
+  `TMUX_PANE` is missing or stale. Once registered, an agent is identified by
+  its harness session id (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`), so its
+  commands work from such a host; registering needs the agent's own pane, so
+  run it there or pass `--pane <id>`. An unregistered session is never
+  allowed to act as the agent that holds the pane it names. Codex agents are
+  still best started with `--no-daemon`. `agent-swarm whoami` shows
+  `identified_by` and `in_pane`.
 
 - **"recipient not registered"**: the recipient has not registered yet.
   The message is still recorded with `delivered=0`.

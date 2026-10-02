@@ -390,12 +390,45 @@ def bind_pane(
 
 
 @_serialized
-def lookup_user_by_agent_id(conn: sqlite3.Connection, agent_id: str) -> str | None:
+def lookup_user_by_agent_id(
+    conn: sqlite3.Connection, agent_id: str, node: str | None = None
+) -> str | None:
+    """The agent with this harness session id, on `node` when one is given.
+
+    A session id is only meaningful on the machine whose harness issued it,
+    so callers pass the node they are speaking for (a node token may only
+    speak for its own); an id held on another node is not this agent.
+    """
     _ensure_columns(conn)
-    row = conn.execute(
-        "SELECT user_id FROM recipients WHERE agent_id=?", (agent_id,)
-    ).fetchone()
+    if node is None:
+        row = conn.execute(
+            "SELECT user_id FROM recipients WHERE agent_id=?", (agent_id,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT user_id FROM recipients WHERE agent_id=? AND node=?", (agent_id, node)
+        ).fetchone()
     return row["user_id"] if row else None
+
+
+@_serialized
+def adopt_agent_id(
+    conn: sqlite3.Connection, user_id: str, agent_id: str, *,
+    node: str, tmux_pane: str, tmux_server: str | None,
+) -> bool:
+    """Record a session id on a registration that has none (see
+    server._resolve_caller). One statement, so it can't half-happen: it only
+    applies while the row's id is still empty and no row holds this id.
+    True when this call recorded it."""
+    cur = conn.execute(
+        "UPDATE recipients SET agent_id=? WHERE user_id=? "
+        "AND node=? AND tmux_pane=? AND tmux_server IS ? AND reserved=0 "
+        "AND (agent_id IS NULL OR agent_id='') "
+        "AND NOT EXISTS (SELECT 1 FROM recipients WHERE agent_id=?)",
+        (agent_id, user_id, node, tmux_pane, tmux_server, agent_id),
+    )
+    conn.commit()
+    return cur.rowcount == 1
 
 
 @_serialized
@@ -968,6 +1001,9 @@ def _hub_state(conn: sqlite3.Connection) -> dict:
     team names, and node names are already in use."""
     return {
         "handles": {r[0] for r in conn.execute("SELECT user_id FROM recipients")},
+        "panes": [dict(r) for r in conn.execute(
+            "SELECT node, tmux_server, tmux_pane FROM recipients WHERE reserved=0"
+        )],
         "agents_by_id": {
             r["agent_id"]: {"user_id": r["user_id"], "node": r["node"]}
             for r in conn.execute(
@@ -1052,18 +1088,22 @@ def apply_import(
                 team_ids[team["name"]] = int(cur.lastrowid)
 
         for agent in plan["agents"]:
+            binding = agent.get("binding")
             conn.execute(
                 "INSERT INTO recipients(user_id, tmux_pane, agent_id, model, flavor, instructions, "
                 "message_prefix, submit_key, registered_at, tmux_server, pane_label, node, team_id, reserved) "
-                "VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,1)",
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     agent["user_id"],
                     # Unique per handle, and never a pane id, so no two
                     # reservations collide and none matches a real pane.
-                    f"reserved:{agent['user_id']}",
+                    binding["pane"] if binding else f"reserved:{agent['user_id']}",
                     agent["agent_id"], agent["model"], agent["flavor"], agent["instructions"],
-                    agent["message_prefix"], agent["submit_key"], now, agent["node"],
+                    agent["message_prefix"], agent["submit_key"], now,
+                    binding["server"] if binding else None,
+                    binding["label"] if binding else None, agent["node"],
                     team_ids.get(agent["team"]) if agent["team"] else None,
+                    0 if binding else 1,
                 ),
             )
 
