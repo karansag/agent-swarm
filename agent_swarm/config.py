@@ -63,8 +63,27 @@ def load() -> Settings:
         or DEFAULT_HUB
     )
     token = os.environ.get("AGENT_SWARM_TOKEN") or file.get("token") or None
-    node = os.environ.get("AGENT_SWARM_NODE") or file.get("node") or hostname()
+    node = os.environ.get("AGENT_SWARM_NODE") or file.get("node")
+    if not node:
+        node = _remember_node(file, _node_name(hostname()))
     return Settings(hub=hub.rstrip("/"), token=token, node=_node_name(node))
+
+
+def _remember_node(file: dict, node: str) -> str:
+    """Save a hostname-derived node name the first time it is worked out.
+
+    Agents are identified by pane and node, and macOS changes the hostname
+    with the network (Karans-MBP one day, Karans-MacBook-Pro the next), so a
+    name re-read from the hostname on every command can drift away from the
+    registrations and leave every agent on the machine unable to send. Only
+    the file's own values are written back, never environment overrides; if
+    the file can't be written, the name is used as is.
+    """
+    try:
+        write(file.get("hub") or DEFAULT_HUB, file.get("token") or None, node)
+    except OSError:
+        pass
+    return node
 
 
 def _toml_string(value: str) -> str:

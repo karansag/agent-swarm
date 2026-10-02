@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_swarm import client, tmux
+from agent_swarm import client, config, tmux
 
 
 def test_unregister_defaults_to_current_pane(monkeypatch):
@@ -531,3 +531,39 @@ def test_join_verifies_the_token_names_this_node(monkeypatch, tmp_path, capsys):
     assert client.main(["join", "http://hub:8765", "--token", "tok", "--node", "macbook"]) == 0
     assert '"enrolled": true' in capsys.readouterr().out
     assert config.load() == config.Settings("http://hub:8765", "tok", "macbook")
+
+
+def test_a_hostname_derived_node_name_is_remembered(monkeypatch):
+    # macOS renames the host with the network; agents must keep one node name.
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "Karans-MBP.local")
+    assert config.load().node == "karans-mbp"
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "Karans-MacBook-Pro.local")
+    assert config.load().node == "karans-mbp"
+    assert 'node = "karans-mbp"' in config.config_path().read_text()
+
+
+def test_remembering_the_name_keeps_the_file_and_ignores_env_overrides(monkeypatch):
+    config.config_path().write_text('hub = "http://hub.example:8765"\ntoken = "t0k"\n')
+    monkeypatch.setenv("AGENT_SWARM_URL", "http://override.example:9")
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "box")
+    assert config.load().node == "box"
+    saved = config.config_path().read_text()
+    assert 'hub = "http://hub.example:8765"' in saved and 'token = "t0k"' in saved
+    assert "override" not in saved
+
+
+def test_an_explicit_node_name_is_not_written(monkeypatch):
+    monkeypatch.setenv("AGENT_SWARM_NODE", "pinned")
+    assert config.load().node == "pinned"
+    assert not config.config_path().exists()
+
+
+def test_an_unwritable_settings_file_does_not_break_the_cli(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_SWARM_CONFIG", str(tmp_path / "ro" / "node.toml"))
+    (tmp_path / "ro").mkdir()
+    (tmp_path / "ro").chmod(0o500)
+    monkeypatch.setattr(config.socket, "gethostname", lambda: "box")
+    try:
+        assert config.load().node == "box"
+    finally:
+        (tmp_path / "ro").chmod(0o700)

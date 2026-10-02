@@ -366,7 +366,10 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
         "--model",
         ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
         startup_args="-c check_for_update_on_startup=false",
-        auto_args="--ask-for-approval never --sandbox workspace-write",
+        # Like Claude's bypassPermissions: Codex's workspace-write sandbox
+        # blocks the tmux socket, the local agent-swarm API and DNS, so an
+        # agent spawned inside it cannot register, send, or reach anything.
+        auto_args="--dangerously-bypass-approvals-and-sandbox",
         # Codex 0.156+ otherwise runs the session's commands in one shared
         # app-server daemon, whose TMUX_PANE is whichever pane started it, so
         # the agent's agent-swarm commands would claim that pane. Older
@@ -395,16 +398,32 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
 SPAWNABLE_FLAVORS = tuple(HARNESS_SPAWN)
 
 
+def login_shell() -> str:
+    """The user's login shell, the one a spawned tmux window starts."""
+    shell = os.environ.get("SHELL")
+    if shell:
+        return shell
+    try:
+        import pwd
+
+        return pwd.getpwuid(os.getuid()).pw_shell or "/bin/sh"
+    except (ImportError, KeyError):
+        return "/bin/sh"
+
+
 @functools.lru_cache(maxsize=None)
 def harness_accepts(binary: str, flag: str) -> bool:
     """Whether the installed harness parses `flag` (`binary flag --help` exits 0).
 
-    Cached for the server's lifetime; restart the server after upgrading a
-    harness to pick up flags it newly accepts.
+    Run through the user's login shell, so the binary is found the way the
+    spawned pane will find it: a server started by launchd or systemd has a
+    bare PATH without ~/.local/bin, where harnesses usually live. Cached for
+    the server's lifetime; restart it after upgrading a harness.
     """
     try:
         out = subprocess.run(
-            [binary, flag, "--help"], capture_output=True, text=True, timeout=10
+            [login_shell(), "-lc", f"{shlex.quote(binary)} {shlex.quote(flag)} --help"],
+            capture_output=True, text=True, timeout=20,
         )
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return False

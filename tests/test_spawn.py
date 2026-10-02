@@ -5,7 +5,7 @@ from agent_swarm import tmux
 
 AUTO_CLAUDE = "claude --permission-mode bypassPermissions"
 CODEX_STARTUP = "codex -c check_for_update_on_startup=false"
-AUTO_CODEX = f"{CODEX_STARTUP} --ask-for-approval never --sandbox workspace-write"
+AUTO_CODEX = f"{CODEX_STARTUP} --dangerously-bypass-approvals-and-sandbox"
 
 
 def test_default_autonomy_is_auto():
@@ -36,7 +36,7 @@ def test_known_model_appends_harness_flag():
     )
     assert (
         tmux.spawn_launch_command("codex", "gpt-5.6-terra")
-        == f"{CODEX_STARTUP} --model gpt-5.6-terra --ask-for-approval never --sandbox workspace-write"
+        == f"{CODEX_STARTUP} --model gpt-5.6-terra --dangerously-bypass-approvals-and-sandbox"
     )
     # hermes uses -m rather than --model.
     tmux.HARNESS_SPAWN["hermes"].models.append("_probe")
@@ -96,15 +96,21 @@ def test_harness_accepts_probes_the_binary(monkeypatch):
 
     def fake_run(cmd, capture_output, text, timeout):
         calls.append(cmd)
-        return type("R", (), {"returncode": 0 if cmd[1] == "--new" else 2})()
+        return type("R", (), {"returncode": 0 if "--new" in cmd[2] else 2})()
 
     monkeypatch.undo()  # drop the autouse stub; test the real probe
+    monkeypatch.setenv("SHELL", "/bin/zsh")
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
     tmux.harness_accepts.cache_clear()
     assert tmux.harness_accepts("fakeharness", "--new") is True
     assert tmux.harness_accepts("fakeharness", "--old") is False
     assert tmux.harness_accepts("fakeharness", "--new") is True  # cached
-    assert calls == [["fakeharness", "--new", "--help"], ["fakeharness", "--old", "--help"]]
+    # Through the login shell, so the binary is found on the user's PATH even
+    # when the server itself runs with launchd's bare one.
+    assert calls == [
+        ["/bin/zsh", "-lc", "fakeharness --new --help"],
+        ["/bin/zsh", "-lc", "fakeharness --old --help"],
+    ]
     tmux.harness_accepts.cache_clear()
 
 
@@ -198,3 +204,14 @@ def test_spawn_window_reports_the_pane_with_the_server_that_made_it(monkeypatch)
         subprocess.CompletedProcess([], 0, "garbage\n", ""),
     ])
     assert tmux.spawn_window(command="claude") == (None, "tmux did not report the new pane")
+
+
+def test_auto_codex_runs_outside_the_sandbox_supervised_keeps_it():
+    assert "--dangerously-bypass-approvals-and-sandbox" in tmux.spawn_launch_command("codex")
+    supervised = tmux.spawn_launch_command("codex", autonomy="supervised")
+    assert "--dangerously-bypass-approvals-and-sandbox" not in supervised
+
+
+def test_login_shell_falls_back_to_the_account_shell(monkeypatch):
+    monkeypatch.delenv("SHELL", raising=False)  # launchd gives none
+    assert tmux.login_shell().startswith("/")

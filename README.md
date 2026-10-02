@@ -156,9 +156,11 @@ The layout has two modes plus a persistent roster:
   hermes) and, optionally, one of that harness's known models, which is
   passed to the harness binary with its model flag. Spawns default to
   auto permissions: the harness launches with its non-blocking flags
-  (claude bypassPermissions, codex never-ask in a workspace-write
-  sandbox, hermes yolo) so a spawned worker never stalls waiting for an
-  approval nobody sees. Choose "permissions: ask first" to spawn a
+  (claude bypassPermissions, codex with approvals and sandbox off, hermes
+  yolo) so a spawned worker never stalls waiting for an approval nobody
+  sees. Codex's sandbox is off because it blocks the tmux socket, the local
+  agent-swarm API and DNS, so a sandboxed agent could not register or send.
+  Codex also gets `--no-daemon` when the installed version accepts it. Choose "permissions: ask first" to spawn a
   supervised agent with the harness's normal prompts instead. Startup
   blockers are removed in both modes (codex's update prompt is
   suppressed). Agents you register from your own terminal are never
