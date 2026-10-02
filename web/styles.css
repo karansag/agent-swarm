@@ -365,14 +365,14 @@
   .composer .count { white-space: nowrap; }
   .composer .compose-meta .mini { white-space: nowrap; flex: none; }
   .composer.dragging { outline: 1px dashed var(--honey); outline-offset: -4px; background: rgba(242,169,59,.06); }
-  .composer .compose-images { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0 23px; }
-  .composer .compose-image { position: relative; margin: 0; }
-  .composer .compose-image img { display: block; height: 64px; max-width: 120px; object-fit: cover; border: 1px solid var(--line); border-radius: 4px; }
-  .composer .compose-image .remove {
+  .compose-images { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0 23px; }
+  .compose-image { position: relative; margin: 0; }
+  .compose-image img { display: block; height: 64px; max-width: 120px; object-fit: cover; border: 1px solid var(--line); border-radius: 4px; }
+  .compose-image .remove {
     position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; line-height: 16px;
     border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--cream); cursor: pointer; font-size: 12px;
   }
-  .composer .compose-image .remove:hover, .composer .compose-image .remove:focus-visible { border-color: var(--honey); color: var(--honey); }
+  .compose-image .remove:hover, .compose-image .remove:focus-visible { border-color: var(--honey); color: var(--honey); }
   .composer .uploading { font-size: 10px; color: var(--cream-dim); }
   .msg .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .msg .msg-images.only { margin-top: 0; }
@@ -752,14 +752,14 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   .composer .actions { flex-wrap: wrap; width: 100%; }
   .composer .actions .act { margin-left: auto; }
   .composer .actions [role="status"] { flex-basis: 100%; overflow-wrap: anywhere; }
-  .composer .compose-images, .compose-images { display: flex; flex-wrap: wrap; gap: 12px; margin-left: 0; }
+  .compose-images { display: flex; flex-wrap: wrap; gap: 12px; margin-left: 0; }
   .compose-image { min-width: 0; max-width: 100%; }
-  .composer .compose-image .remove, .compose-image .remove { position: static; width: auto; min-width: 44px; min-height: 44px; margin: 4px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--cream); }
+  .compose-image .remove { position: static; width: auto; min-width: 44px; min-height: 44px; margin: 4px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--cream); }
   .attachment-tools > span { font-size: 11px; }
   .file-link, .image-link { min-width: 0; max-width: 100%; }
   .file-link { display: block; }
   .attachment-list img { max-width: min(140px, 100%); }
-  .compose-image img { max-width: 100%; max-height: 140px; object-fit: contain; }
+  .compose-image img { max-width: 120px; height: 64px; object-fit: contain; }
   .thread > .bar { flex-wrap: wrap; overflow-wrap: anywhere; font-size: 16px; }
   .thread > .bar .n { white-space: nowrap; }
   .msgs { grid-template-columns: minmax(0, 1fr); padding: 12px; }
