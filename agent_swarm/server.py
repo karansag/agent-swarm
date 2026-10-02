@@ -859,6 +859,11 @@ def create_app(
         _migrate_legacy_panes()
         node = _claimed_node(request, req.node)
         pane, label, server = _pane_ref(req.tmux_pane, node)
+        if server is None:
+            raise HTTPException(status_code=404, detail={
+                "error": f"pane {req.tmux_pane} does not resolve on node {node.name}; "
+                         "register from the agent's live pane or supply its --pane explicitly"
+            })
         flavor_hint = req.flavor or (tmux.infer_flavor(req.model) if req.model else None)
         existing_id = None
         if req.agent_id:
