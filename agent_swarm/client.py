@@ -365,7 +365,11 @@ def cmd_import(args: argparse.Namespace) -> int:
     if body["dry_run"]:
         print("\nnothing was written; run again without --dry-run", file=sys.stderr)
     if body.get("register"):
-        print("\nOn " + args.node + ", have each agent run its line:", file=sys.stderr)
+        print(
+            "\nOn " + args.node + ", only agents still running and not automatically "
+            "reconnected need to run their line inside their own pane. "
+            "Offline agents can wait until resumed:", file=sys.stderr,
+        )
         for line in body["register"]:
             print("  " + line, file=sys.stderr)
     return 0
