@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
 import time
@@ -1754,7 +1755,13 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     def portal(_: None = Depends(_require_owner)):
-        return PORTAL_PATH.read_text()
+        # Asset filenames are stable across builds. Version their URLs by
+        # content so a normal refresh cannot reuse an older JS/CSS bundle.
+        page = PORTAL_PATH.read_text()
+        for name in ("portal.js", "portal.css"):
+            digest = hashlib.sha256((PORTAL_STATIC_PATH / name).read_bytes()).hexdigest()[:16]
+            page = page.replace(f'"/static/{name}"', f'"/static/{name}?v={digest}"')
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/state")
     def state(limit: int = 300, _: None = Depends(_require_owner)):

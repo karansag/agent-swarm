@@ -376,6 +376,28 @@ def test_portal_page_served_at_root(client):
     )
 
 
+def test_portal_versions_assets_by_content_and_does_not_cache_html(client, tmp_path, monkeypatch):
+    import re
+    from agent_swarm import server
+
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "portal.js").write_text("first build")
+    (assets / "portal.css").write_text("styles")
+    monkeypatch.setattr(server, "PORTAL_STATIC_PATH", assets)
+    def versions(response):
+        return dict(re.findall(r'/static/(portal\.(?:js|css))\?v=([0-9a-f]+)', response.text))
+    first = client.get("/")
+    assert first.headers["cache-control"] == "no-store"
+    before = versions(first)
+    assert set(before) == {"portal.js", "portal.css"}
+    assert versions(client.get("/")) == before
+    (assets / "portal.js").write_text("other build")
+    after = versions(client.get("/"))
+    assert after["portal.js"] != before["portal.js"]
+    assert after["portal.css"] == before["portal.css"]
+
+
 def test_portal_task_drag_drop_contract(client):
     portal = portal_source()
     assert 'const draggable = t.status !== "done";' in portal
