@@ -156,6 +156,26 @@ function JumpToPane({ r, compact = false }) {
   </span>`;
 }
 
+// Types the harness's own compact command (e.g. /compact) into the agent's
+// pane. The server picks the command by flavor; null means none is known.
+function CompactButton({ r }) {
+  const [busy, setBusy] = useState(false);
+  if (!r.pane_alive || !r.compact_command) return null;
+  const compact = async () => {
+    if (!confirm(`Compact ${r.user_id}'s context? This types ${r.compact_command} into its pane.`)) return;
+    setBusy(true);
+    const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/compact`, { method: "POST" });
+    setBusy(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(`Could not compact ${r.user_id}: ${body.detail?.error || res.status}`);
+    }
+  };
+  return html`<button type="button" class="mini" disabled=${busy}
+    title=${`Type ${r.compact_command} into ${r.user_id}'s pane to compact its context`}
+    onClick=${compact}>${busy ? "compacting…" : "compact"}</button>`;
+}
+
 // "claude-opus-4-7" reads as "opus-4-7" next to the claude flavor tag.
 function shortModel(model, flavor) {
   const prefix = `${flavor}-`;
@@ -1020,6 +1040,7 @@ function FocusView({ user, state, refresh, freshIds }) {
           <span class="chip">${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic} ${flavor}</span>
           <${ModelLabel} r=${r} refresh=${refresh} /> · <${MachineBadge} node=${r.node} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
+          <${CompactButton} r=${r} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? html` <span class="attn">${detail}</span>` : ""}
         </div>

@@ -1662,6 +1662,44 @@ def create_app(
             "already_stopped": False,
         }
 
+    @app.post("/agents/{user_id}/compact")
+    def agents_compact(user_id: str, _: None = Depends(_require_owner)):
+        """Type the harness's compact command into the agent's pane.
+
+        Sent as a bare command, not a message: no prefix, no envelope, no
+        message row. A busy harness queues it like any other input.
+        """
+        recipient = db.get_recipient(conn, user_id)
+        if recipient is None:
+            raise HTTPException(status_code=404, detail={"error": "unknown agent"})
+        flavor = recipient.get("flavor")
+        command = tmux.compact_command_for_flavor(flavor)
+        if command is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": f"no compact command is known for flavor {flavor or 'generic'}"},
+            )
+        node = _node_of(recipient)
+        snap = _try_snapshot(node)
+        reason = _offline(recipient, node, snap)
+        if reason is not None:
+            raise HTTPException(status_code=409, detail={"error": reason})
+        sent = node.deliver(
+            nodes.new_op_id(),
+            recipient["tmux_pane"],
+            recipient.get("tmux_server"),
+            command,
+            submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
+            flavor=flavor,
+        )
+        if sent.status != "ok":
+            raise HTTPException(
+                status_code=502 if sent.status == "unknown" else 500,
+                detail={"error": "could not send the compact command",
+                        "status": sent.status, "detail": sent.error},
+            )
+        return {"ok": True, "user_id": user_id, "command": command}
+
     @app.get("/teams")
     def teams_list(_: None = Depends(_require_owner)):
         return {"teams": db.list_teams(conn)}
@@ -1910,6 +1948,7 @@ def create_app(
         for r in recipients:
             r["pane_alive"] = r["alive"]
             r["summaries"] = summaries.get(r["user_id"], [])
+            r["compact_command"] = tmux.compact_command_for_flavor(r.get("flavor"))
             row = registry.get(r["user_id"])
             r["activity"] = (
                 {"status": row["status"], "detail": row["detail"], "since": row["since"]}

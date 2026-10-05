@@ -784,6 +784,30 @@ def test_stop_reports_tmux_failure(client, monkeypatch):
     assert r.json()["detail"]["detail"] == "permission denied"
 
 
+def test_compact_sends_the_flavor_command_bare(client):
+    user = client.post(
+        "/register",
+        json={"tmux_pane": "0:0.0", "flavor": "hermes", "message_prefix": "@@ "},
+    ).json()["user_id"]
+    r = client.post(f"/agents/{user}/compact")
+    assert r.status_code == 200
+    assert r.json()["command"] == "/compress"
+    # No message envelope and no prefix: the harness must see a slash command.
+    assert client._calls[-1][:3] == ("0:0.0", "/compress", None)
+    assert all(m["content"] != "/compress" for m in client.get("/api/state").json()["messages"])
+
+
+def test_compact_refuses_generic_stopped_and_unknown_agents(client):
+    generic = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    assert client.post(f"/agents/{generic}/compact").status_code == 409
+    shell = client.post(
+        "/register", json={"tmux_pane": "0:2.0", "flavor": "claude"}
+    ).json()["user_id"]
+    assert client.post(f"/agents/{shell}/compact").status_code == 409
+    assert client.post("/agents/ghost/compact").status_code == 404
+    assert client._calls == []
+
+
 def test_reassigning_task_notifies_new_assignee(client):
     a = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
     b = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"]
