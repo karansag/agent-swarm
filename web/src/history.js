@@ -3,6 +3,7 @@ import { html } from "htm/preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { Avatar, SUMMARY_SOURCE, focusHash, hue, rel } from "./shared.js";
+import { agentChips } from "./agent-chips.js";
 
 /* The history view: every task as a tile, newest first, with a live text
    search. Its main job is to answer "who was working on X".
@@ -141,16 +142,6 @@ function Clipped({ label, text, re }) {
     <span class="h-text">${hl(open || !long ? text : excerpt(text, re), re)}</span>
     ${long && html` <button type="button" class="h-more" onClick=${() => setOpen(!open)}>${open ? "less" : "more"}</button>`}
   </div>`;
-}
-
-// Chips for agents that are alive now; dead agents piled up into a wall of
-// chips. The selected agent keeps its chip even when dead, so the filter
-// (set from a tile's "only" button or a URL) can still be seen and cleared.
-export function agentChips(agentCount, recipients, selected) {
-  const live = new Set(recipients.filter(r => r.pane_alive).map(r => r.user_id));
-  const counts = new Map([...agentCount].filter(([a]) => live.has(a) || a === selected));
-  if (selected && !counts.has(selected)) counts.set(selected, 0);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
 function TaskTile({ rec, re, now, filterAgent }) {

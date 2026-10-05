@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentChips } from "../src/history.js";
+import { agentChips } from "../src/agent-chips.js";
 
 const recipients = [
   { user_id: "otter", pane_alive: true },
