@@ -164,12 +164,9 @@ function CompactButton({ r }) {
   const compact = async () => {
     if (!confirm(`Compact ${r.user_id}'s context? This types ${r.compact_command} into its pane.`)) return;
     setBusy(true);
-    const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/compact`, { method: "POST" });
+    const res = await typeInto(r.user_id, { text: r.compact_command });
     setBusy(false);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      alert(`Could not compact ${r.user_id}: ${body.detail?.error || res.status}`);
-    }
+    if (!res.ok) alert(`Could not compact ${r.user_id}: ${await failure(res)}`);
   };
   return html`<button type="button" class="mini" disabled=${busy}
     title=${`Type ${r.compact_command} into ${r.user_id}'s pane to compact its context`}
@@ -720,8 +717,60 @@ function Scope({ user, refresh }) {
       : html`<pre ref=${preRef} onScroll=${onScroll}>${data
           ? ((data.text || "").replace(/\s+$/, "") || "(pane is blank)")
           : "capturing pane…"}</pre>`}
-    <${MessageComposer} recipient=${user} refresh=${refresh} draftId="terminal" />
+    <${TerminalInput} user=${user} />
   </details>`;
+}
+
+// tmux key names the server accepts (tmux.TERMINAL_KEYS), for menus a
+// command opens, such as Codex's /model picker.
+const TERMINAL_KEYS = [["Escape", "esc"], ["Up", "↑"], ["Down", "↓"], ["Enter", "⏎"], ["Tab", "tab"]];
+
+function typeInto(user, body) {
+  return fetch(`/agents/${encodeURIComponent(user)}/terminal`, {
+    method: "POST", headers: JSONH, body: JSON.stringify(body),
+  });
+}
+
+async function failure(res) {
+  const body = await res.json().catch(() => ({}));
+  return body.detail?.error || `error ${res.status}`;
+}
+
+// Types straight into the agent's pane, as if at its keyboard: `/fast`,
+// `/model sonnet`. Unlike the conversation thread, nothing is wrapped as a
+// message and no reply is expected.
+function TerminalInput({ user }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const send = async (body) => {
+    setBusy(true);
+    setStatus("");
+    const res = await typeInto(user, body);
+    setBusy(false);
+    if (!res.ok) { setStatus(await failure(res)); return false; }
+    return true;
+  };
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!text.trim() || busy) return;
+    if (await send({ text })) setText("");
+  };
+  return html`<form class="composer terminal-input" onSubmit=${submit}>
+    <div class="compose-row">
+      <span class="mark">$</span>
+      <input type="text" value=${text} disabled=${busy} aria-label=${`Type into ${user}'s terminal`}
+        placeholder="type into the terminal, e.g. /fast or /model sonnet"
+        onInput=${e => setText(e.target.value)} />
+      <button type="submit" class="mini" disabled=${busy || !text.trim()}>enter</button>
+    </div>
+    <div class="compose-meta">
+      <span>keys</span>
+      ${TERMINAL_KEYS.map(([key, label]) => html`<button key=${key} type="button" class="mini"
+        disabled=${busy} title=${`Press ${key} in ${user}'s pane`} onClick=${() => send({ key })}>${label}</button>`)}
+      ${status && html`<span class="err">${status}</span>`}
+    </div>
+  </form>`;
 }
 
 // Messages the owner has sent that the server has not confirmed yet. Composers
@@ -729,14 +778,14 @@ function Scope({ user, refresh }) {
 const pendingSends = new EventTarget();
 let pendingSeq = 0;
 
-function MessageComposer({ recipient, refresh, draftId = "thread" }) {
+function MessageComposer({ recipient, refresh }) {
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
   const [images, setImages] = useState([]);
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
   const composerRef = useRef(null);
-  const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
+  const draftKey = `agent-swarm:draft:${recipient}:thread`;
   const attachments = useAttachments(images, setImages, setStatus, draftKey);
   const { uploading, dragging } = attachments;
   useEffect(() => {

@@ -319,6 +319,7 @@ class Executor:
                 message_prefix=a.get("message_prefix"),
                 submit_key=a.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
                 flavor=a.get("flavor"),
+                retry_submit=a.get("retry_submit", True),
             )
             return protocol.result(op_id, r.status, r.error)
         if kind == "spawn":
@@ -328,6 +329,9 @@ class Executor:
             )
         if kind == "kill":
             r = self.local.kill(op_id, a["pane"], a.get("tmux_server"))
+            return protocol.result(op_id, r.status, r.error)
+        if kind == "send_key":
+            r = self.local.send_key(op_id, a["pane"], a.get("tmux_server"), a["key"])
             return protocol.result(op_id, r.status, r.error)
         if kind == "tag_pane":
             r = self.local.tag_pane(op_id, a["pane"], a.get("tmux_server"), a["handle"])

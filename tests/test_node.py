@@ -50,6 +50,10 @@ class FakeLocal(nodes.LocalNode):
         self.calls.append(("kill", op_id, pane, tmux_server))
         return nodes.Result("ok")
 
+    def send_key(self, op_id, pane, tmux_server, key):
+        self.calls.append(("send_key", op_id, pane, tmux_server, key))
+        return nodes.Result("ok")
+
     def tag_pane(self, op_id, pane, tmux_server, handle):
         self.calls.append(("tag_pane", op_id, pane, tmux_server, handle))
         return nodes.Result("ok")
@@ -78,6 +82,8 @@ def test_executor_runs_each_kind_and_reports_a_result(executor):
     assert r["status"] == "ok" and r["data"] == {"pane": "%7", "label": "agents:3.0", "tmux_server": "srv-1"}
     local.results["resolve"] = ("%7", "agents:3.0")
     assert ex.run(protocol.command("k1", "kill", 30, pane="%7", tmux_server="srv-1"), now)["status"] == "ok"
+    assert ex.run(protocol.command("e1", "send_key", 30, pane="%7", tmux_server="srv-1", key="Up"), now)["status"] == "ok"
+    assert local.calls[-1] == ("send_key", "e1", "%7", "srv-1", "Up")
     assert ex.run(protocol.command("t1", "tag_pane", 30, pane="%7", tmux_server="srv-1", handle="otter"), now)["status"] == "ok"
     assert ex.run(protocol.command("w1", "rename_window", 30, pane="%7", tmux_server="srv-1", name="otter"), now)["status"] == "ok"
     r = ex.run(protocol.command("c1", "capture", 30, pane="%7", tmux_server="srv-1"), now)

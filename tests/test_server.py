@@ -25,6 +25,7 @@ def portal_source():
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     calls = []
+    retries = []
 
     def fake_deliver(
         pane,
@@ -32,8 +33,10 @@ def client(tmp_path, monkeypatch):
         message_prefix=None,
         submit_key=tmux.DEFAULT_SUBMIT_KEY,
         flavor=None,
+        retry_submit=True,
     ):
         calls.append((pane, text, message_prefix, submit_key, flavor))
+        retries.append(retry_submit)
         return True, None
 
     window_names = []
@@ -92,6 +95,7 @@ def client(tmp_path, monkeypatch):
     app = server.create_app(tmp_path / "db.sqlite", monitor=False)
     c = TestClient(app, client=("127.0.0.1", 50000))
     c._calls = calls
+    c._retries = retries
     c._spawns = spawns
     c._kills = kills
     c._window_names = window_names
@@ -784,28 +788,46 @@ def test_stop_reports_tmux_failure(client, monkeypatch):
     assert r.json()["detail"]["detail"] == "permission denied"
 
 
-def test_compact_sends_the_flavor_command_bare(client):
+def test_terminal_text_is_typed_bare(client):
     user = client.post(
         "/register",
-        json={"tmux_pane": "0:0.0", "flavor": "hermes", "message_prefix": "@@ "},
+        json={"tmux_pane": "0:0.0", "flavor": "claude", "message_prefix": "@@ "},
     ).json()["user_id"]
-    r = client.post(f"/agents/{user}/compact")
+    r = client.post(f"/agents/{user}/terminal", json={"text": "/fast"})
     assert r.status_code == 200
-    assert r.json()["command"] == "/compress"
     # No message envelope and no prefix: the harness must see a slash command.
-    assert client._calls[-1][:3] == ("0:0.0", "/compress", None)
-    assert all(m["content"] != "/compress" for m in client.get("/api/state").json()["messages"])
+    assert client._calls[-1][:3] == ("0:0.0", "/fast", None)
+    # A second Enter would pick from a menu the command opened.
+    assert client._retries[-1] is False
+    assert all(m["content"] != "/fast" for m in client.get("/api/state").json()["messages"])
 
 
-def test_compact_refuses_generic_stopped_and_unknown_agents(client):
-    generic = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
-    assert client.post(f"/agents/{generic}/compact").status_code == 409
-    shell = client.post(
-        "/register", json={"tmux_pane": "0:2.0", "flavor": "claude"}
-    ).json()["user_id"]
-    assert client.post(f"/agents/{shell}/compact").status_code == 409
-    assert client.post("/agents/ghost/compact").status_code == 404
+def test_terminal_key_is_pressed(client, monkeypatch):
+    pressed = []
+    monkeypatch.setattr(tmux, "send_key", lambda pane, key: pressed.append((pane, key)) or (True, None))
+    user = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    assert client.post(f"/agents/{user}/terminal", json={"key": "Escape"}).status_code == 200
+    assert pressed == [("0:0.0", "Escape")]
     assert client._calls == []
+
+
+def test_terminal_rejects_bad_requests_and_dead_panes(client):
+    user = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["user_id"]
+    for body in ({}, {"text": "x", "key": "Up"}, {"text": "  "}, {"key": "C-c"}):
+        assert client.post(f"/agents/{user}/terminal", json=body).status_code == 422
+    shell = client.post("/register", json={"tmux_pane": "0:2.0"}).json()["user_id"]
+    assert client.post(f"/agents/{shell}/terminal", json={"text": "/fast"}).status_code == 409
+    assert client.post("/agents/ghost/terminal", json={"text": "/fast"}).status_code == 404
+    assert client._calls == []
+
+
+def test_state_reports_compact_command_by_flavor(client):
+    client.post("/register", json={"tmux_pane": "0:0.0", "flavor": "hermes"})
+    client.post("/register", json={"tmux_pane": "0:1.0"})
+    commands = sorted(
+        str(r["compact_command"]) for r in client.get("/api/state").json()["recipients"]
+    )
+    assert commands == ["/compress", "None"]
 
 
 def test_reassigning_task_notifies_new_assignee(client):

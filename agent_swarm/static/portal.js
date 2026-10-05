@@ -7982,12 +7982,9 @@ function CompactButton({ r }) {
 	const compact = async () => {
 		if (!confirm(`Compact ${r.user_id}'s context? This types ${r.compact_command} into its pane.`)) return;
 		setBusy(true);
-		const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/compact`, { method: "POST" });
+		const res = await typeInto(r.user_id, { text: r.compact_command });
 		setBusy(false);
-		if (!res.ok) {
-			const body = await res.json().catch(() => ({}));
-			alert(`Could not compact ${r.user_id}: ${body.detail?.error || res.status}`);
-		}
+		if (!res.ok) alert(`Could not compact ${r.user_id}: ${await failure(res)}`);
 	};
 	return m$1`<button type="button" class="mini" disabled=${busy}
     title=${`Type ${r.compact_command} into ${r.user_id}'s pane to compact its context`}
@@ -8571,19 +8568,72 @@ function Scope({ user, refresh }) {
       <span style="margin-left:auto">${open ? "live capture · 2s" : "show terminal"}</span>
     </summary>
     ${data && data.error ? m$1`<div class="err">could not capture pane: ${data.error}</div>` : m$1`<pre ref=${preRef} onScroll=${onScroll}>${data ? (data.text || "").replace(/\s+$/, "") || "(pane is blank)" : "capturing pane…"}</pre>`}
-    <${MessageComposer} recipient=${user} refresh=${refresh} draftId="terminal" />
+    <${TerminalInput} user=${user} />
   </details>`;
+}
+var TERMINAL_KEYS = [
+	["Escape", "esc"],
+	["Up", "↑"],
+	["Down", "↓"],
+	["Enter", "⏎"],
+	["Tab", "tab"]
+];
+function typeInto(user, body) {
+	return fetch(`/agents/${encodeURIComponent(user)}/terminal`, {
+		method: "POST",
+		headers: JSONH,
+		body: JSON.stringify(body)
+	});
+}
+async function failure(res) {
+	return (await res.json().catch(() => ({}))).detail?.error || `error ${res.status}`;
+}
+function TerminalInput({ user }) {
+	const [text, setText] = d("");
+	const [busy, setBusy] = d(false);
+	const [status, setStatus] = d("");
+	const send = async (body) => {
+		setBusy(true);
+		setStatus("");
+		const res = await typeInto(user, body);
+		setBusy(false);
+		if (!res.ok) {
+			setStatus(await failure(res));
+			return false;
+		}
+		return true;
+	};
+	const submit = async (e) => {
+		e.preventDefault();
+		if (!text.trim() || busy) return;
+		if (await send({ text })) setText("");
+	};
+	return m$1`<form class="composer terminal-input" onSubmit=${submit}>
+    <div class="compose-row">
+      <span class="mark">$</span>
+      <input type="text" value=${text} disabled=${busy} aria-label=${`Type into ${user}'s terminal`}
+        placeholder="type into the terminal, e.g. /fast or /model sonnet"
+        onInput=${(e) => setText(e.target.value)} />
+      <button type="submit" class="mini" disabled=${busy || !text.trim()}>enter</button>
+    </div>
+    <div class="compose-meta">
+      <span>keys</span>
+      ${TERMINAL_KEYS.map(([key, label]) => m$1`<button key=${key} type="button" class="mini"
+        disabled=${busy} title=${`Press ${key} in ${user}'s pane`} onClick=${() => send({ key })}>${label}</button>`)}
+      ${status && m$1`<span class="err">${status}</span>`}
+    </div>
+  </form>`;
 }
 var pendingSends = new EventTarget();
 var pendingSeq = 0;
-function MessageComposer({ recipient, refresh, draftId = "thread" }) {
+function MessageComposer({ recipient, refresh }) {
 	const [text, setText] = d("");
 	const [context, setContext] = d("");
 	const [images, setImages] = d([]);
 	const [status, setStatus] = d("");
 	const [sending, setSending] = d(false);
 	const composerRef = A(null);
-	const draftKey = `agent-swarm:draft:${recipient}:${draftId}`;
+	const draftKey = `agent-swarm:draft:${recipient}:thread`;
 	const attachments = useAttachments(images, setImages, setStatus, draftKey);
 	const { uploading, dragging } = attachments;
 	h(() => {
