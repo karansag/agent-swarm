@@ -32,6 +32,16 @@ export function unansweredOutcome(err) {
   return { status: "uncertain", reason: (err && err.message) || "no answer from the server" };
 }
 
+// The id a draft is sent under. A draft that comes back after an unconfirmed
+// send keeps that attempt's id, so sending it again lets the server say the
+// first copy already arrived instead of pasting a second one. Edited text is
+// a new message and gets a new id.
+export function draftClientId(draft, retryOf, makeId) {
+  const same = retryOf && retryOf.text === draft.text && retryOf.context === draft.context
+    && JSON.stringify(retryOf.images || []) === JSON.stringify(draft.images || []);
+  return same ? retryOf.clientId : makeId();
+}
+
 // Where a spawn would go, given the machines the hub knows right now and
 // what the user picked. A pick that has since gone away, or is no longer
 // connected, is kept and shown as unusable rather than quietly replaced by

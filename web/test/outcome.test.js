@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from "../src/outcome.js";
+import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOutcome } from "../src/outcome.js";
+
+test("a returned draft keeps its client id only while unchanged", () => {
+  const draft = { text: "deploy", context: "", images: ["a.png"] };
+  const retryOf = { ...draft, clientId: "first" };
+  assert.equal(draftClientId(draft, retryOf, () => "new"), "first");
+  assert.equal(draftClientId({ ...draft, text: "deploy now" }, retryOf, () => "new"), "new");
+  assert.equal(draftClientId({ ...draft, images: [] }, retryOf, () => "new"), "new");
+  assert.equal(draftClientId(draft, null, () => "new"), "new");
+});
 
 test("a delivery is judged by its status, not by the HTTP status", () => {
   assert.deepEqual(deliveryOutcome(true, { ok: true, status: "delivered" }), { status: "delivered", reason: null });

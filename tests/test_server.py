@@ -604,6 +604,41 @@ def test_owner_send_preserves_multiline_content_and_context(client):
     assert msgs[0]["context"] == "investigation"
 
 
+def test_owner_send_retry_with_same_client_id_delivers_once(client):
+    user = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"]
+    body = {"recipient": user, "content": "deploy it", "client_id": "c-1"}
+    first = client.post("/owner/send", json=body).json()
+    # The answer was lost on the way back; the dashboard sends it again.
+    again = client.post("/owner/send", json=body).json()
+    assert first["status"] == again["status"] == "delivered"
+    assert again["message_id"] == first["message_id"]
+    assert len(client._calls) == 1
+    msgs = client.get("/messages", params={"user": user}).json()["messages"]
+    assert [m["content"] for m in msgs] == ["deploy it"]
+    # A new message gets a new id and is delivered.
+    client.post("/owner/send", json={**body, "client_id": "c-2"})
+    assert len(client._calls) == 2
+
+
+def test_owner_send_retry_after_definite_failure_delivers(client, monkeypatch):
+    user = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"]
+    body = {"recipient": user, "content": "deploy it", "client_id": "c-1"}
+    monkeypatch.setattr(tmux, "deliver", lambda *a, **k: (False, "no such pane"))
+    assert client.post("/owner/send", json=body).json()["status"] == "failed"
+    monkeypatch.setattr(tmux, "deliver", lambda *a, **k: (True, None))
+    assert client.post("/owner/send", json=body).json()["status"] == "delivered"
+
+
+def test_owner_send_retry_while_first_attempt_in_flight_does_not_paste(client, tmp_path):
+    from agent_swarm import db
+    user = client.post("/register", json={"tmux_pane": "0:1.0"}).json()["user_id"]
+    other = db.connect(tmp_path / "db.sqlite")
+    mid = db.record_message(other, "owner", user, None, "deploy it", status="pending", client_id="c-1")
+    r = client.post("/owner/send", json={"recipient": user, "content": "deploy it", "client_id": "c-1"}).json()
+    assert r["status"] == "unknown" and r["message_id"] == mid
+    assert client._calls == []
+
+
 def test_owner_send_unknown_recipient_404(client):
     r = client.post("/owner/send", json={"recipient": "ghost", "content": "hi"})
     assert r.status_code == 404
