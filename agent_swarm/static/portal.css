@@ -257,17 +257,25 @@
   .tnote-toggle:hover { color: var(--cream); }
   .tnote-body { margin-top: 4px; padding: 6px 8px; border-left: 2px solid var(--honey-dim);
     font-size: 11px; line-height: 1.45; color: var(--cream-dim); white-space: pre-wrap; }
-  .tnote-edit { margin-top: 6px; }
-  .tnote-edit textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 11px;
-    padding: 5px 6px; border-radius: 6px; resize: vertical; }
-  .tnote-actions { display: flex; gap: 6px; margin-top: 4px; }
   .tnote-err { color: var(--alert); }
   .tcard .blocked-tag { color: var(--honey); }
   .tcard .t { font-size: 12.5px; }
   .tcard .meta { font-size: 10px; color: var(--cream-dim); margin-top: 3px; }
   .tcard .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .tcard .foot select { padding: 3px 6px; font-size: 11px; border-radius: 6px; }
-  .tcard .foot .mini { margin-left: auto; }
+  .tcard .foot .task-status-actions { margin-left: auto; }
+  .task-status-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .task-status-actions.editing { width: 100%; }
+  .task-verification { flex-basis: 100%; min-width: 0; color: var(--cream-dim); font-size: 11px; }
+  .task-verification label { display: block; }
+  .task-verification textarea { display: block; width: 100%; box-sizing: border-box; margin: 5px 0;
+    padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--ink-2);
+    color: var(--cream); font: 12px var(--mono); resize: vertical; }
+  .task-verification textarea:focus-visible { outline: 2px solid var(--honey); outline-offset: 1px; }
+  .task-action-error { color: var(--alert); font-size: 11px; width: 100%; }
+  .task-row-note { margin-top: 5px; color: var(--cream-dim); font-size: 11px; }
+  .task-row-note summary { cursor: pointer; }
+  .task-row-note div { white-space: pre-wrap; margin-top: 5px; }
   a.col-more {
     display: block; text-align: center; padding: 7px 0; font-size: 11px; border-top: 1px solid var(--line);
     color: var(--honey-dim); text-decoration: none;
@@ -713,7 +721,7 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   input[type="text"], input:not([type]), select, textarea,
   .task-composer input.task-title, .task-composer textarea,
   .composer textarea, .composer .context, .tcard .foot select,
-  .fhead .model-edit input, .tnote-edit textarea { font-size: 16px; }
+  .fhead .model-edit input, .task-verification textarea { font-size: 16px; }
   .tcard, .trow, .htile, .doing-box, .fhead, .chip-card, .h-agentchip { overflow-wrap: anywhere; }
   .tcard .meta, .tnote-body, .h-field { font-size: 12px; }
   .tcard .t { font-size: 14px; }

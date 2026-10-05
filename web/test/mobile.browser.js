@@ -101,9 +101,9 @@ test('touch navigation, filtering, roster stacking, task details and assignment'
     assert.notEqual(await page.locator('.status-history').getAttribute('open'), null);
     await page.locator('.focus-back').tap();
     await page.locator('.hive-task-picker select').selectOption('73');
-    await page.getByRole('combobox', { name: 'Assign task #73' }).selectOption('t:1');
+    await page.locator('.hive-task-detail').getByRole('combobox', { name: 'Assign task #73' }).selectOption('t:1');
     await page.waitForFunction(() => document.querySelector('.hive-task-detail p').textContent.includes('team agent-swarm'));
-    await page.getByRole('combobox', { name: 'Assign task #73' }).selectOption('ferret');
+    await page.locator('.hive-task-detail').getByRole('combobox', { name: 'Assign task #73' }).selectOption('ferret');
     await page.waitForFunction(() => document.querySelector('.hive-task-detail p').textContent.includes('ferret'));
     assert.deepEqual(patches, [{team_id:1}, {assignee:'ferret',team_id:null}]);
     await fit(page);
@@ -126,6 +126,62 @@ test('touch navigation, filtering, roster stacking, task details and assignment'
   } finally { await page.close(); }
 });
 
+test('task completion has one note-aware action across board, agent, and honeycomb', async () => {
+  const { page, state, errors } = await setup(390,844);
+  const patches = [];
+  await page.route('**/tasks/*', async route => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    const id = Number(route.request().url().split('/').pop());
+    const patch = route.request().postDataJSON();
+    patches.push({ id, ...patch });
+    const task = state.tasks.find(t => t.id === id);
+    Object.assign(task, patch);
+    await route.fulfill({ json: { ok: true, task } });
+  });
+  try {
+    await page.goto(base);
+    const card = page.locator('.col.picked_up .tcard').first();
+    await card.getByRole('button', { name: 'Complete task' }).tap();
+    assert.equal(patches.length, 0);
+    await card.locator('.task-verification textarea').fill('Check the mobile dashboard at 390px.');
+    await card.getByRole('button', { name: 'Complete task' }).tap();
+    await page.waitForFunction(() => [...document.querySelectorAll('.col.done .tcard')]
+      .some(e => e.textContent.includes('Make the dashboard mobile friendly')));
+    assert.deepEqual(patches[0], { id: 73, status: 'done', note: 'Check the mobile dashboard at 390px.' });
+    const done = page.locator('.col.done .tcard').filter({ has: page.locator('.t', { hasText: 'Make the dashboard mobile friendly' }) });
+    assert.equal(await done.getByRole('combobox', { name: 'Assign task #73' }).isDisabled(), true);
+    await done.getByRole('button', { name: 'Reopen' }).tap();
+    await page.waitForFunction(() => [...document.querySelectorAll('.col.picked_up .tcard')]
+      .some(e => e.textContent.includes('Make the dashboard mobile friendly')));
+    assert.deepEqual(patches[1], { id: 73, status: 'picked_up' });
+    const unassigned = page.locator('.col.open .tcard').filter({ hasText: 'Long path regression' });
+    assert.equal(await unassigned.getByRole('button', { name: 'Start work' }).isDisabled(), true);
+    await unassigned.getByRole('combobox', { name: 'Assign task #74' }).selectOption('stoat');
+    await unassigned.getByRole('button', { name: 'Start work' }).tap();
+    await page.waitForFunction(() => [...document.querySelectorAll('.col.picked_up .tcard')]
+      .some(e => e.textContent.includes('Long path regression')));
+    assert.deepEqual(patches[2], { id: 74, assignee: 'stoat' });
+    assert.deepEqual(patches[3], { id: 74, status: 'picked_up' });
+
+    await page.goto(base + '#/agent/stoat');
+    const row = page.locator('.trow').filter({ hasText: 'Make the dashboard mobile friendly' });
+    await row.getByRole('button', { name: 'Complete task' }).tap();
+    await page.waitForFunction(() => [...document.querySelectorAll('.trow.done')]
+      .some(e => e.textContent.includes('Make the dashboard mobile friendly')));
+    assert.deepEqual(patches[4], { id: 73, status: 'done', note: 'Check the mobile dashboard at 390px.' });
+
+    await page.goto(base);
+    await page.locator('.hive-task-picker select').selectOption('74');
+    const detail = page.locator('.hive-task-detail');
+    await detail.getByRole('button', { name: 'Complete task' }).tap();
+    await detail.locator('.task-verification textarea').fill('Open the board and inspect task #74.');
+    await detail.getByRole('button', { name: 'Complete task' }).tap();
+    await page.waitForFunction(() => document.querySelector('.hive-task-detail')?.textContent.includes('done'));
+    assert.deepEqual(patches[5], { id: 74, status: 'done', note: 'Open the board and inspect task #74.' });
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('mobile attachments, message actions, and conversation controls stay usable', async () => {
   const { page, errors } = await setup(390,844);
   const sent = [];
@@ -136,8 +192,7 @@ test('mobile attachments, message actions, and conversation controls stay usable
   });
   try {
     await page.goto(base+'#/agent/stoat');
-    await page.waitForSelector('.scope');
-    const composer = page.locator('.scope .composer');
+    const composer = page.locator('.thread .composer').first();
     await composer.locator('input[type=file]').setInputFiles({name:'review.txt',mimeType:'text/plain',buffer:Buffer.from('mobile review')});
     await composer.getByRole('button',{name:/Remove/}).waitFor();
     await fit(page);

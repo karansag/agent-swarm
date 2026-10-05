@@ -1,4 +1,5 @@
 import { TaskTrash } from "./task-trash.js";
+import { TaskStatusActions } from "./task-status.js";
 import { html, render } from "htm/preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
@@ -493,8 +494,6 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose 
 
 function TaskCard({ t, agentIds, teams, blockers, refresh }) {
   const [dragging, setDragging] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [err, setErr] = useState("");
   const when = new Date(t.created_at * 1000)
@@ -505,11 +504,6 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
     const r = await patchTask(t.id, p);
     if (!r.ok) { setErr(r.error); return false; }
     setErr(""); refresh(); return true;
-  };
-  const close = async () => {
-    if (await act({ status: "done", note: note.trim() })) {
-      setClosing(false); setNote("");
-    }
   };
   const draggable = t.status !== "done";
   const blocked = blockers.length > 0 && t.status !== "done";
@@ -541,19 +535,11 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
         title="How to verify this work">${showNote ? "▾" : "▸"} how to verify</button>
       ${showNote && html`<div class="tnote-body">${t.note}</div>`}
     </div>`}
-    ${closing && html`<div class="tnote-edit">
-      <textarea rows="3" value=${note} autofocus
-        placeholder="How is this verified? How to use it, or how to reproduce what it fixed, and where to look."
-        onInput=${(e) => setNote(e.target.value)}></textarea>
-      <div class="tnote-actions">
-        <button class="mini" disabled=${!note.trim()} onClick=${close}>save & close</button>
-        <button class="mini" onClick=${() => { setClosing(false); setErr(""); }}>cancel</button>
-      </div>
-    </div>`}
     ${err && html`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
       <${TaskTrash} task=${t} refresh=${refresh} />
-      <select title="assignee" value=${t.team_id ? `t:${t.team_id}` : (t.assignee || "")}
+      <select title="assignee" aria-label=${`Assign task #${t.id}`} disabled=${t.status === "done"}
+        value=${t.team_id ? `t:${t.team_id}` : (t.assignee || "")}
         onChange=${onAssign}>
         <option value="">unassigned</option>
         ${teams.length > 0 && html`<optgroup label="teams">
@@ -561,9 +547,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
         </optgroup>`}
         ${ids.map(a => html`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
       </select>
-      ${t.status === "done"
-        ? html`<button class="mini" onClick=${() => act({ status: "open" })}>reopen</button>`
-        : html`<button class="mini" onClick=${() => { setNote(t.note || ""); setClosing(!closing); }}>done</button>`}
+      <${TaskStatusActions} task=${t} refresh=${refresh} />
     </div>
   </div>`;
 }
@@ -1042,6 +1026,30 @@ function Doing({ summaries, now }) {
   </div>`;
 }
 
+function AgentTaskRow({ t, taskIds, agentIds, refresh }) {
+  const [error, setError] = useState("");
+  const assign = async e => {
+    const result = await patchTask(t.id, { assignee: e.target.value || null });
+    if (!result.ok) { setError(result.error); return; }
+    setError("");
+    refresh();
+  };
+  return html`<div class=${`trow ${t.status}`}>
+    <span class="tid">#${t.id}</span>
+    <span class="t">${t.title}<${AttachmentList} files=${t.attachments} />
+      ${t.note && html`<details class="task-row-note"><summary>How to verify</summary><div>${t.note}</div></details>`}
+    </span>
+    <span class=${`pill ${t.status}`}>${t.status.replace("_", " ")}</span>
+    <select title="assignee" aria-label=${`Assign task #${t.id}`} value=${t.assignee || ""}
+      disabled=${t.status === "done"} onChange=${assign}>
+      <option value="">unassigned</option>
+      ${taskIds.map(a => html`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
+    </select>
+    <${TaskStatusActions} task=${t} refresh=${refresh} />
+    ${error && html`<span class="task-action-error" role="alert">${error}</span>`}
+  </div>`;
+}
+
 function FocusView({ user, state, refresh, freshIds }) {
   // A thread's rank is assigned once, so a new peer message cannot reorder
   // every existing conversation on the next polling render.
@@ -1078,7 +1086,6 @@ function FocusView({ user, state, refresh, freshIds }) {
     })
     .map(([, msgs]) => msgs);
   const hasOwnerThread = groups.has(ownerThread);
-  const act = async (id, p) => { await patchTask(id, p); refresh(); };
   return html`<div>
     <button type="button" class="focus-back" onClick=${() => { location.hash = "#/"; }}>← back to overview</button>
     <div class="fhead">
@@ -1116,19 +1123,8 @@ function FocusView({ user, state, refresh, freshIds }) {
       ${myTasks.length > 0 && html`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>
     ${myTasks.length === 0
       ? html`<div class="empty">No tasks assigned to ${user}. Assign one from the overview board.</div>`
-      : myTasks.map(t => html`<div key=${t.id} class=${`trow ${t.status}`}>
-          <span class="tid">#${t.id}</span>
-          <span class="t">${t.title}<${AttachmentList} files=${t.attachments} /></span>
-          <span class=${`pill ${t.status}`}>${t.status.replace("_", " ")}</span>
-          <select title="assignee" value=${t.assignee || ""}
-            onChange=${e => act(t.id, { assignee: e.target.value })}>
-            <option value="">unassigned</option>
-            ${taskIds.map(a => html`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
-          </select>
-          ${t.status === "done"
-            ? html`<button class="mini" onClick=${() => act(t.id, { status: "open" })}>reopen</button>`
-            : html`<button class="mini" onClick=${() => act(t.id, { status: "done" })}>done</button>`}
-        </div>`)}
+      : myTasks.map(t => html`<${AgentTaskRow} key=${t.id} t=${t} taskIds=${taskIds}
+          agentIds=${agentIds} refresh=${refresh} />`)}
   </div>`;
 }
 
