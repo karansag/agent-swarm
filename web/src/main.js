@@ -21,7 +21,7 @@ import {
   focusHash,
   patchTask,
 } from "./shared.js";
-import { deliveryOutcome, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
+import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
 import { machineColor, machineList, machineName } from "./machines.js";
 import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 import { HiveView } from "./hive.js";
@@ -762,12 +762,24 @@ function TerminalInput({ user }) {
 const pendingSends = new EventTarget();
 let pendingSeq = 0;
 
+// crypto.randomUUID needs a secure context; the dashboard is often opened
+// over plain http on a LAN or tailnet address, where getRandomValues works.
+function newClientId() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Waits before re-sending a message whose answer was lost. The server knows
+// the message by its client id, so a re-send never delivers it twice.
+const RESEND_DELAYS_MS = [1000, 3000, 6000];
+
 function MessageComposer({ recipient, refresh }) {
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
   const [images, setImages] = useState([]);
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
+  // The unconfirmed send this draft came back from: {clientId, text, context, images}.
+  const [retryOf, setRetryOf] = useState(null);
   const composerRef = useRef(null);
   const draftKey = `agent-swarm:draft:${recipient}:thread`;
   const attachments = useAttachments(images, setImages, setStatus, draftKey);
@@ -778,6 +790,7 @@ function MessageComposer({ recipient, refresh }) {
       setText(draft?.text || "");
       setContext(draft?.context || "");
       setImages(Array.isArray(draft?.images) ? draft.images : []);
+      setRetryOf(draft?.retryOf || null);
       setStatus("");
     } catch { /* an invalid saved draft should not block messaging */ }
   }, [draftKey]);
@@ -796,6 +809,7 @@ function MessageComposer({ recipient, refresh }) {
         setText(t => t || draft.text);
         setContext(c => c || draft.context);
         setImages(imgs => (imgs.length ? imgs : draft.images));
+        setRetryOf(draft.retryOf || null);
       }
       setStatus(next);
       clearTimeout(timer);
@@ -809,10 +823,10 @@ function MessageComposer({ recipient, refresh }) {
   useEffect(() => {
     if (loadedKey.current !== draftKey) { loadedKey.current = draftKey; return; }
     try {
-      if (text || context || images.length) localStorage.setItem(draftKey, JSON.stringify({ text, context, images }));
+      if (text || context || images.length) localStorage.setItem(draftKey, JSON.stringify({ text, context, images, retryOf }));
       else localStorage.removeItem(draftKey);
     } catch { /* storage full or blocked: the draft just isn't kept */ }
-  }, [draftKey, text, context, images]);
+  }, [draftKey, text, context, images, retryOf]);
   const canSend = !sending && uploading === 0 && (text.trim() || images.length > 0);
   const send = async (e) => {
     e.preventDefault();
@@ -820,7 +834,8 @@ function MessageComposer({ recipient, refresh }) {
     if (!canSend) return;
     // Clear the composer and show the message in the thread right away; the
     // server confirms delivery afterwards, and a failure restores the draft.
-    const draft = { text, context, images };
+    const clientId = draftClientId({ text, context, images }, retryOf, newClientId);
+    const draft = { text, context, images, retryOf: { clientId, text, context, images } };
     const pending = {
       id: `pending-${++pendingSeq}`, pending: true, delivered: true, status: "delivered",
       sender: "owner", recipient, content, context: context.trim() || null,
@@ -831,6 +846,7 @@ function MessageComposer({ recipient, refresh }) {
     setText("");
     setContext("");
     setImages([]);
+    setRetryOf(null);
     pendingSends.dispatchEvent(new CustomEvent("add", { detail: pending }));
     // The outcome is addressed by draft key, not to this component: sending
     // the first message turns the empty panel into a thread with its own
@@ -840,17 +856,27 @@ function MessageComposer({ recipient, refresh }) {
     const keepDraft = () => {
       try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* best effort */ }
     };
-    let outcome;
-    try {
-      const r = await fetch("/owner/send", {
-        method: "POST", headers: JSONH,
-        body: JSON.stringify({ recipient, content, context: pending.context, attachments: images }),
-      });
-      let body = null;
-      try { body = await r.json(); } catch { body = null; }
-      outcome = deliveryOutcome(r.ok, body);
-    } catch (err) {
-      outcome = unansweredOutcome(err);
+    const attempt = async () => {
+      try {
+        const r = await fetch("/owner/send", {
+          method: "POST", headers: JSONH,
+          body: JSON.stringify({ recipient, content, context: pending.context, attachments: images, client_id: clientId }),
+        });
+        let body = null;
+        try { body = await r.json(); } catch { body = null; }
+        return deliveryOutcome(r.ok, body);
+      } catch (err) {
+        return unansweredOutcome(err);
+      }
+    };
+    // On a flaky connection the answer, not the message, is often what got
+    // lost. Asking again with the same client id finds out which.
+    let outcome = await attempt();
+    for (const delay of RESEND_DELAYS_MS) {
+      if (outcome.status !== "uncertain") break;
+      report({ status: `not confirmed (${outcome.reason}); checking again…` });
+      await new Promise(resolve => setTimeout(resolve, delay));
+      outcome = await attempt();
     }
     if (outcome.status === "delivered") {
       report({ status: "delivered" });
@@ -860,7 +886,7 @@ function MessageComposer({ recipient, refresh }) {
       report({ status: `outcome unknown: ${outcome.reason}. The agent may have it; see the marked message.` });
     } else if (outcome.status === "uncertain") {
       keepDraft();
-      report({ status: `not confirmed: ${outcome.reason}. It may have arrived; draft kept`, draft });
+      report({ status: `not confirmed: ${outcome.reason}. Draft kept; sending it unchanged is safe, it will not arrive twice`, draft });
     } else {
       keepDraft();
       report({ status: `delivery failed: ${outcome.reason}. Draft kept`, draft });

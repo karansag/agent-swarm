@@ -836,6 +836,9 @@ function unansweredOutcome(err) {
 		reason: err && err.message || "no answer from the server"
 	};
 }
+function draftClientId(draft, retryOf, makeId) {
+	return retryOf && retryOf.text === draft.text && retryOf.context === draft.context && JSON.stringify(retryOf.images || []) === JSON.stringify(draft.images || []) ? retryOf.clientId : makeId();
+}
 function spawnTarget(nodes, selected, harnesses) {
 	const all = Array.isArray(nodes) ? nodes : [];
 	all.find((n) => n.local);
@@ -2143,6 +2146,14 @@ function HiveView({ state, refresh, machine }) {
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
 }
 //#endregion
+//#region web/src/agent-chips.js
+function agentChips(agentCount, recipients, selected) {
+	const live = new Set(recipients.filter((r) => r.pane_alive).map((r) => r.user_id));
+	const counts = new Map([...agentCount].filter(([a]) => live.has(a) || a === selected));
+	if (selected && !counts.has(selected)) counts.set(selected, 0);
+	return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+//#endregion
 //#region web/src/history.js
 var HISTORY_ROUTE = "#/tasks";
 var STATUSES = [
@@ -2253,12 +2264,6 @@ function Clipped({ label, text, re }) {
     <span class="h-text">${hl(open || !long ? text : excerpt(text, re), re)}</span>
     ${long && m$1` <button type="button" class="h-more" onClick=${() => setOpen(!open)}>${open ? "less" : "more"}</button>`}
   </div>`;
-}
-function agentChips(agentCount, recipients, selected) {
-	const live = new Set(recipients.filter((r) => r.pane_alive).map((r) => r.user_id));
-	const counts = new Map([...agentCount].filter(([a]) => live.has(a) || a === selected));
-	if (selected && !counts.has(selected)) counts.set(selected, 0);
-	return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 function TaskTile({ rec, re, now, filterAgent }) {
 	const t = rec.src;
@@ -8672,12 +8677,21 @@ function TerminalInput({ user }) {
 }
 var pendingSends = new EventTarget();
 var pendingSeq = 0;
+function newClientId() {
+	return Array.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+var RESEND_DELAYS_MS = [
+	1e3,
+	3e3,
+	6e3
+];
 function MessageComposer({ recipient, refresh }) {
 	const [text, setText] = d("");
 	const [context, setContext] = d("");
 	const [images, setImages] = d([]);
 	const [status, setStatus] = d("");
 	const [sending, setSending] = d(false);
+	const [retryOf, setRetryOf] = d(null);
 	const composerRef = A(null);
 	const draftKey = `agent-swarm:draft:${recipient}:thread`;
 	const attachments = useAttachments(images, setImages, setStatus, draftKey);
@@ -8688,6 +8702,7 @@ function MessageComposer({ recipient, refresh }) {
 			setText(draft?.text || "");
 			setContext(draft?.context || "");
 			setImages(Array.isArray(draft?.images) ? draft.images : []);
+			setRetryOf(draft?.retryOf || null);
 			setStatus("");
 		} catch {}
 	}, [draftKey]);
@@ -8706,6 +8721,7 @@ function MessageComposer({ recipient, refresh }) {
 				setText((t) => t || draft.text);
 				setContext((c) => c || draft.context);
 				setImages((imgs) => imgs.length ? imgs : draft.images);
+				setRetryOf(draft.retryOf || null);
 			}
 			setStatus(next);
 			clearTimeout(timer);
@@ -8727,7 +8743,8 @@ function MessageComposer({ recipient, refresh }) {
 			if (text || context || images.length) localStorage.setItem(draftKey, JSON.stringify({
 				text,
 				context,
-				images
+				images,
+				retryOf
 			}));
 			else localStorage.removeItem(draftKey);
 		} catch {}
@@ -8735,17 +8752,29 @@ function MessageComposer({ recipient, refresh }) {
 		draftKey,
 		text,
 		context,
-		images
+		images,
+		retryOf
 	]);
 	const canSend = !sending && uploading === 0 && (text.trim() || images.length > 0);
 	const send = async (e) => {
 		e.preventDefault();
 		const content = text.trim();
 		if (!canSend) return;
-		const draft = {
+		const clientId = draftClientId({
 			text,
 			context,
 			images
+		}, retryOf, newClientId);
+		const draft = {
+			text,
+			context,
+			images,
+			retryOf: {
+				clientId,
+				text,
+				context,
+				images
+			}
 		};
 		const pending = {
 			id: `pending-${++pendingSeq}`,
@@ -8764,6 +8793,7 @@ function MessageComposer({ recipient, refresh }) {
 		setText("");
 		setContext("");
 		setImages([]);
+		setRetryOf(null);
 		pendingSends.dispatchEvent(new CustomEvent("add", { detail: pending }));
 		const report = (detail) => pendingSends.dispatchEvent(new CustomEvent("outcome", { detail: {
 			draftKey,
@@ -8774,34 +8804,43 @@ function MessageComposer({ recipient, refresh }) {
 				localStorage.setItem(draftKey, JSON.stringify(draft));
 			} catch {}
 		};
-		let outcome;
-		try {
-			const r = await fetch("/owner/send", {
-				method: "POST",
-				headers: JSONH,
-				body: JSON.stringify({
-					recipient,
-					content,
-					context: pending.context,
-					attachments: images
-				})
-			});
-			let body = null;
+		const attempt = async () => {
 			try {
-				body = await r.json();
-			} catch {
-				body = null;
+				const r = await fetch("/owner/send", {
+					method: "POST",
+					headers: JSONH,
+					body: JSON.stringify({
+						recipient,
+						content,
+						context: pending.context,
+						attachments: images,
+						client_id: clientId
+					})
+				});
+				let body = null;
+				try {
+					body = await r.json();
+				} catch {
+					body = null;
+				}
+				return deliveryOutcome(r.ok, body);
+			} catch (err) {
+				return unansweredOutcome(err);
 			}
-			outcome = deliveryOutcome(r.ok, body);
-		} catch (err) {
-			outcome = unansweredOutcome(err);
+		};
+		let outcome = await attempt();
+		for (const delay of RESEND_DELAYS_MS) {
+			if (outcome.status !== "uncertain") break;
+			report({ status: `not confirmed (${outcome.reason}); checking again…` });
+			await new Promise((resolve) => setTimeout(resolve, delay));
+			outcome = await attempt();
 		}
 		if (outcome.status === "delivered") report({ status: "delivered" });
 		else if (outcome.status === "unknown") report({ status: `outcome unknown: ${outcome.reason}. The agent may have it; see the marked message.` });
 		else if (outcome.status === "uncertain") {
 			keepDraft();
 			report({
-				status: `not confirmed: ${outcome.reason}. It may have arrived; draft kept`,
+				status: `not confirmed: ${outcome.reason}. Draft kept; sending it unchanged is safe, it will not arrive twice`,
 				draft
 			});
 		} else {

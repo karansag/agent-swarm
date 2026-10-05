@@ -310,6 +310,12 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         # upgrade has NULL here, and _message reads its flag instead. A
         # default of 'pending' would make such rows look in flight.
         conn.execute("ALTER TABLE messages ADD COLUMN status TEXT")
+    if "client_id" not in msg_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN client_id TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client "
+        "ON messages(sender, client_id) WHERE client_id IS NOT NULL"
+    )
     conn.commit()
 
 
@@ -773,6 +779,14 @@ def set_agent_team(
 MESSAGE_STATUSES = ("pending", "delivered", "failed", "unknown")
 
 
+class DuplicateMessage(Exception):
+    """A message with this sender and client id is already recorded."""
+
+    def __init__(self, existing: dict):
+        super().__init__(f"message {existing['id']} already has this client id")
+        self.existing = existing
+
+
 @_serialized
 def record_message(
     conn: sqlite3.Connection,
@@ -783,18 +797,32 @@ def record_message(
     status: str,
     delivery_error: str | None = None,
     attachments: list[str] | None = None,
+    client_id: str | None = None,
 ) -> int:
     """Store a message. `status` is one of MESSAGE_STATUSES.
 
     A message bound for a pane is recorded as pending before dispatch and
     settled with set_message_status afterwards, so the row exists even when
     the outcome is lost. `delivered` is kept as the flag form of the status.
+
+    `client_id` is the sender's own id for the message, so a retry after a
+    lost answer is recognised: if a row with it exists, DuplicateMessage is
+    raised instead of recording a second message. A failed message does not
+    keep its client id, so a definite failure can be retried.
     """
     if status not in MESSAGE_STATUSES:
         raise ValueError(f"invalid message status: {status}")
+    if status == "failed":
+        client_id = None
+    if client_id:
+        row = conn.execute(
+            "SELECT * FROM messages WHERE sender=? AND client_id=?", (sender, client_id)
+        ).fetchone()
+        if row:
+            raise DuplicateMessage(_message(row))
     cur = conn.execute(
         "INSERT INTO messages(sender, recipient, context, content, ts, delivered, delivery_error, "
-        "attachments, status) VALUES(?,?,?,?,?,?,?,?,?)",
+        "attachments, status, client_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
         (
             sender,
             recipient,
@@ -805,10 +833,19 @@ def record_message(
             delivery_error,
             json.dumps(attachments) if attachments else None,
             status,
+            client_id,
         ),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+@_serialized
+def message_by_client_id(conn: sqlite3.Connection, sender: str, client_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM messages WHERE sender=? AND client_id=?", (sender, client_id)
+    ).fetchone()
+    return _message(row) if row else None
 
 
 @_serialized
@@ -866,9 +903,11 @@ def set_message_status(
 ) -> None:
     if status not in MESSAGE_STATUSES:
         raise ValueError(f"invalid message status: {status}")
+    # A failed message gives up its client id: sending it again is a retry.
     conn.execute(
-        "UPDATE messages SET status=?, delivered=?, delivery_error=? WHERE id=?",
-        (status, 1 if status == "delivered" else 0, delivery_error, message_id),
+        "UPDATE messages SET status=?, delivered=?, delivery_error=?, "
+        "client_id=CASE WHEN ?='failed' THEN NULL ELSE client_id END WHERE id=?",
+        (status, 1 if status == "delivered" else 0, delivery_error, status, message_id),
     )
     conn.commit()
 

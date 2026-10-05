@@ -228,6 +228,12 @@ class OwnerSendReq(BaseModel):
         description="Names returned by POST /attachments. The recipient agent "
         "gets each as an absolute file path appended to the message.",
     )
+    client_id: str | None = Field(
+        default=None, min_length=1, max_length=100,
+        description="The dashboard's own id for this message. Sending the same "
+        "id again (a retry after a lost answer) returns the first attempt's "
+        "outcome instead of delivering a second copy.",
+    )
 
 
 class ActorFields(BaseModel):
@@ -1220,6 +1226,7 @@ def create_app(
         content: str,
         context: str | None,
         files: list[str] | None = None,
+        client_id: str | None = None,
     ):
         """Deliver a message in `sender`'s name to an agent's pane.
 
@@ -1248,7 +1255,7 @@ def create_app(
                 },
             )
         node = _reach(sender, recipient, context, content, files)
-        mid, status, err = _dispatch(node, sender, recipient, context, content, files)
+        mid, status, err = _dispatch(node, sender, recipient, context, content, files, client_id)
         return {
             "ok": status == "delivered", "status": status,
             "message_id": mid, "delivery_error": err,
@@ -1256,6 +1263,12 @@ def create_app(
 
     # Node result -> message status.
     MESSAGE_STATUS = {"ok": "delivered", "failed": "failed", "unknown": "unknown"}
+
+    def _replayed(m: dict) -> tuple[int, str, str | None]:
+        """An earlier attempt's (id, status, error), for a repeated client id."""
+        if m["status"] == "pending":
+            return m["id"], "unknown", "an earlier attempt of this message is still being delivered"
+        return m["id"], m["status"], m.get("delivery_error")
     OWNER_REPLY_IDLE_SECONDS = 25 * 60
 
     def _dispatch(
@@ -1265,19 +1278,24 @@ def create_app(
         context: str | None,
         content: str,
         files: list[str] | None = None,
+        client_id: str | None = None,
     ) -> tuple[int, str, str | None]:
         """Record a message, then paste it into the recipient's pane.
 
         The row exists before the paste, with the message id as the
         operation id, so a result that never comes back leaves a message
         marked unknown rather than a paste with no record. Unknown is never
-        retried here: the agent may already have it.
+        retried here: the agent may already have it. Nor is a client id seen
+        before: that request's outcome is returned without a second paste.
         """
         files = files or []
-        mid = db.record_message(
-            conn, sender, recipient["user_id"], context, content,
-            status="pending", attachments=files,
-        )
+        try:
+            mid = db.record_message(
+                conn, sender, recipient["user_id"], context, content,
+                status="pending", attachments=files, client_id=client_id,
+            )
+        except db.DuplicateMessage as dup:
+            return _replayed(dup.existing)
         # Attachment names travel as names; the node renders them as paths on
         # the machine the pane is on, fetching them from the hub if remote.
         reminder = sender == OWNER and db.owner_reply_reminder_due(
@@ -1375,7 +1393,13 @@ def create_app(
                 status_code=400,
                 detail={"error": "unknown attachment", "attachments": unknown},
             )
-        return _deliver_as(OWNER, req.recipient, content, req.context, req.attachments)
+        if req.client_id and (earlier := db.message_by_client_id(conn, OWNER, req.client_id)):
+            # A retry after a lost answer: report the first attempt, even if
+            # the recipient has gone offline since.
+            mid, status, err = _replayed(earlier)
+            return {"ok": status == "delivered", "status": status,
+                    "message_id": mid, "delivery_error": err}
+        return _deliver_as(OWNER, req.recipient, content, req.context, req.attachments, req.client_id)
 
     @app.post("/attachments")
     async def attachments_upload(request: Request, _: None = Depends(_require_owner)):

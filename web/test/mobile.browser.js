@@ -258,3 +258,25 @@ test('home-screen app gets a reload button; a browser tab does not', async () =>
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('a send whose answer is lost is retried under the same id, not duplicated', async () => {
+  const { page, errors } = await setup(390, 844);
+  const ids = [];
+  await page.route('**/owner/send', async route => {
+    ids.push(route.request().postDataJSON().client_id);
+    // The first answer is lost on the way back; the retry gets the server's word.
+    if (ids.length === 1) return route.abort('connectionreset');
+    await route.fulfill({ json: { ok: true, status: 'delivered', message_id: 1 } });
+  });
+  try {
+    await page.goto(base + '#/agent/stoat');
+    const box = page.locator('form.composer textarea').first();
+    await box.fill('airplane wifi');
+    await box.press('Enter');
+    await page.waitForFunction(() => document.querySelector('form.composer [role=status]')?.textContent === 'delivered', null, { timeout: 8000 });
+    assert.equal(ids.length, 2);
+    assert.ok(ids[0] && ids[0] === ids[1]);
+    assert.equal(await box.inputValue(), '');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
