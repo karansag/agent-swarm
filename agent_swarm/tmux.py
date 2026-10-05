@@ -51,6 +51,16 @@ FLAVOR_SUBMIT_KEYS = {
     "pi": "Enter",
 }
 
+# The slash command that compacts each harness's context, sent from the
+# dashboard's compact button. Each one checked by pasting it into a live pane
+# of the installed harness. "generic" has none: there is no known harness.
+FLAVOR_COMPACT_COMMANDS = {
+    "claude": "/compact",
+    "codex": "/compact",
+    "pi": "/compact",
+    "hermes": "/compress",
+}
+
 FLAVOR_SUBMIT_DELAYS = {
     "codex": 0.2,
 }
@@ -102,6 +112,11 @@ def submit_key_for_flavor(flavor: str | None) -> str:
     if not flavor:
         return DEFAULT_SUBMIT_KEY
     return FLAVOR_SUBMIT_KEYS.get(flavor.lower(), DEFAULT_SUBMIT_KEY)
+
+
+def compact_command_for_flavor(flavor: str | None) -> str | None:
+    """The slash command that compacts a harness's context, or None."""
+    return FLAVOR_COMPACT_COMMANDS.get((flavor or DEFAULT_FLAVOR).lower())
 
 
 def submit_delay_for_flavor(flavor: str | None) -> float:
