@@ -8043,7 +8043,7 @@ function JumpToPane({ r, compact = false }) {
 	if (compact) return m$1`<button type="button" class="jump-agent" title=${title}
       aria-label=${`Copy tmux command to jump to ${r.user_id}`} onClick=${copy}>${copied ? "copied" : "⇥"}</button>`;
 	return m$1`<span class="jump-cmd" title=${title}>
-    · <code>${command}</code>
+    <span class="sep">· </span><code>${command}</code>
     <button type="button" class="mini" onClick=${copy}>${copied ? "copied" : "copy"}</button>
   </span>`;
 }

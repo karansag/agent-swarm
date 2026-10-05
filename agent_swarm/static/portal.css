@@ -700,7 +700,7 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 @media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) {
   header.top { padding: 18px; gap: 10px 16px; }
   header.top h1 { font-size: 26px; }
-  header.top .right { flex-wrap: wrap; font-size: 11px; }
+  header.top .right { flex-wrap: wrap; font-size: 11px; margin-left: 0; }
   nav.views { flex-wrap: wrap; margin-left: 0; }
   nav.views a { display: inline-flex; align-items: center; min-height: 44px; }
   .machine-bar { padding: 14px 18px; }
@@ -752,8 +752,14 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   .teamhead { flex-wrap: wrap; }
   .teamhead .teamname { overflow-wrap: anywhere; min-width: 0; }
   .chip-card { flex-wrap: wrap; }
-  .chip-card .controls { display: flex; flex-wrap: wrap; align-items: center; width: 100%; gap: 6px; justify-content: flex-end; }
-  .chip-card .controls .flav { margin-right: auto; }
+  .chip-card .controls { display: flex; flex-wrap: wrap; align-items: center; width: 100%; gap: 6px; justify-content: flex-start; }
+  .chip-card .controls .flav { margin-right: 6px; }
+  .tcard .foot .task-status-actions { margin-left: 0; }
+  .task-status-actions { justify-content: flex-start; }
+  .trow { align-items: flex-start; }
+  .trow .tid { line-height: 1.5; }
+  form.spawn select { flex-basis: 100%; }
+  .fhead .jump-cmd .sep { display: none; }
   .chip-card .machine-badge { white-space: normal; overflow-wrap: anywhere; }
 
   .fhead { align-items: flex-start; gap: 12px; }

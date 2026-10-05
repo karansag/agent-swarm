@@ -152,7 +152,7 @@ function JumpToPane({ r, compact = false }) {
       aria-label=${`Copy tmux command to jump to ${r.user_id}`} onClick=${copy}>${copied ? "copied" : "⇥"}</button>`;
   }
   return html`<span class="jump-cmd" title=${title}>
-    · <code>${command}</code>
+    <span class="sep">· </span><code>${command}</code>
     <button type="button" class="mini" onClick=${copy}>${copied ? "copied" : "copy"}</button>
   </span>`;
 }
