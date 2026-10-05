@@ -128,6 +128,19 @@ def test_deliver_retries_submit_once_when_composer_still_holds_text(monkeypatch)
     assert calls.count(["tmux", "send-keys", "-t", "session-a:9.0", "Enter"]) == 2
 
 
+def test_deliver_without_retry_submits_once(monkeypatch):
+    # A menu row under the cursor looks like unsent text; no second key.
+    calls = []
+    monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(tmux, "_composer_holds_text", lambda pane: True)
+    monkeypatch.setattr(tmux.time, "sleep", lambda s: None)
+
+    assert tmux.deliver(
+        "session-a:9.0", "/model", submit_key="Enter", retry_submit=False
+    ) == (True, None)
+    assert calls.count(["tmux", "send-keys", "-t", "session-a:9.0", "Enter"]) == 1
+
+
 def test_deliver_does_not_retry_after_composer_clears(monkeypatch):
     calls = []
     monkeypatch.setattr(tmux.subprocess, "run", _fake_run(calls))

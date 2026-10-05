@@ -323,6 +323,13 @@ class AgentTeamReq(BaseModel):
     team_id: int | None = None
 
 
+class TerminalReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None = Field(default=None, max_length=4000)
+    key: str | None = None
+
+
 class AgentModelReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1662,43 +1669,48 @@ def create_app(
             "already_stopped": False,
         }
 
-    @app.post("/agents/{user_id}/compact")
-    def agents_compact(user_id: str, _: None = Depends(_require_owner)):
-        """Type the harness's compact command into the agent's pane.
+    @app.post("/agents/{user_id}/terminal")
+    def agents_terminal(user_id: str, req: TerminalReq, _: None = Depends(_require_owner)):
+        """Type straight into an agent's pane, as if at its keyboard.
 
-        Sent as a bare command, not a message: no prefix, no envelope, no
-        message row. A busy harness queues it like any other input.
+        `text` is pasted and submitted, like a line typed at the prompt
+        (`/fast`, `/model sonnet`). `key` presses one key, for menus a command
+        opens. Neither is a message: no prefix, no envelope, no message row.
         """
+        if (req.text is None) == (req.key is None):
+            raise HTTPException(status_code=422, detail={"error": "send exactly one of text or key"})
+        if req.key is not None and req.key not in tmux.TERMINAL_KEYS:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": f"unknown key {req.key}", "keys": list(tmux.TERMINAL_KEYS)},
+            )
+        if req.text is not None and not req.text.strip():
+            raise HTTPException(status_code=422, detail={"error": "text is empty"})
         recipient = db.get_recipient(conn, user_id)
         if recipient is None:
             raise HTTPException(status_code=404, detail={"error": "unknown agent"})
-        flavor = recipient.get("flavor")
-        command = tmux.compact_command_for_flavor(flavor)
-        if command is None:
-            raise HTTPException(
-                status_code=409,
-                detail={"error": f"no compact command is known for flavor {flavor or 'generic'}"},
-            )
         node = _node_of(recipient)
-        snap = _try_snapshot(node)
-        reason = _offline(recipient, node, snap)
+        reason = _offline(recipient, node, _try_snapshot(node))
         if reason is not None:
             raise HTTPException(status_code=409, detail={"error": reason})
-        sent = node.deliver(
-            nodes.new_op_id(),
-            recipient["tmux_pane"],
-            recipient.get("tmux_server"),
-            command,
-            submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
-            flavor=flavor,
-        )
+        pane, server = recipient["tmux_pane"], recipient.get("tmux_server")
+        if req.key is not None:
+            sent = node.send_key(nodes.new_op_id(), pane, server, req.key)
+        else:
+            sent = node.deliver(
+                nodes.new_op_id(), pane, server, req.text,
+                submit_key=recipient.get("submit_key") or tmux.DEFAULT_SUBMIT_KEY,
+                flavor=recipient.get("flavor"),
+                # A command may open a menu; a retried Enter would pick from it.
+                retry_submit=False,
+            )
         if sent.status != "ok":
             raise HTTPException(
                 status_code=502 if sent.status == "unknown" else 500,
-                detail={"error": "could not send the compact command",
+                detail={"error": "could not type into the pane",
                         "status": sent.status, "detail": sent.error},
             )
-        return {"ok": True, "user_id": user_id, "command": command}
+        return {"ok": True, "user_id": user_id}
 
     @app.get("/teams")
     def teams_list(_: None = Depends(_require_owner)):

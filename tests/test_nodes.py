@@ -101,8 +101,8 @@ def test_local_node_delivers_through_tmux(monkeypatch):
     calls = []
     monkeypatch.setattr(
         tmux, "deliver",
-        lambda pane, text, message_prefix=None, submit_key="C-m", flavor=None: (
-            calls.append((pane, text, message_prefix, submit_key, flavor)) or (True, None)
+        lambda pane, text, message_prefix=None, submit_key="C-m", flavor=None, retry_submit=True: (
+            calls.append((pane, text, message_prefix, submit_key, flavor, retry_submit)) or (True, None)
         ),
     )
     monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
@@ -110,7 +110,7 @@ def test_local_node_delivers_through_tmux(monkeypatch):
         "7", "%3", "srv-1", "hello", message_prefix="/queue ", submit_key="Enter", flavor="codex"
     )
     assert result == nodes.Result("ok", None) and result.ok
-    assert calls == [("%3", "hello", "/queue ", "Enter", "codex")]
+    assert calls == [("%3", "hello", "/queue ", "Enter", "codex", True)]
 
 
 def test_registry_always_keeps_the_local_node():
@@ -134,6 +134,20 @@ def test_registry_refuses_a_node_claiming_the_local_name():
     fleet = nodes.NodeRegistry(nodes.LocalNode("hub"))
     with pytest.raises(ValueError):
         fleet.add(nodes.LocalNode("hub"))
+
+
+def test_local_node_send_key(monkeypatch):
+    monkeypatch.setattr(tmux, "server_id", lambda: "srv-1")
+    monkeypatch.setattr(tmux, "send_key", lambda pane, key: (True, None))
+    node = nodes.LocalNode("here")
+    assert node.send_key("op", "%1", "srv-1", "Up").status == "ok"
+    assert node.send_key("op", "%1", "srv-0", "Up").status == "failed"
+
+    def uncertain(pane, key):
+        raise tmux.Uncertain("key did not report back")
+
+    monkeypatch.setattr(tmux, "send_key", uncertain)
+    assert node.send_key("op", "%1", "srv-1", "Up").status == "unknown"
 
 
 def test_local_node_carries_uncertain_spawn_and_kill(monkeypatch):

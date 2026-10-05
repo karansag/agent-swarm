@@ -287,6 +287,7 @@ def deliver(
     message_prefix: str | None = None,
     submit_key: str = DEFAULT_SUBMIT_KEY,
     flavor: str | None = None,
+    retry_submit: bool = True,
 ) -> tuple[bool, str | None]:
     """Paste text into a tmux pane, then submit it.
 
@@ -294,6 +295,11 @@ def deliver(
     the pane's application has enabled them), so TUIs that detect typing bursts
     as pastes — Codex in particular — receive one atomic paste event and the
     following submit key is unambiguous.
+
+    If the composer still holds text after the submit key, the key is sent
+    once more. retry_submit=False skips that: a command that opens a menu
+    (Codex's /model) leaves a menu row under the cursor, which looks like
+    unsent text, and a second key would pick from the menu.
 
     Returns (ok, error) only when the outcome is certain: loading the buffer
     failed, or tmux refused the paste, so nothing reached the pane. Once the
@@ -325,7 +331,7 @@ def deliver(
             ["tmux", "send-keys", "-t", pane, submit_key],
             capture_output=True, text=True, check=True, timeout=5,
         )
-        if not _await_submit(pane, SUBMIT_VERIFY_DELAY):
+        if retry_submit and not _await_submit(pane, SUBMIT_VERIFY_DELAY):
             # Retry only the submit key once; re-pasting would duplicate text.
             subprocess.run(
                 ["tmux", "send-keys", "-t", pane, submit_key],
@@ -705,6 +711,26 @@ def kill_pane(pane: str) -> tuple[bool, str | None]:
         return False, _error_text(e)
     except (subprocess.SubprocessError, FileNotFoundError) as e:
         raise Uncertain(f"kill did not report back: {_error_text(e)}") from e
+    return True, None
+
+
+# Keys the dashboard's terminal panel can press in an agent's pane, as tmux
+# key names: enough to drive a harness's menus, such as Codex's /model picker.
+TERMINAL_KEYS = ("Escape", "Up", "Down", "Enter", "Tab")
+
+
+def send_key(pane: str, key: str) -> tuple[bool, str | None]:
+    """Press one key in a pane. Returns (ok, error) when tmux answered;
+    raises Uncertain when it did not, since the key may have landed."""
+    try:
+        subprocess.run(
+            ["tmux", "send-keys", "-t", pane, key],
+            capture_output=True, text=True, check=True, timeout=3,
+        )
+    except subprocess.CalledProcessError as e:
+        return False, _error_text(e)
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        raise Uncertain(f"key did not report back: {_error_text(e)}") from e
     return True, None
 
 

@@ -143,9 +143,11 @@ class Node(Protocol):
         message_prefix: str | None = None,
         submit_key: str = tmux.DEFAULT_SUBMIT_KEY,
         flavor: str | None = None,
+        retry_submit: bool = True,
     ) -> Result: ...
     def spawn(self, op_id: str, command: str | None) -> Spawned: ...
     def kill(self, op_id: str, pane: str, tmux_server: str | None) -> Result: ...
+    def send_key(self, op_id: str, pane: str, tmux_server: str | None, key: str) -> Result: ...
     def tag_pane(self, op_id: str, pane: str, tmux_server: str | None, handle: str) -> Result: ...
     def rename_window(self, op_id: str, pane: str, tmux_server: str | None, name: str) -> Result: ...
 
@@ -237,6 +239,7 @@ class LocalNode:
         message_prefix: str | None = None,
         submit_key: str = tmux.DEFAULT_SUBMIT_KEY,
         flavor: str | None = None,
+        retry_submit: bool = True,
     ) -> Result:
         if stale := _stale_server(tmux_server):
             return Result("failed", stale)
@@ -250,7 +253,8 @@ class LocalNode:
         # raises Uncertain, which is exactly the unknown outcome.
         try:
             ok, err = tmux.deliver(
-                pane, text, message_prefix=message_prefix, submit_key=submit_key, flavor=flavor
+                pane, text, message_prefix=message_prefix, submit_key=submit_key,
+                flavor=flavor, retry_submit=retry_submit,
             )
         except tmux.Uncertain as e:
             return Result("unknown", str(e))
@@ -275,6 +279,15 @@ class LocalNode:
             return Result("failed", stale)
         try:
             ok, err = tmux.kill_pane(pane)
+        except tmux.Uncertain as e:
+            return Result("unknown", str(e))
+        return Result("ok" if ok else "failed", err)
+
+    def send_key(self, op_id: str, pane: str, tmux_server: str | None, key: str) -> Result:
+        if stale := _stale_server(tmux_server):
+            return Result("failed", stale)
+        try:
+            ok, err = tmux.send_key(pane, key)
         except tmux.Uncertain as e:
             return Result("unknown", str(e))
         return Result("ok" if ok else "failed", err)
@@ -524,11 +537,13 @@ class RemoteNode:
         message_prefix: str | None = None,
         submit_key: str = tmux.DEFAULT_SUBMIT_KEY,
         flavor: str | None = None,
+        retry_submit: bool = True,
     ) -> Result:
         r = self._call(
             "deliver", DELIVER_TTL, op_id=op_id,
             pane=pane, tmux_server=tmux_server, text=text, attachments=list(attachments),
             message_prefix=message_prefix, submit_key=submit_key, flavor=flavor,
+            retry_submit=retry_submit,
         )
         return Result(r.get("status", "unknown"), r.get("error"))
 
@@ -542,6 +557,10 @@ class RemoteNode:
 
     def kill(self, op_id: str, pane: str, tmux_server: str | None) -> Result:
         r = self._call("kill", COMMAND_TTL, op_id=op_id, pane=pane, tmux_server=tmux_server)
+        return Result(r.get("status", "unknown"), r.get("error"))
+
+    def send_key(self, op_id: str, pane: str, tmux_server: str | None, key: str) -> Result:
+        r = self._call("send_key", COMMAND_TTL, op_id=op_id, pane=pane, tmux_server=tmux_server, key=key)
         return Result(r.get("status", "unknown"), r.get("error"))
 
     def tag_pane(self, op_id: str, pane: str, tmux_server: str | None, handle: str) -> Result:
