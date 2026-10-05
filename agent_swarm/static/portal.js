@@ -2188,6 +2188,12 @@ function Clipped({ label, text, re }) {
     ${long && m$1` <button type="button" class="h-more" onClick=${() => setOpen(!open)}>${open ? "less" : "more"}</button>`}
   </div>`;
 }
+function agentChips(agentCount, recipients, selected) {
+	const live = new Set(recipients.filter((r) => r.pane_alive).map((r) => r.user_id));
+	const counts = new Map([...agentCount].filter(([a]) => live.has(a) || a === selected));
+	if (selected && !counts.has(selected)) counts.set(selected, 0);
+	return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
 function TaskTile({ rec, re, now, filterAgent }) {
 	const t = rec.src;
 	const f = rec.fields;
@@ -2287,8 +2293,7 @@ function HistoryView({ state }) {
 		if (!inStatus(r)) continue;
 		for (const a of r.agents) agentCount.set(a, (agentCount.get(a) || 0) + 1);
 	}
-	if (s.agent && !agentCount.has(s.agent)) agentCount.set(s.agent, 0);
-	const agents = [...agentCount.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+	const agents = agentChips(agentCount, state.recipients, s.agent);
 	const shown = textHits.filter((r) => inStatus(r) && hasAgent(r)).sort((a, b) => s.sort === "oldest" ? a.ts - b.ts : b.ts - a.ts);
 	return m$1`<div class="history">
     <h2>task history <span class="count">· ${shown.length} of ${tasks.length} tasks${withLines ? ` + ${lines.length} status lines` : ""}</span></h2>
