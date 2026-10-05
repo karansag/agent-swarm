@@ -1130,6 +1130,10 @@ function FocusView({ user, state, refresh, freshIds }) {
 
 /* ---------- app ---------- */
 
+// A page saved to the iOS home screen opens without Safari's address bar,
+// so it has no reload button and no pull-to-refresh. It gets its own.
+const STANDALONE = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
 function App() {
   const compact = useMedia(COMPACT_LAYOUT);
   const [state, setState] = useState(null);
@@ -1247,6 +1251,8 @@ function App() {
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>
+      ${STANDALONE && html`<button type="button" class="reload" title="Reload the dashboard"
+        onClick=${() => location.reload()}>↻ reload</button>`}
     </div>
   </header>`;
 

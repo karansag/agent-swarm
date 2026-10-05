@@ -239,3 +239,22 @@ test('desktop baseline and rotation remount the canvas without errors', async ()
     assert.deepEqual(errors,[]);
   } finally {await page.close();}
 });
+
+test('home-screen app gets a reload button; a browser tab does not', async () => {
+  const { page, errors } = await setup(390, 844);
+  try {
+    await page.goto(base);
+    await page.waitForSelector('.roster-drawer');
+    assert.equal(await page.locator('header.top .reload').count(), 0);
+    // iOS marks a page opened from the home screen with navigator.standalone.
+    await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+    await page.reload();
+    await page.waitForSelector('.roster-drawer');
+    await fit(page);
+    await page.evaluate(() => { window.beforeReload = true; });
+    await page.locator('header.top .reload').click();
+    await page.waitForSelector('.roster-drawer');
+    assert.equal(await page.evaluate(() => window.beforeReload), undefined);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

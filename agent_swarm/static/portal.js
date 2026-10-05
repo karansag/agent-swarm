@@ -9063,6 +9063,7 @@ function FocusView({ user, state, refresh, freshIds }) {
           agentIds=${agentIds} refresh=${refresh} />`)}
   </div>`;
 }
+var STANDALONE = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 function App() {
 	const compact = useMedia(COMPACT_LAYOUT);
 	const [state, setState] = d(null);
@@ -9196,6 +9197,8 @@ function App() {
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>
+      ${STANDALONE && m$1`<button type="button" class="reload" title="Reload the dashboard"
+        onClick=${() => location.reload()}>↻ reload</button>`}
     </div>
   </header>`;
 	if (!state) return m$1`${header}<main><div class="stage"><div class="empty">connecting…</div></div></main>`;
