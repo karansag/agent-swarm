@@ -143,6 +143,16 @@ function Clipped({ label, text, re }) {
   </div>`;
 }
 
+// Chips for agents that are alive now; dead agents piled up into a wall of
+// chips. The selected agent keeps its chip even when dead, so the filter
+// (set from a tile's "only" button or a URL) can still be seen and cleared.
+export function agentChips(agentCount, recipients, selected) {
+  const live = new Set(recipients.filter(r => r.pane_alive).map(r => r.user_id));
+  const counts = new Map([...agentCount].filter(([a]) => live.has(a) || a === selected));
+  if (selected && !counts.has(selected)) counts.set(selected, 0);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
 function TaskTile({ rec, re, now, filterAgent }) {
   const t = rec.src;
   const f = rec.fields;
@@ -245,8 +255,7 @@ export function HistoryView({ state }) {
     if (!inStatus(r)) continue;
     for (const a of r.agents) agentCount.set(a, (agentCount.get(a) || 0) + 1);
   }
-  if (s.agent && !agentCount.has(s.agent)) agentCount.set(s.agent, 0);
-  const agents = [...agentCount.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const agents = agentChips(agentCount, state.recipients, s.agent);
 
   const shown = textHits
     .filter(r => inStatus(r) && hasAgent(r))
