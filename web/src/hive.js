@@ -1,4 +1,5 @@
 import { TaskTrash } from "./task-trash.js";
+import { TaskStatusActions } from "./task-status.js";
 import { AttachmentList } from "./attachments.js";
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -102,13 +103,14 @@ function HiveTaskDetail({ task, state, refresh, onClose }) {
     <${AttachmentList} files=${task.attachments} />
     ${task.note && html`<p class="task-description">${task.note}</p>`}
     <label class="hive-task-assignment">Assign to
-      <select aria-label=${`Assign task #${task.id}`} value=${task.team_id ? `t:${task.team_id}` : task.assignee || ""} disabled=${busy} onChange=${assign}>
+      <select aria-label=${`Assign task #${task.id}`} value=${task.team_id ? `t:${task.team_id}` : task.assignee || ""} disabled=${busy || task.status === "done"} onChange=${assign}>
         <option value="">unassigned</option>
         <optgroup label="Teams">${(state.teams || []).map(t => html`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>
         <optgroup label="Agents">${agents.map(a => html`<option value=${a}>${a}</option>`)}</optgroup>
       </select>
     </label>
     ${error && html`<p role="alert">${error}</p>`}
+    <${TaskStatusActions} task=${task} refresh=${refresh} />
     <${TaskTrash} task=${task} refresh=${refresh} onDeleted=${onClose} />
   </section>`;
 }
