@@ -409,7 +409,10 @@
   .composer .actions .mini { padding: 4px 8px; }
   .composer .actions .act { padding: 4px 10px; }
   .thread .composer { background: var(--panel); padding: 10px 14px; }
-  .thread .composer textarea { color: var(--cream); }
+  /* Messages and the reply box share one size. 16px in the compact layout
+     (below), where iOS zooms into any text field smaller than that. */
+  .thread { --thread-font: 14px; }
+  .thread .composer textarea { color: var(--cream); font-size: var(--thread-font); }
   .thread .composer .context { background: var(--ink-2); }
   @media (max-width: 600px) {
     .composer .compose-meta { flex-wrap: wrap; margin-left: 0; }
@@ -435,9 +438,9 @@
   }
   .thread.focused .thread-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .thread.focused .msgs { flex: 1; height: auto !important; max-height: none; }
-  .thread.focused .msg .bubble { font-size: var(--focus-font); line-height: 1.55; padding: .6em .9em; }
+  .thread.focused .msg .bubble { line-height: 1.55; padding: .6em .9em; }
   .thread.focused .msg .tag { font-size: max(11px, calc(var(--focus-font) * .7)); }
-  .thread.focused .composer textarea { font-size: max(16px, var(--focus-font)); }
+  .thread.focused { --thread-font: var(--focus-font); }
   .thread-focus:disabled { opacity: .35; cursor: default; }
   .thread.focused .history-resizer { display: none; }
   .thread.focused .thread-chevron { visibility: hidden; }
@@ -472,7 +475,7 @@
   .msg.right { justify-self: end; }
   .msg.right .tag { text-align: right; }
   .msg .bubble {
-    border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; font-size: 12px;
+    border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; font-size: var(--thread-font);
     background: var(--panel); color: var(--cream); overflow-wrap: anywhere;
   }
   /* Rendered Markdown inside a message bubble. */
@@ -501,7 +504,7 @@
   .msg.right .bubble { background: rgba(242,169,59,.09); border-color: rgba(242,169,59,.3); }
   .msg.fresh .bubble { animation: pop .35s ease; }
   @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.97); } }
-  .msg .tag { font-size: 10px; color: var(--cream-dim); margin: 2px 4px 0; }
+  .msg .tag { font-size: 12px; color: var(--cream-dim); margin: 2px 4px 0; }
   .msg .tag .ctx { color: var(--honey-dim); }
   .msg.pending .bubble { opacity: .6; }
   .msg.failed .bubble { border-style: dashed; border-color: var(--alert); }
@@ -756,6 +759,9 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   .task-composer input.task-title, .task-composer textarea,
   .composer textarea, .composer .context, .tcard .foot select,
   .fhead .model-edit input, .task-verification textarea { font-size: 16px; }
+  .thread { --thread-font: 16px; }
+  .thread.focused { --thread-font: var(--focus-font); }
+  .thread .composer textarea { font-size: max(16px, var(--thread-font)); }
   .tcard, .trow, .htile, .doing-box, .fhead, .chip-card, .h-agentchip { overflow-wrap: anywhere; }
   .tcard .meta, .tnote-body, .h-field { font-size: 12px; }
   .tcard .t { font-size: 14px; }

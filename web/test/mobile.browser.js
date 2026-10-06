@@ -288,6 +288,10 @@ test('a conversation expands to fill the window and back (button, f, Esc)', asyn
     await page.waitForSelector('.thread');
     const history = page.locator('.thread .msgs').first();
     const before = (await history.boundingBox()).height;
+    // Messages and the reply box share one size.
+    const size = sel => page.locator(sel).first().evaluate(e => getComputedStyle(e).fontSize);
+    assert.equal(await size('.thread .msg .bubble'), '14px');
+    assert.equal(await size('.thread .composer textarea'), '14px');
     await page.locator('.thread-focus').first().click();
     assert.equal(await page.locator('.thread.focused').count(), 1);
     assert.ok((await history.boundingBox()).height > before + 200);
