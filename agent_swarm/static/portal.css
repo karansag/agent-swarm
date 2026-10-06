@@ -36,12 +36,12 @@
   /* ---------- header ---------- */
   header.top {
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
-    padding: 26px 34px 20px;
+    padding: 14px 34px 12px;
     border-bottom: 1px solid var(--line);
   }
   header.top h1 {
     font-family: var(--serif); font-style: italic; font-weight: 500;
-    font-size: 30px; line-height: 1; letter-spacing: .5px; color: var(--cream);
+    font-size: 22px; line-height: 1; letter-spacing: .5px; color: var(--cream);
   }
   header.top .right { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--cream-dim); }
   .beacon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--moss); box-shadow: 0 0 0 0 rgba(143,191,111,.6); animation: beacon 2.4s infinite; vertical-align: 1px; margin-right: 6px; }
@@ -584,7 +584,7 @@
 
 /* Machine identity: a shared key across the fleet, bees and agent cards.
    Activity remains a status dot and text, rather than recoloring the card. */
-.machine-bar { padding: 18px 34px; border-bottom: 1px solid var(--line); background: rgba(22,18,12,.65); }
+.machine-bar { padding: 14px 34px; border-bottom: 1px solid var(--line); background: rgba(22,18,12,.65); }
 .machine-heading { display:flex; align-items:baseline; gap:14px; margin-bottom:10px; }
 .machine-heading > span { font-size:11px; text-transform:uppercase; letter-spacing:.15em; color:var(--cream); }
 .machine-heading small { font-size:10px; color:var(--cream-dim); }
@@ -678,6 +678,7 @@ button:focus-visible { outline:2px solid var(--cream); outline-offset:3px; }
 .task-trash .danger { color: #ff9c91; }
 
 /* Slide the desktop roster; keep the mobile roster stacked below the page. */
+.main-col { min-width: 0; }
 main.dashboard-layout { grid-template-columns: minmax(0,1fr) 0px; transition: grid-template-columns .22s ease; overflow: clip; }
 main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; }
 .roster-drawer { width: 340px; min-width: 0; position: sticky; top: 0; transform: translateX(100%); visibility: hidden; transition: transform .22s ease, visibility .22s; background: var(--ink); z-index: 20; }
@@ -686,7 +687,9 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 .roster-heading { display: flex; align-items: baseline; gap: 12px; }
 .roster-heading h2 { flex: 1; }
 .roster-toggle { position: fixed; right: 0; top: 48%; z-index: 22; padding: 10px 8px; color: var(--cream); background: var(--panel-2); border: 1px solid var(--honey-dim); border-radius: 8px 0 0 8px; font: inherit; cursor: pointer; transition: right .22s ease; }
-.roster-toggle.is-open { right: 340px; }
+/* While the roster is open its own "Hide →" closes it; the floating tab
+   would only cover page content. */
+.roster-toggle.is-open { display: none; }
 @media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) {
   main.dashboard-layout, main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr); }
   .roster-drawer { position: static; width: 100%; transform: none; display: none; }
@@ -724,7 +727,7 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 
 @media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) {
   header.top { padding: 18px; gap: 10px 16px; }
-  header.top h1 { font-size: 26px; }
+
   header.top .right { flex-wrap: wrap; font-size: 11px; margin-left: 0; }
   nav.views { flex-wrap: wrap; margin-left: 0; }
   nav.views a { display: inline-flex; align-items: center; min-height: 44px; }

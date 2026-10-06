@@ -9307,15 +9307,17 @@ function App() {
 		...state,
 		messages: [...state.messages, ...pending]
 	} : state;
-	return m$1`${header}
-  <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
-  <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
-    aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
-    <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter((r) => r.pane_alive).length}
-  </button>
-  <main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
+	return m$1`<main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
+    <div class="main-col">
+    ${header}
+    <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
+    <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+      aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
+      <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter((r) => r.pane_alive).length}
+    </button>
     <div class="stage">
       ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
+    </div>
     </div>
     <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}

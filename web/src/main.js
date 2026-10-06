@@ -1333,19 +1333,23 @@ function App() {
   if (!state) return html`${header}<main><div class="stage"><div class="empty">connecting…</div></div></main>`;
   const view = pending.length ? { ...state, messages: [...state.messages, ...pending] } : state;
 
-  return html`${header}
-  <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
-  <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
-    aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
-    <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter(r => r.pane_alive).length}
-  </button>
-  <main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
+  // The header and machine bar sit in the left column, so the roster can run
+  // the full height of the window beside them.
+  return html`<main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
+    <div class="main-col">
+    ${header}
+    <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
+    <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+      aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
+      <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter(r => r.pane_alive).length}
+    </button>
     <div class="stage">
       ${focusUser
         ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />`
         : onHistory
           ? html`<${HistoryView} state=${state} />`
           : html`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
+    </div>
     </div>
     <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}

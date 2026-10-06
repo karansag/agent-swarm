@@ -310,3 +310,21 @@ test('a conversation expands to fill the window and back (button, f, Esc)', asyn
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('desktop: the roster runs to the top and the header stops at its edge', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.roster-drawer.is-open');
+    const roster = await page.locator('.roster-drawer').boundingBox();
+    const header = await page.locator('header.top').boundingBox();
+    assert.ok(roster.y <= 1);
+    assert.ok(header.x + header.width <= roster.x + 1);
+    // The roster's own "Hide →" closes it; the floating tab would cover content.
+    assert.equal(await page.locator('.roster-toggle').isVisible(), false);
+    await page.getByRole('button', { name: 'Hide agents' }).click();
+    await page.locator('.roster-toggle').click();
+    await page.waitForSelector('.roster-drawer.is-open');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
