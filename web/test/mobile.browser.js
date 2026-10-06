@@ -345,3 +345,18 @@ test('owner messages sit on the right of a 1:1 thread, the agent on the left', a
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('agent page: sections have headings and the task form starts folded', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.thread');
+    const headings = await page.locator('.stage h2').evaluateAll(hs => hs.map(h => h.textContent.trim().split(/\s/)[0].toLowerCase()));
+    assert.deepEqual(headings.slice(0, 3), ['status', 'conversations', 'tasks']);
+    const form = page.locator('.task-compose-fold .task-composer');
+    assert.equal(await form.isVisible(), false);
+    await page.locator('.task-compose-fold > summary').click();
+    assert.equal(await form.isVisible(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

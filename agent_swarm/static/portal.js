@@ -8459,7 +8459,7 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
   </div>`;
 }
 var DONE_ON_BOARD = 10;
-function TaskComposer({ state, refresh, user = "" }) {
+function TaskComposer({ state, refresh, user = "", folded = false }) {
 	const draftKey = `agent-swarm:task-draft:${user || "board"}`;
 	const [draft] = d(() => {
 		try {
@@ -8529,8 +8529,8 @@ function TaskComposer({ state, refresh, user = "" }) {
 			setBusy(false);
 		}
 	};
-	return m$1`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
-    <div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>
+	const form = m$1`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
+    ${!folded && m$1`<div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>`}
     <input class="task-title" aria-label="Task title" placeholder="What needs doing?" value=${title} disabled=${busy} onInput=${(e) => setTitle(e.target.value)} onPaste=${attachments.onPaste} required />
     <textarea aria-label="Task details" placeholder="Details, context, or steps to reproduce… (optional)" rows="2" value=${description} disabled=${busy} onInput=${(e) => setDescription(e.target.value)} onPaste=${attachments.onPaste} />
     <${AttachmentPicker} files=${files} controls=${attachments} disabled=${busy} />
@@ -8543,6 +8543,11 @@ function TaskComposer({ state, refresh, user = "" }) {
     ${!targetExists && m$1`<p class="task-compose-status">The selected assignee is unavailable. Choose another destination.</p>`}
     ${status && m$1`<p class="task-compose-status" role="status">${status}</p>`}
   </form>`;
+	if (!folded) return form;
+	return m$1`<details class="task-compose-fold" open=${!!(draft.title || draft.description || draft.files?.length)}>
+    <summary>+ create a task${user ? ` for ${user}` : ""}</summary>
+    ${form}
+  </details>`;
 }
 function Kanban({ state, refresh }) {
 	const agentIds = state.recipients.filter((r) => r.pane_alive).map((r) => r.user_id);
@@ -9147,9 +9152,9 @@ function FocusView({ user, state, refresh, freshIds }) {
         ${r.instructions && m$1`<div class="inst">"${r.instructions}"</div>`}
       </div>
     </div>
+    <h2>status updates</h2>
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} key=${user} user=${user} refresh=${refresh} />
-    <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && m$1`<span class="count">· ${threads.length}</span>`}</h2>
     ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>` : threads.map((msgs) => {
@@ -9163,7 +9168,8 @@ function FocusView({ user, state, refresh, freshIds }) {
     </div>`}
     <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && m$1`<span class="count">· ${myTasks.length}</span>`}
       ${myTasks.length > 0 && m$1`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>
-    ${myTasks.length === 0 ? m$1`<div class="empty">No tasks assigned to ${user}. Assign one from the overview board.</div>` : myTasks.map((t) => m$1`<${AgentTaskRow} key=${t.id} t=${t} taskIds=${taskIds}
+    <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} folded />
+    ${myTasks.length === 0 ? m$1`<div class="empty">No tasks assigned to ${user} yet.</div>` : myTasks.map((t) => m$1`<${AgentTaskRow} key=${t.id} t=${t} taskIds=${taskIds}
           agentIds=${agentIds} refresh=${refresh} />`)}
   </div>`;
 }
