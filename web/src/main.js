@@ -935,6 +935,13 @@ function MessageComposer({ recipient, refresh }) {
 const FOCUS_FONT = { min: 12, max: 26, start: 16, step: 2 };
 const FOCUS_FONT_KEY = "agent-swarm:focus-font";
 
+// Chat convention: the reader's own messages sit on the right. In a thread
+// with the owner that is the owner; between two agents there is no reader
+// side, so the second of the pair takes the right.
+function sentByViewer(sender, a, b) {
+  return a === "owner" || b === "owner" ? sender === "owner" : sender !== a;
+}
+
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
   const boxRef = useRef(null);
   const follower = useRef(null);
@@ -1056,7 +1063,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
       ${msgs.slice(-40).map(m => html`
         <div key=${m.id} class=${[
             "msg",
-            m.sender === a ? "" : "right",
+            sentByViewer(m.sender, a, b) ? "right" : "",
             freshIds.has(m.id) ? "fresh" : "",
             m.status === "failed" ? "failed" : m.status === "unknown" ? "unknown" : "",
             m.sender === "owner" ? "from-owner" : "",

@@ -8895,6 +8895,9 @@ var FOCUS_FONT = {
 	step: 2
 };
 var FOCUS_FONT_KEY = "agent-swarm:focus-font";
+function sentByViewer(sender, a, b) {
+	return a === "owner" || b === "owner" ? sender === "owner" : sender !== a;
+}
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const boxRef = A(null);
 	const follower = A(null);
@@ -9030,7 +9033,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
       ${msgs.slice(-40).map((m) => m$1`
         <div key=${m.id} class=${[
 		"msg",
-		m.sender === a ? "" : "right",
+		sentByViewer(m.sender, a, b) ? "right" : "",
 		freshIds.has(m.id) ? "fresh" : "",
 		m.status === "failed" ? "failed" : m.status === "unknown" ? "unknown" : "",
 		m.sender === "owner" ? "from-owner" : "",

@@ -328,3 +328,16 @@ test('desktop: the roster runs to the top and the header stops at its edge', asy
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('owner messages sit on the right of a 1:1 thread, the agent on the left', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.thread .msg');
+    const sides = await page.locator('.thread .msg').first().locator('..').locator('.msg').evaluateAll(els =>
+      els.map(e => [e.querySelector('.tag').textContent.split('·')[0].trim(), e.classList.contains('right')]));
+    assert.ok(sides.length >= 2);
+    for (const [who, right] of sides) assert.equal(right, who === 'owner', `${who} on the wrong side`);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
