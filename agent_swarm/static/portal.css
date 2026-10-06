@@ -434,7 +434,11 @@
     border-color: var(--honey-dim); box-shadow: 0 0 0 100vmax rgba(8,6,3,.82);
   }
   .thread.focused .thread-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .thread.focused .msgs { flex: 1; height: auto !important; max-height: none; font-size: 14px; }
+  .thread.focused .msgs { flex: 1; height: auto !important; max-height: none; }
+  .thread.focused .msg .bubble { font-size: var(--focus-font); line-height: 1.55; padding: .6em .9em; }
+  .thread.focused .msg .tag { font-size: max(11px, calc(var(--focus-font) * .7)); }
+  .thread.focused .composer textarea { font-size: max(16px, var(--focus-font)); }
+  .thread-focus:disabled { opacity: .35; cursor: default; }
   .thread.focused .history-resizer { display: none; }
   .thread.focused .thread-chevron { visibility: hidden; }
   html.thread-focus-open, html.thread-focus-open body { overflow: hidden; }

@@ -291,6 +291,12 @@ test('a conversation expands to fill the window and back (button, f, Esc)', asyn
     await page.locator('.thread-focus').first().click();
     assert.equal(await page.locator('.thread.focused').count(), 1);
     assert.ok((await history.boundingBox()).height > before + 200);
+    const bubble = page.locator('.thread.focused .msg .bubble').first();
+    const font = () => bubble.evaluate(e => getComputedStyle(e).fontSize);
+    assert.equal(await font(), '16px');
+    await page.getByRole('button', { name: 'Larger text' }).click();
+    assert.equal(await font(), '18px');
+    await page.getByRole('button', { name: 'Smaller text' }).click();
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.thread.focused').count(), 0);
     await page.keyboard.press('f');

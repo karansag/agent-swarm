@@ -8888,6 +8888,13 @@ function MessageComposer({ recipient, refresh }) {
     </div>
   </form>`;
 }
+var FOCUS_FONT = {
+	min: 12,
+	max: 26,
+	start: 16,
+	step: 2
+};
+var FOCUS_FONT_KEY = "agent-swarm:focus-font";
 function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const boxRef = A(null);
 	const follower = A(null);
@@ -8897,6 +8904,20 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
 	const [expanded, setExpanded] = d(!!recipient);
 	const [focused, setFocused] = d(false);
+	const [focusFont, setFocusFont] = d(() => {
+		try {
+			return Number(localStorage.getItem(FOCUS_FONT_KEY)) || FOCUS_FONT.start;
+		} catch {
+			return FOCUS_FONT.start;
+		}
+	});
+	const stepFont = (by) => setFocusFont((size) => {
+		const next = Math.max(FOCUS_FONT.min, Math.min(FOCUS_FONT.max, size + by));
+		try {
+			localStorage.setItem(FOCUS_FONT_KEY, String(next));
+		} catch {}
+		return next;
+	});
 	const savedScroll = A(0);
 	const bodyId = `thread-${encodeURIComponent(pairKey(a, b))}`;
 	_(() => {
@@ -8985,6 +9006,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 		resizeTo(next);
 	};
 	return m$1`<div class=${`thread ${focused ? "focused" : ""}`} role=${focused ? "dialog" : null}
+      style=${focused ? { "--focus-font": `${focusFont}px` } : null}
       aria-label=${focused ? `Conversation ${a} and ${b}` : null}>
     <div class="thread-head">
       <button type="button" class="bar thread-toggle" aria-expanded=${expanded} aria-controls=${bodyId}
@@ -8993,6 +9015,11 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
         ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
         <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
       </button>
+      ${focused && m$1`
+        <button type="button" class="thread-focus" title="Smaller text" aria-label="Smaller text"
+          disabled=${focusFont <= FOCUS_FONT.min} onClick=${() => stepFont(-FOCUS_FONT.step)}>A−</button>
+        <button type="button" class="thread-focus" title="Larger text" aria-label="Larger text"
+          disabled=${focusFont >= FOCUS_FONT.max} onClick=${() => stepFont(FOCUS_FONT.step)}>A+</button>`}
       <button type="button" class="thread-focus" aria-pressed=${focused} onClick=${toggleFocus}
         title=${focused ? "Back to the page (Esc)" : `Expand this conversation to fill the window${recipient ? " (f)" : ""}`}>
         ${focused ? "✕ close" : "⤢ focus"}</button>
