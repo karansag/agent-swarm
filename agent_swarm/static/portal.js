@@ -8896,6 +8896,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
 	const [expanded, setExpanded] = d(!!recipient);
+	const [focused, setFocused] = d(false);
 	const savedScroll = A(0);
 	const bodyId = `thread-${encodeURIComponent(pairKey(a, b))}`;
 	_(() => {
@@ -8917,6 +8918,34 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 		historyHeight,
 		expanded
 	]);
+	const toggleFocus = () => {
+		setExpanded(true);
+		setFocused((v) => !v);
+	};
+	h(() => {
+		document.documentElement.classList.toggle("thread-focus-open", focused);
+		return () => document.documentElement.classList.remove("thread-focus-open");
+	}, [focused]);
+	h(() => {
+		const onKey = (e) => {
+			if (e.key === "Escape" && focused) {
+				e.preventDefault();
+				setFocused(false);
+				return;
+			}
+			const typing = [
+				"INPUT",
+				"SELECT",
+				"TEXTAREA"
+			].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+			if (e.key === "f" && recipient && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+				e.preventDefault();
+				toggleFocus();
+			}
+		};
+		addEventListener("keydown", onKey);
+		return () => removeEventListener("keydown", onKey);
+	}, [focused, recipient]);
 	const onScroll = (e) => {
 		if (!expanded) return;
 		savedScroll.current = e.currentTarget.scrollTop;
@@ -8955,13 +8984,19 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
 		e.preventDefault();
 		resizeTo(next);
 	};
-	return m$1`<div class="thread">
-    <button type="button" class="bar thread-toggle" aria-expanded=${expanded} aria-controls=${bodyId}
-        onClick=${() => setExpanded((v) => !v)}>
-      <span class="thread-chevron" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
-      ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
-      <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
-    </button>
+	return m$1`<div class=${`thread ${focused ? "focused" : ""}`} role=${focused ? "dialog" : null}
+      aria-label=${focused ? `Conversation ${a} and ${b}` : null}>
+    <div class="thread-head">
+      <button type="button" class="bar thread-toggle" aria-expanded=${expanded} aria-controls=${bodyId}
+          disabled=${focused} onClick=${() => setExpanded((v) => !v)}>
+        <span class="thread-chevron" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
+        ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
+        <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
+      </button>
+      <button type="button" class="thread-focus" aria-pressed=${focused} onClick=${toggleFocus}
+        title=${focused ? "Back to the page (Esc)" : `Expand this conversation to fill the window${recipient ? " (f)" : ""}`}>
+        ${focused ? "✕ close" : "⤢ focus"}</button>
+    </div>
     <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}
       style=${historyHeight === null ? null : { height: `${historyHeight}px` }}>

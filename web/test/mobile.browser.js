@@ -280,3 +280,27 @@ test('a send whose answer is lost is retried under the same id, not duplicated',
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('a conversation expands to fill the window and back (button, f, Esc)', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.thread');
+    const history = page.locator('.thread .msgs').first();
+    const before = (await history.boundingBox()).height;
+    await page.locator('.thread-focus').first().click();
+    assert.equal(await page.locator('.thread.focused').count(), 1);
+    assert.ok((await history.boundingBox()).height > before + 200);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.thread.focused').count(), 0);
+    await page.keyboard.press('f');
+    assert.equal(await page.locator('.thread.focused').count(), 1);
+    // Typing "f" into the composer is text, not the shortcut.
+    const box = page.locator('.thread.focused textarea').first();
+    await box.focus();
+    await page.keyboard.type('f');
+    assert.equal(await box.inputValue(), 'f');
+    assert.equal(await page.locator('.thread.focused').count(), 1);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
