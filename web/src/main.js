@@ -857,6 +857,11 @@ function MessageComposer({ recipient, refresh }) {
     setContext("");
     setImages([]);
     setRetryOf(null);
+    // Forget the saved draft now, not in the save effect: the first message
+    // to an agent turns this lone composer into a thread with a new one,
+    // which mounts before this one's effect runs and would load the old
+    // draft back. A failed or unconfirmed send writes it back (keepDraft).
+    try { localStorage.removeItem(draftKey); } catch { /* best effort */ }
     pendingSends.dispatchEvent(new CustomEvent("add", { detail: pending }));
     // The outcome is addressed by draft key, not to this component: sending
     // the first message turns the empty panel into a thread with its own

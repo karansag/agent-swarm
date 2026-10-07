@@ -385,3 +385,23 @@ test('team strip and Alt+] / Alt+[ switch teammates, keeping the draft and the c
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('the first message to an agent clears the composer', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  await page.route('**/owner/send', async route => {
+    const body = route.request().postDataJSON();
+    state.messages.push({ id: 50, sender: 'owner', recipient: body.recipient, content: body.content, ts: state.now, status: 'delivered', attachments: [] });
+    await route.fulfill({ json: { ok: true, status: 'delivered', message_id: 50 } });
+  });
+  try {
+    // hoopoe has no conversation with the owner yet: the page shows a lone composer.
+    await page.goto(base + '#/agent/hoopoe-codex-gpt5-karanslinux');
+    const box = page.locator('.thread .composer textarea').first();
+    await box.fill('first line\n\nsecond paragraph');
+    await box.press('Enter');
+    await page.waitForFunction(() => document.querySelector('.thread .composer [role=status]')?.textContent === 'delivered');
+    assert.equal(await page.locator('.thread .composer textarea').first().inputValue(), '');
+    assert.equal(await page.evaluate(() => localStorage.getItem('agent-swarm:draft:hoopoe-codex-gpt5-karanslinux:thread')), null);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

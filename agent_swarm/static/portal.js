@@ -8815,6 +8815,9 @@ function MessageComposer({ recipient, refresh }) {
 		setContext("");
 		setImages([]);
 		setRetryOf(null);
+		try {
+			localStorage.removeItem(draftKey);
+		} catch {}
 		pendingSends.dispatchEvent(new CustomEvent("add", { detail: pending }));
 		const report = (detail) => pendingSends.dispatchEvent(new CustomEvent("outcome", { detail: {
 			draftKey,
