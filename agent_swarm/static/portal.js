@@ -7936,6 +7936,22 @@ function renderMarkdown(text) {
 	return out;
 }
 //#endregion
+//#region web/src/teammates.js
+function teammates(recipients, teams, user) {
+	const me = recipients.find((r) => r.user_id === user);
+	const team = me && (teams || []).find((t) => t.id === me.team_id);
+	if (!team) return null;
+	return {
+		team,
+		members: recipients.filter((r) => r.team_id === team.id && (r.pane_alive || r.user_id === user)).sort((a, b) => (b.user_id === team.queen) - (a.user_id === team.queen) || a.user_id.localeCompare(b.user_id))
+	};
+}
+function stepTeammate(members, user, by) {
+	const ids = members.map((m) => m.user_id);
+	if (ids.length < 2) return null;
+	return ids[(Math.max(0, ids.indexOf(user)) + by + ids.length) % ids.length];
+}
+//#endregion
 //#region web/src/main.js
 function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	const [stopping, setStopping] = d(false);
@@ -8739,7 +8755,7 @@ function MessageComposer({ recipient, refresh }) {
 		};
 	}, [draftKey]);
 	const loadedKey = A(null);
-	h(() => {
+	_(() => {
 		if (loadedKey.current !== draftKey) {
 			loadedKey.current = draftKey;
 			return;
@@ -8903,15 +8919,16 @@ var FOCUS_FONT_KEY = "agent-swarm:focus-font";
 function sentByViewer(sender, a, b) {
 	return a === "owner" || b === "owner" ? sender === "owner" : sender !== a;
 }
-function Thread({ a, b, msgs, freshIds, now, refresh }) {
+function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
 	const boxRef = A(null);
 	const follower = A(null);
 	if (!follower.current) follower.current = createBottomFollower();
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
+	const peer = recipient ? null : page === a ? b : page === b ? a : null;
 	const [expanded, setExpanded] = d(!!recipient);
-	const [focused, setFocused] = d(false);
+	const [focused, setFocused] = d(() => !!(recipient && switchCarry?.focus));
 	const [focusFont, setFocusFont] = d(() => {
 		try {
 			return Number(localStorage.getItem(FOCUS_FONT_KEY)) || FOCUS_FONT.start;
@@ -9028,6 +9045,8 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
           disabled=${focusFont <= FOCUS_FONT.min} onClick=${() => stepFont(-FOCUS_FONT.step)}>A−</button>
         <button type="button" class="thread-focus" title="Larger text" aria-label="Larger text"
           disabled=${focusFont >= FOCUS_FONT.max} onClick=${() => stepFont(FOCUS_FONT.step)}>A+</button>`}
+      ${peer && !focused && m$1`<a class="thread-focus thread-goto" href=${`#/agent/${encodeURIComponent(peer)}`}
+        title=${`Go to ${peer}'s page to message them`}>open ${peer} →</a>`}
       <button type="button" class="thread-focus" aria-pressed=${focused} onClick=${toggleFocus}
         title=${focused ? "Back to the page (Esc)" : `Expand this conversation to fill the window${recipient ? " (f)" : ""}`}>
         ${focused ? "✕ close" : "⤢ focus"}</button>
@@ -9103,7 +9122,57 @@ function AgentTaskRow({ t, taskIds, agentIds, refresh }) {
     ${error && m$1`<span class="task-action-error" role="alert">${error}</span>`}
   </div>`;
 }
-function FocusView({ user, state, refresh, freshIds }) {
+var switchCarry = null;
+function useTeammateKeys(members, user) {
+	h(() => {
+		if (!members) return;
+		const onKey = (e) => {
+			if (!e.altKey || e.ctrlKey || e.metaKey) return;
+			const by = e.code === "BracketRight" ? 1 : e.code === "BracketLeft" ? -1 : 0;
+			const next = by && stepTeammate(members, user, by);
+			if (!next) return;
+			e.preventDefault();
+			switchCarry = {
+				composer: !!document.activeElement?.closest?.(".thread .composer"),
+				focus: !!document.querySelector(".thread.focused")
+			};
+			location.hash = `#/agent/${encodeURIComponent(next)}`;
+		};
+		addEventListener("keydown", onKey);
+		return () => removeEventListener("keydown", onKey);
+	}, [members, user]);
+}
+function TeamStrip({ crew, user, unreadFor }) {
+	return m$1`<nav class="team-strip" aria-label=${`Team ${crew.team.name}`}>
+    <span class="team-strip-name">${crew.team.name}</span>
+    ${crew.members.map((m) => {
+		const st = STATE[agentStatus(m)] || STATE.unknown;
+		const here = m.user_id === user;
+		return m$1`<a key=${m.user_id} href=${`#/agent/${encodeURIComponent(m.user_id)}`}
+        class=${`team-mate ${here ? "here" : ""}`} aria-current=${here ? "page" : null}
+        title=${`${m.user_id} · ${st.word}`}>
+        <${Bee} node=${m.node} flavor=${m.flavor} size="small" working=${st.cls === "working"} />
+        <span class="team-mate-name">${m.user_id}</span>
+        ${crew.team.queen === m.user_id && m$1`<span class="crown" title="team queen">♛</span>`}
+        <span class=${`status ${st.cls}`}></span>
+        ${unreadFor(m.user_id) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
+      </a>`;
+	})}
+    ${crew.members.length > 1 && m$1`<span class="team-strip-hint">Alt+[ / Alt+]</span>`}
+  </nav>`;
+}
+function FocusView({ user, state, refresh, freshIds, unreadFor }) {
+	const crew = T(() => teammates(state.recipients, state.teams, user), [
+		state.recipients,
+		state.teams,
+		user
+	]);
+	useTeammateKeys(T(() => crew && crew.members, [crew && crew.members.map((m) => m.user_id).join(" ")]), user);
+	h(() => {
+		const carry = switchCarry;
+		switchCarry = null;
+		if (carry?.composer) requestAnimationFrame(() => document.querySelector(".thread .composer textarea")?.focus());
+	}, [user]);
 	const threadOrder = A(/* @__PURE__ */ new Map());
 	const nextThreadOrder = A(0);
 	const r = state.recipients.find((x) => x.user_id === user);
@@ -9134,9 +9203,12 @@ function FocusView({ user, state, refresh, freshIds }) {
 	}).map(([, msgs]) => msgs);
 	const hasOwnerThread = groups.has(ownerThread);
 	return m$1`<div>
-    <button type="button" class="focus-back" onClick=${() => {
+    <div class="focus-top">
+      <button type="button" class="focus-back" onClick=${() => {
 		location.hash = "#/";
 	}}>← back to overview</button>
+      ${crew && m$1`<${TeamStrip} crew=${crew} user=${user} unreadFor=${unreadFor} />`}
+    </div>
     <div class="fhead">
       <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
       <div class="who">
@@ -9159,7 +9231,7 @@ function FocusView({ user, state, refresh, freshIds }) {
     ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>` : threads.map((msgs) => {
 		const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
-		return m$1`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs}
+		return m$1`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user}
             freshIds=${freshIds} now=${state.now} refresh=${refresh} />`;
 	})}
     ${threads.length > 0 && !hasOwnerThread && m$1`<div class="thread" style="margin-top:14px">
@@ -9325,7 +9397,7 @@ function App() {
       <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter((r) => r.pane_alive).length}
     </button>
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
+      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
     </div>
     <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>

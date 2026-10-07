@@ -1,7 +1,7 @@
 import { TaskTrash } from "./task-trash.js";
 import { TaskStatusActions } from "./task-status.js";
 import { html, render } from "htm/preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import {
   POLL_MS,
@@ -30,6 +30,7 @@ import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from
 import { createBottomFollower } from "./scroll-follow.js";
 import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
+import { stepTeammate, teammates } from "./teammates.js";
 
 /* ---------- roster (right sidebar) ---------- */
 
@@ -825,9 +826,11 @@ function MessageComposer({ recipient, refresh }) {
     pendingSends.addEventListener("outcome", onOutcome);
     return () => { clearTimeout(timer); pendingSends.removeEventListener("outcome", onOutcome); };
   }, [draftKey]);
-  // Keep the draft (text, tag, and uploaded images) across reloads.
+  // Keep the draft (text, tag, and uploaded images) across reloads. Saved in
+  // a layout effect, which runs with the render, so a key press that leaves
+  // the page right after typing (Alt+] to a teammate) cannot outrun it.
   const loadedKey = useRef(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (loadedKey.current !== draftKey) { loadedKey.current = draftKey; return; }
     try {
       if (text || context || images.length) localStorage.setItem(draftKey, JSON.stringify({ text, context, images, retryOf }));
@@ -949,17 +952,21 @@ function sentByViewer(sender, a, b) {
   return a === "owner" || b === "owner" ? sender === "owner" : sender !== a;
 }
 
-function Thread({ a, b, msgs, freshIds, now, refresh }) {
+function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
   const boxRef = useRef(null);
   const follower = useRef(null);
   if (!follower.current) follower.current = createBottomFollower();
   const resizeRef = useRef(null);
   const [historyHeight, setHistoryHeight] = useState(null);
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
+  // In a thread between two agents, the one whose page this is not: a link
+  // in the header goes to that agent's page to message them.
+  const peer = recipient ? null : page === a ? b : page === b ? a : null;
   const [expanded, setExpanded] = useState(!!recipient);
   // Focus mode: the thread fills the window for reading. The owner's thread
   // also answers to "f" (outside a text field); Esc leaves.
-  const [focused, setFocused] = useState(false);
+  // A teammate switch made in focus mode lands in focus mode.
+  const [focused, setFocused] = useState(() => !!(recipient && switchCarry?.focus));
   const [focusFont, setFocusFont] = useState(() => {
     try { return Number(localStorage.getItem(FOCUS_FONT_KEY)) || FOCUS_FONT.start; } catch { return FOCUS_FONT.start; }
   });
@@ -1060,6 +1067,8 @@ function Thread({ a, b, msgs, freshIds, now, refresh }) {
           disabled=${focusFont <= FOCUS_FONT.min} onClick=${() => stepFont(-FOCUS_FONT.step)}>A−</button>
         <button type="button" class="thread-focus" title="Larger text" aria-label="Larger text"
           disabled=${focusFont >= FOCUS_FONT.max} onClick=${() => stepFont(FOCUS_FONT.step)}>A+</button>`}
+      ${peer && !focused && html`<a class="thread-focus thread-goto" href=${`#/agent/${encodeURIComponent(peer)}`}
+        title=${`Go to ${peer}'s page to message them`}>open ${peer} →</a>`}
       <button type="button" class="thread-focus" aria-pressed=${focused} onClick=${toggleFocus}
         title=${focused ? "Back to the page (Esc)" : `Expand this conversation to fill the window${recipient ? " (f)" : ""}`}>
         ${focused ? "✕ close" : "⤢ focus"}</button>
@@ -1138,7 +1147,64 @@ function AgentTaskRow({ t, taskIds, agentIds, refresh }) {
   </div>`;
 }
 
-function FocusView({ user, state, refresh, freshIds }) {
+// What a teammate switch carries to the next agent's page: whether the reply
+// box had the cursor and whether the conversation was in focus mode.
+let switchCarry = null;
+
+// Alt+[ / Alt+] step through the agent's team, from anywhere on the page,
+// including the reply box. Matched by physical key: on a Mac, Option+[ is a
+// typed character. Vimium only binds keys outside text fields, and Chrome
+// leaves Alt+brackets free (Alt+digits switch tabs on Linux).
+function useTeammateKeys(members, user) {
+  useEffect(() => {
+    if (!members) return;
+    const onKey = (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const by = e.code === "BracketRight" ? 1 : e.code === "BracketLeft" ? -1 : 0;
+      const next = by && stepTeammate(members, user, by);
+      if (!next) return;
+      e.preventDefault();
+      switchCarry = {
+        composer: !!document.activeElement?.closest?.(".thread .composer"),
+        focus: !!document.querySelector(".thread.focused"),
+      };
+      location.hash = `#/agent/${encodeURIComponent(next)}`;
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [members, user]);
+}
+
+function TeamStrip({ crew, user, unreadFor }) {
+  return html`<nav class="team-strip" aria-label=${`Team ${crew.team.name}`}>
+    <span class="team-strip-name">${crew.team.name}</span>
+    ${crew.members.map(m => {
+      const st = STATE[agentStatus(m)] || STATE.unknown;
+      const here = m.user_id === user;
+      return html`<a key=${m.user_id} href=${`#/agent/${encodeURIComponent(m.user_id)}`}
+        class=${`team-mate ${here ? "here" : ""}`} aria-current=${here ? "page" : null}
+        title=${`${m.user_id} · ${st.word}`}>
+        <${Bee} node=${m.node} flavor=${m.flavor} size="small" working=${st.cls === "working"} />
+        <span class="team-mate-name">${m.user_id}</span>
+        ${crew.team.queen === m.user_id && html`<span class="crown" title="team queen">♛</span>`}
+        <span class=${`status ${st.cls}`}></span>
+        ${unreadFor(m.user_id) && html`<span class="team-mate-unread" title="new reply">●</span>`}
+      </a>`;
+    })}
+    ${crew.members.length > 1 && html`<span class="team-strip-hint">Alt+[ / Alt+]</span>`}
+  </nav>`;
+}
+
+function FocusView({ user, state, refresh, freshIds, unreadFor }) {
+  const crew = useMemo(() => teammates(state.recipients, state.teams, user), [state.recipients, state.teams, user]);
+  const members = useMemo(() => crew && crew.members, [crew && crew.members.map(m => m.user_id).join(" ")]);
+  useTeammateKeys(members, user);
+  // Arriving by a teammate switch: put the cursor back in the reply box.
+  useEffect(() => {
+    const carry = switchCarry;
+    switchCarry = null;
+    if (carry?.composer) requestAnimationFrame(() => document.querySelector(".thread .composer textarea")?.focus());
+  }, [user]);
   // A thread's rank is assigned once, so a new peer message cannot reorder
   // every existing conversation on the next polling render.
   const threadOrder = useRef(new Map());
@@ -1175,7 +1241,10 @@ function FocusView({ user, state, refresh, freshIds }) {
     .map(([, msgs]) => msgs);
   const hasOwnerThread = groups.has(ownerThread);
   return html`<div>
-    <button type="button" class="focus-back" onClick=${() => { location.hash = "#/"; }}>← back to overview</button>
+    <div class="focus-top">
+      <button type="button" class="focus-back" onClick=${() => { location.hash = "#/"; }}>← back to overview</button>
+      ${crew && html`<${TeamStrip} crew=${crew} user=${user} unreadFor=${unreadFor} />`}
+    </div>
     <div class="fhead">
       <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
       <div class="who">
@@ -1200,7 +1269,7 @@ function FocusView({ user, state, refresh, freshIds }) {
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>`
       : threads.map(msgs => {
           const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
-          return html`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs}
+          return html`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user}
             freshIds=${freshIds} now=${state.now} refresh=${refresh} />`;
         })}
     ${threads.length > 0 && !hasOwnerThread && html`<div class="thread" style="margin-top:14px">
@@ -1360,7 +1429,7 @@ function App() {
     </button>
     <div class="stage">
       ${focusUser
-        ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} />`
+        ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />`
         : onHistory
           ? html`<${HistoryView} state=${state} />`
           : html`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}

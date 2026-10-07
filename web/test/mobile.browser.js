@@ -360,3 +360,28 @@ test('agent page: sections have headings and the task form starts folded', async
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('team strip and Alt+] / Alt+[ switch teammates, keeping the draft and the cursor', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  state.messages.push(
+    { id: 3, sender: 'numbat-claude-opus-karansmbp', recipient: 'stoat', content: 'peer note', ts: state.now, status: 'delivered', attachments: [] });
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.team-strip');
+    assert.equal(await page.locator('.team-mate').count(), 3);
+    assert.equal(await page.locator('.team-mate.here').innerText().then(t => t.trim().split(/\s/)[0]), 'stoat');
+    const box = page.locator('.thread .composer textarea').first();
+    await box.fill('draft for stoat');
+    await box.focus();
+    await page.keyboard.press('Alt+BracketRight');
+    await page.waitForFunction(() => location.hash === '#/agent/hoopoe-codex-gpt5-karanslinux');
+    await page.waitForFunction(() => !!document.activeElement?.closest('.thread .composer'));
+    await page.keyboard.press('Alt+BracketLeft');
+    await page.waitForFunction(() => location.hash === '#/agent/stoat');
+    await page.waitForFunction(() => document.querySelector('.thread .composer textarea')?.value === 'draft for stoat');
+    // A conversation between two agents links to the other agent's page.
+    await page.locator('.thread-goto').click();
+    await page.waitForFunction(() => location.hash === '#/agent/numbat-claude-opus-karansmbp');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
