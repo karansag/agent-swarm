@@ -176,6 +176,16 @@ class StatusReq(BaseModel):
         "(or the pane was given explicitly). Only a verified pane may vouch for "
         "an unknown session id.",
     )
+    pane_in_tree: bool | None = Field(
+        default=None,
+        description="True only when the CLI found the pane's own process among "
+        "its ancestors (an explicit --pane does not count). With a matching "
+        "harness, it lets the pane's registration move to a new session id.",
+    )
+    harness: str | None = Field(
+        default=None,
+        description="Which harness the session id came from: claude or codex.",
+    )
 
     node: str | None = Field(
         default=None,
@@ -204,6 +214,16 @@ class SendReq(BaseModel):
         description="True when the CLI checked that it runs inside tmux_pane "
         "(or the pane was given explicitly). Only a verified pane may vouch for "
         "an unknown session id.",
+    )
+    pane_in_tree: bool | None = Field(
+        default=None,
+        description="True only when the CLI found the pane's own process among "
+        "its ancestors (an explicit --pane does not count). With a matching "
+        "harness, it lets the pane's registration move to a new session id.",
+    )
+    harness: str | None = Field(
+        default=None,
+        description="Which harness the session id came from: claude or codex.",
     )
 
     node: str | None = Field(
@@ -251,6 +271,8 @@ class ActorFields(BaseModel):
         description="The acting agent's harness session id; see SendReq.agent_id.",
     )
     pane_verified: bool | None = None
+    pane_in_tree: bool | None = Field(default=None, description="See SendReq.pane_in_tree.")
+    harness: str | None = Field(default=None, description="See SendReq.harness.")
 
 
 class TaskCreateReq(ActorFields):
@@ -684,7 +706,8 @@ def create_app(
             )
 
     def _resolve_caller(
-        node: nodes.Node, tmux_pane: str | None, agent_id: str | None, pane_verified: bool | None
+        node: nodes.Node, tmux_pane: str | None, agent_id: str | None, pane_verified: bool | None,
+        pane_in_tree: bool | None = None, harness: str | None = None,
     ) -> tuple[str | None, str, str | None, tuple]:
         """Who is calling: (user_id, how, why_not, (pane, label)).
 
@@ -700,7 +723,12 @@ def create_app(
         agent's identity. Only a pane the CLI verified it runs inside may
         vouch for it, and only by adopting the id onto a registration that
         has none (one made before session ids were sent); a pane registered
-        under a different id is refused with how to re-register. Without an
+        under a different id is refused with how to re-register, unless the
+        CLI found the pane's own process among its ancestors (pane_in_tree)
+        and its harness is the registration's flavor: then it is the same
+        agent after a /clear or a fresh session in its pane, and the
+        registration moves to the new id, as `agent-swarm register` would.
+        A background host is never inside the pane's process tree. Without an
         id, a pane the CLI says it is not in is refused; an older CLI, which
         says nothing (None), is identified by its pane as before.
         """
@@ -736,12 +764,21 @@ def create_app(
                 f"this session is not registered, and the caller is not verified to be in pane "
                 f"{tmux_pane} (held by {pane_user}); register from the agent's own pane, or pass --pane"
             ), where
-        held = ((db.get_recipient(conn, pane_user) or {}).get("agent_id") or "").strip()
+        registration = db.get_recipient(conn, pane_user) or {}
+        held = (registration.get("agent_id") or "").strip()
+        same_harness = bool(harness) and harness.lower() == (registration.get("flavor") or "").lower()
+        if held and held != agent_id and pane_in_tree and same_harness:
+            if db.adopt_agent_id(conn, pane_user, agent_id, node=node.name, tmux_pane=pane,
+                                 tmux_server=server, replacing=held):
+                log.warning("moved %s from session %s to %s (same pane %s, harness %s)",
+                         pane_user, held[:8], agent_id[:8], pane, harness)
+                return pane_user, "session", None, where
         if held and held != agent_id:
             return None, "session", (
                 f"pane {tmux_pane} is registered to {pane_user} under a different session id. If this "
                 f"is {pane_user}, run `agent-swarm register` from this pane (without --name) to move "
-                "its existing handle to this session; otherwise register from your own pane"
+                "its existing handle to this session; that is safe when this shell's TMUX_PANE is "
+                f"{tmux_pane}. Otherwise register from your own pane"
             ), where
         if not db.adopt_agent_id(conn, pane_user, agent_id, node=node.name, tmux_pane=pane, tmux_server=server):
             # Lost a race, or the id is already someone else's: re-check.
@@ -756,9 +793,12 @@ def create_app(
         return pane_user, "pane", None, where
 
     def _caller(
-        node: nodes.Node, tmux_pane: str | None, agent_id: str | None, pane_verified: bool | None
+        node: nodes.Node, tmux_pane: str | None, agent_id: str | None, pane_verified: bool | None,
+        pane_in_tree: bool | None = None, harness: str | None = None,
     ) -> str:
-        user_id, _, why_not, _ = _resolve_caller(node, tmux_pane, agent_id, pane_verified)
+        user_id, _, why_not, _ = _resolve_caller(
+            node, tmux_pane, agent_id, pane_verified, pane_in_tree, harness
+        )
         if user_id is None:
             raise HTTPException(
                 status_code=404,
@@ -844,7 +884,9 @@ def create_app(
                 detail={"error": "a node must say which agent is acting", "hint": "send tmux_pane or agent_id"},
             )
         acting_node = _claimed_node(request, req.node)
-        actor, _, why_not, _ = _resolve_caller(acting_node, req.tmux_pane, req.agent_id, req.pane_verified)
+        actor, _, why_not, _ = _resolve_caller(
+            acting_node, req.tmux_pane, req.agent_id, req.pane_verified, req.pane_in_tree, req.harness
+        )
         if actor is None:
             raise HTTPException(
                 status_code=404,
@@ -1161,6 +1203,8 @@ def create_app(
         node: str | None = None,
         agent_id: str | None = None,
         pane_verified: bool | None = None,
+        pane_in_tree: bool | None = None,
+        harness: str | None = None,
     ):
         """Which agent, if any, the caller is: by its harness session id when
         it sends one, else by its pane (see _resolve_caller).
@@ -1171,7 +1215,7 @@ def create_app(
         """
         owner_node = _claimed_node(request, node)
         user_id, how, why_not, (pane, label) = _resolve_caller(
-            owner_node, tmux_pane, agent_id, pane_verified
+            owner_node, tmux_pane, agent_id, pane_verified, pane_in_tree, harness
         )
         return {
             "user_id": user_id, "node": owner_node.name,
@@ -1324,7 +1368,7 @@ def create_app(
     @app.post("/send")
     def send(req: SendReq, request: Request):
         node = _claimed_node(request, req.node)
-        sender = _caller(node, req.tmux_pane, req.agent_id, req.pane_verified)
+        sender = _caller(node, req.tmux_pane, req.agent_id, req.pane_verified, req.pane_in_tree, req.harness)
         if req.recipient == OWNER:
             # Messages to the human are recorded for the dashboard, not
             # injected into a pane.
@@ -1366,7 +1410,7 @@ def create_app(
     def set_status(req: StatusReq, request: Request):
         """An agent says, in a line, what it is working on."""
         node = _claimed_node(request, req.node)
-        user_id = _caller(node, req.tmux_pane, req.agent_id, req.pane_verified)
+        user_id = _caller(node, req.tmux_pane, req.agent_id, req.pane_verified, req.pane_in_tree, req.harness)
         text = " ".join(req.text.split())
         if not text:
             raise HTTPException(status_code=422, detail={"error": "status is empty"})

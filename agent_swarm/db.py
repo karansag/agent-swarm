@@ -420,18 +420,20 @@ def lookup_user_by_agent_id(
 @_serialized
 def adopt_agent_id(
     conn: sqlite3.Connection, user_id: str, agent_id: str, *,
-    node: str, tmux_pane: str, tmux_server: str | None,
+    node: str, tmux_pane: str, tmux_server: str | None, replacing: str | None = None,
 ) -> bool:
-    """Record a session id on a registration that has none (see
-    server._resolve_caller). One statement, so it can't half-happen: it only
-    applies while the row's id is still empty and no row holds this id.
-    True when this call recorded it."""
+    """Record a session id on a registration that has none, or, with
+    `replacing`, swap that id for this one (see server._resolve_caller).
+    One statement, so it can't half-happen: it only applies while the row
+    still holds the expected id (empty, or `replacing`) and no row holds
+    this id. True when this call recorded it."""
+    held = "agent_id=?" if replacing else "(agent_id IS NULL OR agent_id='')"
     cur = conn.execute(
         "UPDATE recipients SET agent_id=? WHERE user_id=? "
         "AND node=? AND tmux_pane=? AND tmux_server IS ? AND reserved=0 "
-        "AND (agent_id IS NULL OR agent_id='') "
+        f"AND {held} "
         "AND NOT EXISTS (SELECT 1 FROM recipients WHERE agent_id=?)",
-        (agent_id, user_id, node, tmux_pane, tmux_server, agent_id),
+        (agent_id, user_id, node, tmux_pane, tmux_server, *([replacing] if replacing else []), agent_id),
     )
     conn.commit()
     return cur.rowcount == 1

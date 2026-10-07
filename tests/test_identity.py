@@ -72,6 +72,31 @@ def test_a_pane_held_by_a_different_session_is_refused(client):
     assert "different session" in r.json()["detail"]["detail"]
 
 
+def test_a_new_session_inside_the_registered_pane_takes_over_the_registration(client):
+    # shoveler's case: /clear in its pane gave Claude Code a new session id.
+    # Messages still arrived by pane, but every reply was refused.
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "shoveler",
+                                   "agent_id": "sess-old", "flavor": "claude"})
+    r = send(client, tmux_pane="0:0.0", agent_id="sess-new", pane_verified=True,
+             pane_in_tree=True, harness="claude")
+    assert r.status_code == 200, r.text
+    assert client.get("/api/state").json()["messages"][-1]["sender"] == "shoveler"
+    assert whoami(client, agent_id="sess-new")["user_id"] == "shoveler"
+    assert whoami(client, agent_id="sess-old")["user_id"] is None
+
+
+def test_a_new_session_takes_over_only_from_inside_the_pane_with_the_same_harness(client):
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "shoveler",
+                                   "agent_id": "sess-old", "flavor": "claude"})
+    # An explicit --pane is "verified" but proves nothing about the process tree.
+    assert send(client, tmux_pane="0:0.0", agent_id="sess-x", pane_verified=True,
+                harness="claude").status_code == 404
+    # A Codex session inside a pane registered for Claude is someone else.
+    assert send(client, tmux_pane="0:0.0", agent_id="sess-y", pane_verified=True,
+                pane_in_tree=True, harness="codex").status_code == 404
+    assert whoami(client, agent_id="sess-old")["user_id"] == "shoveler"
+
+
 def test_without_a_session_id_the_pane_is_the_identity_as_before(client):
     # Older CLIs send no agent_id.
     register(client, "0:0.0", "otter")
@@ -191,6 +216,18 @@ def test_session_adoption_requires_the_same_pane_binding(tmp_path):
     db.register(conn, 'a', '%2', node='other-node', tmux_server='srv-2')
     assert not db.adopt_agent_id(conn, 'a', 'sess-x', node='local', tmux_pane='%1', tmux_server='srv-1')
     assert db.lookup_user_by_agent_id(conn, 'sess-x') is None
+
+
+def test_session_swap_requires_the_expected_old_id(tmp_path):
+    from agent_swarm import db
+    conn = db.connect(tmp_path / 'swap.sqlite')
+    db.register(conn, 'a', '%1', node='local', tmux_server='srv-1', agent_id='sess-old')
+    # Someone else moved it first: the swap must not apply over their id.
+    assert not db.adopt_agent_id(conn, 'a', 'sess-new', node='local', tmux_pane='%1',
+                                 tmux_server='srv-1', replacing='sess-stale')
+    assert db.adopt_agent_id(conn, 'a', 'sess-new', node='local', tmux_pane='%1',
+                             tmux_server='srv-1', replacing='sess-old')
+    assert db.lookup_user_by_agent_id(conn, 'sess-new') == 'a'
 
 
 def test_unverified_task_caller_is_not_treated_as_owner(client):

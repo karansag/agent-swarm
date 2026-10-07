@@ -64,7 +64,12 @@ class AmbiguousSession(RuntimeError):
 
 
 def harness_session_id() -> str | None:
-    """The calling harness's session id, or None outside a harness.
+    """The calling harness's session id, or None outside a harness."""
+    return harness_session()[1]
+
+
+def harness_session() -> tuple[str | None, str | None]:
+    """(harness, session id) of the calling harness, or (None, None).
 
     When ids from both harnesses are set (one launched the other), the nearer
     harness in this process's ancestry is the caller. If neither appears in
@@ -76,13 +81,13 @@ def harness_session_id() -> str | None:
         if value and harness not in found:
             found[harness] = value
     if len(found) < 2:
-        return next(iter(found.values()), None)
+        return next(iter(found.items()), (None, None))
     for _, command in tmux.ancestors():
         program = command.split(" ", 1)[0].rsplit("/", 1)[-1]
         if program == "codex" or "/codex/" in command.split(" ", 1)[0]:
-            return found["codex"]
+            return "codex", found["codex"]
         if program == "claude" or "/claude/versions/" in command.split(" ", 1)[0]:
-            return found["claude"]
+            return "claude", found["claude"]
     raise AmbiguousSession(
         "both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID are set and neither harness is in this\n"
         "  process's ancestry, so it can't tell which session is calling. Pass --agent-id <id>\n"
@@ -98,14 +103,17 @@ def caller(pane_arg: str | None = None, agent_id_arg: str | None = None) -> dict
     active-pane guess with no TMUX_PANE), None when that can't be checked.
     """
     pane = pane_arg or current_pane()
-    if pane_arg:
-        verified: bool | None = True
-    else:
-        verified = tmux.process_in_pane(pane) if pane else None
+    # in_tree is only ever the process-tree check, never an explicit --pane:
+    # it is what lets the hub move a registration to a new session id.
+    in_tree = tmux.process_in_pane(pane) if pane else None
+    verified: bool | None = True if pane_arg else in_tree
+    harness, session = (None, agent_id_arg) if agent_id_arg else harness_session()
     return {
         "pane": pane,
         "pane_verified": verified,
-        "agent_id": agent_id_arg or harness_session_id(),
+        "pane_in_tree": in_tree,
+        "agent_id": session,
+        "harness": harness,
         "explicit_pane": bool(pane_arg),
     }
 
@@ -119,6 +127,10 @@ def whoami_lookup(who: dict) -> dict:
         params["agent_id"] = who["agent_id"]
     if who["pane_verified"] is not None:
         params["pane_verified"] = "true" if who["pane_verified"] else "false"
+    if who.get("pane_in_tree"):
+        params["pane_in_tree"] = "true"
+    if who.get("harness"):
+        params["harness"] = who["harness"]
     r = httpx.get(f"{base_url()}/whoami", params=params, headers=_headers(), timeout=5)
     if not r.is_success:
         code, text = getattr(r, "status_code", "?"), getattr(r, "text", "")
@@ -130,7 +142,7 @@ def registered_user(pane: str) -> str | None:
     """The handle registered for this caller (by session id, else this pane)."""
     who = caller(pane)
     who["explicit_pane"] = False
-    who["pane_verified"] = tmux.process_in_pane(pane)
+    who["pane_verified"] = who["pane_in_tree"] = tmux.process_in_pane(pane)
     return whoami_lookup(who).get("user_id")
 
 
@@ -203,6 +215,10 @@ def _identity_payload(who: dict) -> dict:
         payload["agent_id"] = who["agent_id"]
     if who["pane_verified"] is not None:
         payload["pane_verified"] = who["pane_verified"]
+    if who.get("pane_in_tree"):
+        payload["pane_in_tree"] = True
+    if who.get("harness"):
+        payload["harness"] = who["harness"]
     return payload
 
 
