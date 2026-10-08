@@ -405,3 +405,17 @@ test('the first message to an agent clears the composer', async () => {
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('a message sent with literal \\n from the shell shows line breaks', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  state.messages.push({ id: 60, sender: 'stoat', recipient: 'owner', ts: state.now, status: 'delivered', attachments: [],
+    content: 'checkpoint:\\n\\ns3://bucket/step-272\\nResults: ok' });
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.thread .msg');
+    const bubble = page.locator('.thread .msg .md').last();
+    assert.equal(await bubble.locator('p').count(), 2);
+    assert.ok(!(await bubble.innerText()).includes('\\n'));
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

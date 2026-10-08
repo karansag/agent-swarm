@@ -31,6 +31,7 @@ import { createBottomFollower } from "./scroll-follow.js";
 import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
 import { stepTeammate, teammates } from "./teammates.js";
+import { shellNewlines } from "./newlines.js";
 
 /* ---------- roster (right sidebar) ---------- */
 
@@ -1091,7 +1092,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
             m.pending ? "pending" : "",
           ].join(" ")}>
           <div class="bubble">${m.content && html`<div class="md"
-            dangerouslySetInnerHTML=${{ __html: renderMarkdown(m.content) }} />`}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
+            dangerouslySetInnerHTML=${{ __html: renderMarkdown(shellNewlines(m.content)) }} />`}${m.attachments?.length > 0 && html`<div class=${`msg-images ${m.content ? "" : "only"}`}>
             ${m.attachments.map(name => html`<${AttachmentLink} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && html` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${m.status === "failed" && html` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}${m.status === "unknown" && html` · <span class="ctx">outcome unknown${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>${m.sender === "owner" && html` <${Resend} m=${m} refresh=${refresh} />`}`}</div>

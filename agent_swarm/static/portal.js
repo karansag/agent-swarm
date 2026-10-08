@@ -7952,6 +7952,12 @@ function stepTeammate(members, user, by) {
 	return ids[(Math.max(0, ids.indexOf(user)) + by + ids.length) % ids.length];
 }
 //#endregion
+//#region web/src/newlines.js
+function shellNewlines(text) {
+	if (!text || text.includes("\n") || !text.includes("\\n")) return text;
+	return text.split(/(`[^`]*`)/).map((part, i) => i % 2 ? part : part.replace(/(?<!\\)\\n/g, "\n")).join("");
+}
+//#endregion
 //#region web/src/main.js
 function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	const [stopping, setStopping] = d(false);
@@ -9067,7 +9073,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
 		m.pending ? "pending" : ""
 	].join(" ")}>
           <div class="bubble">${m.content && m$1`<div class="md"
-            dangerouslySetInnerHTML=${{ __html: renderMarkdown(m.content) }} />`}${m.attachments?.length > 0 && m$1`<div class=${`msg-images ${m.content ? "" : "only"}`}>
+            dangerouslySetInnerHTML=${{ __html: renderMarkdown(shellNewlines(m.content)) }} />`}${m.attachments?.length > 0 && m$1`<div class=${`msg-images ${m.content ? "" : "only"}`}>
             ${m.attachments.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}
           </div>`}</div>
           <div class="tag">${disp(m.sender)}${m.context && m$1` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${m.status === "failed" && m$1` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}${m.status === "unknown" && m$1` · <span class="ctx">outcome unknown${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>${m.sender === "owner" && m$1` <${Resend} m=${m} refresh=${refresh} />`}`}</div>
