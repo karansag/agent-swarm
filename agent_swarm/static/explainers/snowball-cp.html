@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Why Snowball runs with CP=1</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f4f1e8; background: #0a111b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 300px; background: radial-gradient(ellipse 950px 650px at 82% -15%, #203743 0, transparent 65%), #0a111b; }
+    button { font: inherit; cursor: pointer; }
+    .shell { max-width: 1150px; margin: 0 auto; padding: 48px 30px 70px; }
+    .eyebrow { color: #9bc7bd; font-size: 12px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { max-width: 900px; margin: 12px 0 18px; font-size: clamp(35px, 5.3vw, 66px); line-height: 1.04; letter-spacing: -.055em; }
+    h1 em { color: #77dcc4; font-style: normal; }
+    .intro { max-width: 850px; margin: 0 0 30px; color: #c4ced2; font-size: clamp(17px, 1.8vw, 21px); line-height: 1.55; }
+    .intro strong { color: #fff4dc; }
+    .stage { border: 1px solid #36505a; border-radius: 24px; padding: 22px; background: linear-gradient(145deg, #152531, #101b28 65%); box-shadow: 0 30px 85px #0005; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .steps { display: flex; flex-wrap: wrap; gap: 9px; }
+    .step, .play { border: 1px solid #46616a; border-radius: 999px; padding: 11px 15px; color: #c1d1d1; background: #142631; }
+    .step { display: inline-flex; align-items: center; gap: 9px; text-align: left; }
+    .step .number { display: inline-grid; place-items: center; flex: 0 0 22px; height: 22px; border-radius: 50%; background: #29414a; font-size: 12px; font-weight: 800; }
+    .step[aria-selected="true"] { color: #0c1c21; background: #a4f2d6; border-color: #a4f2d6; font-weight: 750; }
+    .step[aria-selected="true"] .number { color: #e7fff5; background: #216d5c; }
+    .step:focus-visible, .play:focus-visible { outline: 3px solid #f9c57c; outline-offset: 3px; }
+    .play { min-width: 86px; }
+    .play:hover, .step:not([aria-selected="true"]):hover { border-color: #a4f2d6; }
+    .scene-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; min-height: 135px; margin: 25px 3px 10px; }
+    .scene-head h2 { margin: 4px 0 9px; font-size: clamp(25px, 3vw, 35px); letter-spacing: -.035em; }
+    .scene-head p { max-width: 730px; margin: 0; color: #bbcbcd; font-size: 16px; line-height: 1.55; }
+    .badge { flex: 0 0 auto; border-radius: 10px; padding: 9px 12px; font-size: 12px; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+    .badge.current { color: #bfd8e6; background: #2a4455; }
+    .badge.blocked { color: #ffd0ba; background: #663d33; }
+    .badge.candidate { color: #b8f9dd; background: #205544; }
+    .diagram { position: relative; min-height: 345px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, .54fr) minmax(0, 1fr); gap: 16px; align-items: stretch; padding: 18px; border: 1px solid #3b515c; border-radius: 18px; background: radial-gradient(circle at center, #1b3540, #101e29 70%); overflow: hidden; }
+    .gpu { position: relative; display: flex; flex-direction: column; padding: 20px; border: 1px solid #4b6671; border-radius: 15px; background: #122b36e8; box-shadow: inset 0 1px #ffffff13; z-index: 1; }
+    .gpu-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 800; }
+    .gpu-title small { color: #9db7bd; font-size: 12px; font-weight: 650; }
+    .label { margin-top: 19px; color: #91aab0; font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .tokens { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 8px; }
+    .token { height: 32px; border-radius: 5px; background: linear-gradient(145deg, #398e93, #286e7e); border: 1px solid #71b8b6; }
+    .gpu.b .token { background: linear-gradient(145deg, #426bb3, #344e91); border-color: #7c9ad0; }
+    .range { margin-top: 6px; color: #d4eef0; font-size: 12px; }
+    .heads { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+    .head { display: inline-grid; place-items: center; min-width: 34px; height: 32px; padding: 0 7px; border-radius: 6px; color: #2a180c; background: #ffc271; font-size: 12px; font-weight: 850; }
+    .head.half { color: #fff0df; background: repeating-linear-gradient(135deg, #c75145 0 5px, #e79269 5px 10px); border: 1px dashed #ffb59e; }
+    .gpu-note { margin-top: auto; padding-top: 16px; color: #b9d0d2; font-size: 13px; line-height: 1.4; }
+    .bridge { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; z-index: 2; }
+    .bridge .symbol { font-size: 49px; line-height: 1; font-weight: 400; }
+    .bridge .equation { color: #f7ecdf; font-size: 20px; font-weight: 850; letter-spacing: -.025em; }
+    .bridge .caption { max-width: 180px; color: #a7bec3; font-size: 12px; line-height: 1.4; }
+    .diagram[data-mode="blocked"] .bridge .equation { color: #ffc29d; }
+    .diagram[data-mode="candidate"] .bridge .symbol { color: #78e4be; animation: breathe 2.4s ease-in-out infinite; }
+    .flow { display: none; position: absolute; top: 45%; width: 12px; height: 12px; border-radius: 50%; background: #8df8d4; box-shadow: 0 0 15px #8df8d4; z-index: 3; }
+    .diagram[data-mode="candidate"] .flow { display: block; animation: cross 2.7s ease-in-out infinite; }
+    .flow.reverse { animation-direction: reverse !important; animation-delay: -1.35s !important; }
+    @keyframes cross { from { left: 30%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { left: 68%; opacity: 0; } }
+    @keyframes breathe { 50% { transform: scale(1.13); text-shadow: 0 0 22px #74e8bb; } }
+    .diagram.paused *, .diagram.paused .flow { animation-play-state: paused !important; }
+    .takeaway { display: flex; align-items: center; gap: 15px; min-height: 72px; margin-top: 17px; padding: 14px 17px; border-radius: 13px; background: #18343c; color: #e9f7ef; line-height: 1.5; }
+    .takeaway .icon { flex: 0 0 auto; display: grid; place-items: center; width: 35px; height: 35px; border-radius: 50%; background: #327765; font-weight: 850; }
+    .takeaway.blocked { background: #46302e; }
+    .takeaway.blocked .icon { background: #aa5b48; }
+    .gates { margin-top: 34px; }
+    .gates h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.03em; }
+    .gates > p { max-width: 750px; margin: 0 0 17px; color: #afbec1; line-height: 1.5; }
+    .gate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .gate { padding: 18px; border: 1px solid #344a55; border-radius: 14px; background: #11232f; }
+    .gate .tag { color: #f6c37b; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+    .gate h3 { margin: 9px 0 7px; font-size: 18px; }
+    .gate p { margin: 0; color: #b4c3c7; font-size: 14px; line-height: 1.5; }
+    .foot { margin-top: 28px; color: #8da7af; font-size: 12px; line-height: 1.6; }
+    .foot a { color: #a1e8d0; }
+    @media (max-width: 790px) {
+      .shell { padding: 30px 16px 45px; }
+      .stage { padding: 15px; }
+      .step { padding: 9px 11px; font-size: 13px; }
+      .scene-head { min-height: auto; margin: 23px 2px 18px; }
+      .diagram { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; gap: 10px; padding: 10px; }
+      .bridge { grid-column: 1 / -1; grid-row: 2; padding: 8px 0; }
+      .bridge .symbol { font-size: 34px; }
+      .gpu { padding: 13px; }
+      .flow { display: none !important; }
+      .gate-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .scene-head { display: block; }
+      .badge { display: inline-block; margin-top: 13px; }
+      .diagram { grid-template-columns: 1fr; }
+      .bridge { grid-column: 1; grid-row: 2; }
+      .gpu.b { grid-row: 3; }
+      .token { height: 24px; }
+      .label { margin-top: 13px; }
+      .gpu-note { padding-top: 11px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } .flow { display: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Snowball 67B · 32K OPD / MOPD</div>
+    <h1>Five KV heads do <em>not</em> force CP=1.</h1>
+    <p class="intro">The limitation is in <strong>how this learner currently exchanges attention data</strong>. Context parallelism splits a sequence across GPUs; only one exchange method also demands an even split of the KV heads.</p>
+
+    <section class="stage" aria-label="Interactive context parallelism diagram">
+      <div class="toolbar">
+        <div class="steps" role="tablist" aria-label="Compare attention exchange methods">
+          <button class="step" type="button" role="tab" aria-selected="true" data-mode="current"><span class="number">1</span> Current CP=1</button>
+          <button class="step" type="button" role="tab" aria-selected="false" data-mode="blocked"><span class="number">2</span> All-to-all CP=2</button>
+          <button class="step" type="button" role="tab" aria-selected="false" data-mode="candidate"><span class="number">3</span> KV all-gather CP=2</button>
+        </div>
+        <button class="play" type="button" id="play" aria-pressed="false">Pause flow</button>
+      </div>
+
+      <div class="scene-head" aria-live="polite">
+        <div><h2 id="scene-title"></h2><p id="scene-description"></p></div>
+        <span class="badge" id="badge"></span>
+      </div>
+
+      <div class="diagram" id="diagram" data-mode="current" role="img" aria-label="">
+        <div class="gpu a">
+          <div class="gpu-title"><span>GPU A</span><small id="gpu-a-role"></small></div>
+          <div class="label">Query tokens owned here</div>
+          <div class="tokens" aria-hidden="true"><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span></div>
+          <div class="range" id="range-a"></div>
+          <div class="label" id="heads-label-a">KV heads used here</div>
+          <div class="heads" id="heads-a"></div>
+          <div class="gpu-note" id="note-a"></div>
+        </div>
+        <div class="bridge"><div class="symbol" id="symbol"></div><div class="equation" id="equation"></div><div class="caption" id="bridge-caption"></div></div>
+        <div class="gpu b">
+          <div class="gpu-title"><span>GPU B</span><small id="gpu-b-role"></small></div>
+          <div class="label">Query tokens owned here</div>
+          <div class="tokens" aria-hidden="true"><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span><span class="token"></span></div>
+          <div class="range" id="range-b"></div>
+          <div class="label" id="heads-label-b">KV heads used here</div>
+          <div class="heads" id="heads-b"></div>
+          <div class="gpu-note" id="note-b"></div>
+        </div>
+        <span class="flow" aria-hidden="true"></span><span class="flow reverse" aria-hidden="true"></span>
+      </div>
+      <div class="takeaway" id="takeaway"><span class="icon" id="takeaway-icon"></span><span id="takeaway-text" aria-live="polite"></span></div>
+    </section>
+
+    <section class="gates">
+      <h2>What a CP=2 experiment still needs</h2>
+      <p>This is a plausible engineering route, not an already validated switch for the live OPD run.</p>
+      <div class="gate-grid">
+        <div class="gate"><div class="tag">Gate 01 · SkyRL</div><h3>Enable packed samples</h3><p>SkyRL currently rejects CP&gt;1 unless sample packing is on. Shoveler’s live 32K OPD arm uses unpacked samples.</p></div>
+        <div class="gate"><div class="tag">Gate 02 · Snowball</div><h3>Choose all-gather locally</h3><p>The model provider hardcodes all-to-all for sliding-window layers. Change those layers to KV all-gather, while keeping the global layers’ supported route.</p></div>
+        <div class="gate"><div class="tag">Gate 03 · Validation</div><h3>Check kernels and results</h3><p>Test packed THD attention, sliding-window boundaries, gradients, and memory against CP=1. Then benchmark updates; all-gather sends more KV and may be slower.</p></div>
+      </div>
+    </section>
+    <div class="foot">Conceptual diagram: five <em>KV</em> heads, not the number of query heads. The GPU cards show the attention exchange, not every Megatron process group. On the present 32-learner-GPU PP2 / EP8 layout, CP2 reduces DP from 16 to 8. Sources: <a href="https://github.com/NVIDIA/TransformerEngine/blob/v2.19/tests/pytorch/attention/test_attention_with_cp.py">Transformer Engine 2.19 attention tests</a> · <a href="https://docs.nvidia.com/megatron-core/developer-guide/latest/user-guide/features/context_parallel.html">Megatron Core CP guide</a>. Local code: <code>grug_megatron_bridge.py</code> and <code>utils.py</code>.</div>
+  </main>
+  <script>
+    const modes = {
+      current: {
+        title: 'Today: two independent sequences', description: 'At CP=1 each GPU handles a whole sequence. Both keep all five KV heads, so there is no split across sequence positions.', badge: 'Running now',
+        aRole: 'CP rank 0', bRole: 'different DP replica', aRange: 'positions 0–32K · sample A', bRange: 'positions 0–32K · sample B',
+        aHeads: ['K1', 'K2', 'K3', 'K4', 'K5'], bHeads: ['K1', 'K2', 'K3', 'K4', 'K5'],
+        aNote: 'All attention work for sample A stays here.', bNote: 'GPU B trains another sample, not the other half of A.', symbol: '∥', equation: 'CP = 1', bridge: 'Data parallel work; no sequence exchange.',
+        takeaway: 'CP=1 is a working configuration. It is not a mathematical requirement of five KV heads.', icon: '✓'
+      },
+      blocked: {
+        title: 'All-to-all: the head split fails', description: 'At CP=2 each GPU would own half the positions. This exchange method then divides attention heads between the two GPUs.', badge: 'Blocked here',
+        aRole: 'CP rank 0', bRole: 'CP rank 1', aRange: 'positions 0–16K · same sample', bRange: 'positions 16K–32K · same sample',
+        aHeads: ['K1', 'K2', '½ K3'], bHeads: ['½ K3', 'K4', 'K5'],
+        aNote: 'A KV head is an indivisible compute lane in this layout.', bNote: 'There is no even two-way assignment of five heads.', symbol: '✕', equation: '5 ÷ 2 = 2.5', bridge: 'KV heads per GPU would not be an integer.',
+        takeaway: 'This is why Snowball’s current all-to-all path cannot simply change CP from 1 to 2.', icon: '!'
+      },
+      candidate: {
+        title: 'KV all-gather: split positions, keep heads', description: 'Each GPU computes queries for half the sequence, then receives the other half’s K/V tokens. Every GPU retains all five head lanes.', badge: 'Candidate to test',
+        aRole: 'CP rank 0', bRole: 'CP rank 1', aRange: 'positions 0–16K · same sample', bRange: 'positions 16K–32K · same sample',
+        aHeads: ['K1', 'K2', 'K3', 'K4', 'K5'], bHeads: ['K1', 'K2', 'K3', 'K4', 'K5'],
+        aNote: 'Local queries see both local and gathered KV tokens.', bNote: 'The five heads are replicated, not divided.', symbol: '⇄', equation: '5 heads on each', bridge: 'Exchange KV positions instead of splitting heads.',
+        takeaway: 'Five KV heads do not block CP2 here. The pinned stack still needs a packed, correct, and worthwhile implementation.', icon: '→'
+      }
+    };
+    const byId = (id) => document.getElementById(id);
+    const diagram = byId('diagram');
+    function setHeads(id, names) {
+      byId(id).replaceChildren(...names.map((name) => {
+        const chip = document.createElement('span');
+        chip.className = 'head' + (name.includes('½') ? ' half' : '');
+        chip.textContent = name;
+        return chip;
+      }));
+    }
+    function setMode(mode) {
+      const item = modes[mode];
+      diagram.dataset.mode = mode;
+      for (const [field, id] of Object.entries({title:'scene-title', description:'scene-description', aRole:'gpu-a-role', bRole:'gpu-b-role', aRange:'range-a', bRange:'range-b', aNote:'note-a', bNote:'note-b', symbol:'symbol', equation:'equation', bridge:'bridge-caption', takeaway:'takeaway-text', icon:'takeaway-icon'})) byId(id).textContent = item[field];
+      setHeads('heads-a', item.aHeads);
+      setHeads('heads-b', item.bHeads);
+      byId('badge').textContent = item.badge;
+      byId('badge').className = 'badge ' + mode;
+      byId('takeaway').className = 'takeaway' + (mode === 'blocked' ? ' blocked' : '');
+      diagram.setAttribute('aria-label', item.description + ' ' + item.bridge + ' ' + item.takeaway);
+      for (const button of document.querySelectorAll('.step')) button.setAttribute('aria-selected', String(button.dataset.mode === mode));
+    }
+    for (const button of document.querySelectorAll('.step')) button.addEventListener('click', () => setMode(button.dataset.mode));
+    byId('play').addEventListener('click', () => {
+      const paused = diagram.classList.toggle('paused');
+      byId('play').textContent = paused ? 'Play flow' : 'Pause flow';
+      byId('play').setAttribute('aria-pressed', String(paused));
+    });
+    setMode('current');
+  </script>
+</body>
+</html>
