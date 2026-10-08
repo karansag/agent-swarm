@@ -9,8 +9,11 @@ authors = [
     { name = "Karan Sagar" },
 ]
 dependencies = [
+    # Security floors also apply to fresh installs outside the checked-in lockfile.
+    "anyio>=4.14.2",
     "fastapi>=0.136.1",
     "httpx>=0.28.1",
+    "starlette>=1.7.0",
     "uvicorn[standard]>=0.46.0",
 ]
 
