@@ -460,3 +460,23 @@ test('two quick Alt+] presses step two teammates', async () => {
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('chats tab lists owner conversations newest first and searches them', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  state.messages.push(
+    { id: 80, sender: 'owner', recipient: 'tapir', content: 'what about the zephyr reducers?', ts: state.now + 5, status: 'delivered', attachments: [] },
+    { id: 81, sender: 'tapir', recipient: 'stoat', content: 'peer only', ts: state.now + 6, status: 'delivered', attachments: [] });
+  try {
+    await page.goto(base + '#/chats');
+    await page.waitForSelector('.chat-row');
+    const who = () => page.locator('.chat-who').evaluateAll(els => els.map(e => e.childNodes[0].textContent.trim()));
+    assert.deepEqual(await who(), ['tapir', 'stoat']);
+    await page.locator('.chats-search').fill('Zephyr');
+    await page.waitForFunction(() => document.querySelectorAll('.chat-row').length === 1);
+    assert.deepEqual(await who(), ['tapir']);
+    assert.equal(await page.evaluate(() => location.hash), '#/chats?q=Zephyr');
+    await page.locator('.chat-row').click();
+    await page.waitForFunction(() => location.hash === '#/agent/tapir');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

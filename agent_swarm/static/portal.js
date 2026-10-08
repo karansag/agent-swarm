@@ -7958,6 +7958,37 @@ function shellNewlines(text) {
 	return text.split(/(`[^`]*`)/).map((part, i) => i % 2 ? part : part.replace(/(?<!\\)\\n/g, "\n")).join("");
 }
 //#endregion
+//#region web/src/chats.js
+function ownerChats(messages, query = "") {
+	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const seen = /* @__PURE__ */ new Set();
+	const byAgent = /* @__PURE__ */ new Map();
+	for (const m of messages) {
+		if (seen.has(m.id) || m.sender !== "owner" && m.recipient !== "owner") continue;
+		if (m.sender === "owner" && m.recipient === "owner") continue;
+		seen.add(m.id);
+		const agent = m.sender === "owner" ? m.recipient : m.sender;
+		const chat = byAgent.get(agent) || {
+			agent,
+			last: null,
+			count: 0,
+			match: null,
+			matches: 0
+		};
+		chat.count += 1;
+		if (!chat.last || m.ts > chat.last.ts) chat.last = m;
+		if (words.length) {
+			const text = `${m.context || ""} ${m.content || ""}`.toLowerCase();
+			if (words.every((w) => text.includes(w))) {
+				chat.matches += 1;
+				if (!chat.match || m.ts > chat.match.ts) chat.match = m;
+			}
+		}
+		byAgent.set(agent, chat);
+	}
+	return [...byAgent.values()].filter((c) => !words.length || c.matches > 0).sort((a, b) => words.length ? b.match.ts - a.match.ts : b.last.ts - a.last.ts);
+}
+//#endregion
 //#region web/src/main.js
 function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	const [stopping, setStopping] = d(false);
@@ -9176,6 +9207,72 @@ function TeamStrip({ crew, user, unreadFor }) {
     ${crew.members.length > 1 && m$1`<span class="team-strip-hint">Alt+[ / Alt+]</span>`}
   </nav>`;
 }
+var CHATS_ROUTE = "#/chats";
+var chatsQuery = () => new URLSearchParams(location.hash.split("?")[1] || "").get("q") || "";
+function snippet(text, words, width = 240) {
+	const flat = (text || "").replace(/\s+/g, " ").trim();
+	const at = words.length ? flat.toLowerCase().indexOf(words[0]) : -1;
+	const start = at > 80 ? at - 60 : 0;
+	const cut = flat.slice(start, start + width);
+	return `${start ? "…" : ""}${cut}${start + width < flat.length ? "…" : ""}`;
+}
+function marked(text, words) {
+	if (!words.length) return text;
+	const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+	return text.split(re).map((part, i) => i % 2 ? m$1`<mark>${part}</mark>` : part);
+}
+function ChatsView({ state, unreadFor }) {
+	const [full, setFull] = d(null);
+	const [query, setQuery] = d(chatsQuery);
+	h(() => {
+		let live = true;
+		fetch("/messages?user=owner&limit=100000").then((r) => r.json()).then((d) => {
+			if (live) setFull(d.messages || []);
+		}).catch(() => {
+			if (live) setFull([]);
+		});
+		return () => {
+			live = false;
+		};
+	}, []);
+	const update = (q) => {
+		setQuery(q);
+		history.replaceState(null, "", q ? `${CHATS_ROUTE}?q=${encodeURIComponent(q)}` : CHATS_ROUTE);
+	};
+	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const chats = T(() => ownerChats([...state.messages, ...full || []], query), [
+		state.messages,
+		full,
+		query
+	]);
+	const byId = new Map(state.recipients.map((r) => [r.user_id, r]));
+	return m$1`<div class="chats">
+    <h2>chats <span class="count">· ${chats.length}${full === null ? " · loading full history…" : ""}</span></h2>
+    <input type="text" class="h-search chats-search" value=${query} autofocus
+      placeholder="search your conversations: who did I ask about…"
+      aria-label="Search your conversations" onInput=${(e) => update(e.target.value)}
+      onKeyDown=${(e) => {
+		if (e.key === "Escape" && query) {
+			e.stopPropagation();
+			update("");
+		}
+	}} />
+    ${chats.length === 0 ? m$1`<div class="empty">${query ? m$1`No conversation mentions "<b>${query}</b>".` : "No conversations yet."}</div>` : m$1`<div class="chat-list">${chats.map((c) => {
+		const r = byId.get(c.agent);
+		const st = STATE[r ? agentStatus(r) : "unknown"] || STATE.unknown;
+		const m = c.match || c.last;
+		return m$1`<a key=${c.agent} class="chat-row" href=${`#/agent/${encodeURIComponent(c.agent)}`}>
+            ${r ? m$1`<${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />` : m$1`<span class="chat-gone" aria-hidden="true">◌</span>`}
+            <span class="chat-main">
+              <span class="chat-who">${c.agent}<span class=${`status ${st.cls}`} title=${r ? st.word : "no longer registered"}></span>
+                ${unreadFor(c.agent) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
+                <span class="chat-when">${rel(m.ts, state.now)}${c.match ? ` · ${c.matches} match${c.matches === 1 ? "" : "es"}` : ` · ${c.count} msg${c.count === 1 ? "" : "s"}`}</span></span>
+              <span class="chat-line"><b>${m.sender === "owner" ? "you" : m.sender}:</b> ${marked(snippet(m.content, words), words)}</span>
+            </span>
+          </a>`;
+	})}</div>`}
+  </div>`;
+}
 function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 	const crew = T(() => teammates(state.recipients, state.teams, user), [
 		state.recipients,
@@ -9319,6 +9416,7 @@ function App() {
 	}, []);
 	const focusUser = route.startsWith("#/agent/") ? decodeURIComponent(route.slice(8)) : null;
 	const onHistory = route.startsWith(HISTORY_ROUTE);
+	const onChats = route.startsWith(CHATS_ROUTE);
 	const previousView = A({
 		focusUser,
 		onHistory
@@ -9388,7 +9486,8 @@ function App() {
 		location.hash = "#/";
 	}}>Agent Swarm Dashboard</h1>
     <nav class="views" aria-label="views">
-      <a href="#/" class=${!onHistory && !focusUser ? "on" : ""}>overview</a>
+      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""}>overview</a>
+      <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
     </nav>
     <div class="right">
@@ -9412,7 +9511,7 @@ function App() {
       <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter((r) => r.pane_alive).length}
     </button>
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
+      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
     </div>
     </div>
     <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>

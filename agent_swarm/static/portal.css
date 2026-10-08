@@ -419,6 +419,28 @@
     .composer .hint { width: 100%; margin-left: 0; order: 3; }
   }
 
+  /* ---------- chats: every owner conversation ---------- */
+  .chats-search { width: 100%; margin-bottom: 14px; padding: 9px 12px; font-size: 13.5px; box-sizing: border-box; }
+  .chat-list { display: grid; gap: 6px; }
+  .chat-row {
+    display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; min-width: 0;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--ink-2);
+    color: var(--cream); text-decoration: none;
+  }
+  .chat-row:hover, .chat-row:focus-visible { border-color: var(--honey-dim); background: var(--panel); }
+  .chat-row .agent-bee.small { width: 34px; height: 28px; }
+  .chat-gone { width: 34px; text-align: center; color: var(--cream-dim); font-size: 20px; flex: none; }
+  .chat-main { display: grid; gap: 3px; min-width: 0; flex: 1; }
+  .chat-who { display: flex; align-items: center; gap: 6px; font-family: var(--serif); font-style: italic; font-size: 15px; overflow-wrap: anywhere; }
+  .chat-who .status { margin: 0; }
+  .chat-when { margin-left: auto; font-family: var(--mono); font-style: normal; font-size: 11px; color: var(--cream-dim); white-space: nowrap; }
+  .chat-line {
+    font-size: 12.5px; color: var(--cream-dim); overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .chat-line b { color: var(--cream); font-weight: 500; }
+  .chat-line mark { background: rgba(242,169,59,.3); color: var(--cream); border-radius: 2px; }
+
   /* ---------- threads ---------- */
   .thread { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; overflow: hidden; background: var(--ink-2); animation: rise .45s ease backwards; }
   .thread-head { display: flex; align-items: stretch; }
