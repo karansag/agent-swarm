@@ -951,11 +951,13 @@ function MessageComposer({ recipient, refresh }) {
 const FOCUS_FONT = { min: 12, max: 26, start: 16, step: 2 };
 const FOCUS_FONT_KEY = "agent-swarm:focus-font";
 
-// Chat convention: the reader's own messages sit on the right. In a thread
-// with the owner that is the owner; between two agents there is no reader
-// side, so the second of the pair takes the right.
-function sentByViewer(sender, a, b) {
-  return a === "owner" || b === "owner" ? sender === "owner" : sender !== a;
+// Chat convention: the sender whose side you are on sits on the right. In a
+// thread with the owner that is the owner. Between two agents it is the
+// agent whose page this is; off any agent's page, the second of the pair.
+function sentByViewer(sender, a, b, page) {
+  if (a === "owner" || b === "owner") return sender === "owner";
+  if (page === a || page === b) return sender === page;
+  return sender !== a;
 }
 
 function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
@@ -967,7 +969,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
   // In a thread between two agents, the one whose page this is not: a link
   // in the header goes to that agent's page to message them.
-  const peer = recipient ? null : page === a ? b : page === b ? a : null;
+  const peer = recipient || a === b ? null : page === a ? b : page === b ? a : null;
   const [expanded, setExpanded] = useState(!!recipient);
   // Focus mode: the thread fills the window for reading. The owner's thread
   // also answers to "f" (outside a text field); Esc leaves.
@@ -1085,7 +1087,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
       ${msgs.slice(-40).map(m => html`
         <div key=${m.id} class=${[
             "msg",
-            sentByViewer(m.sender, a, b) ? "right" : "",
+            sentByViewer(m.sender, a, b, page) ? "right" : "",
             freshIds.has(m.id) ? "fresh" : "",
             m.status === "failed" ? "failed" : m.status === "unknown" ? "unknown" : "",
             m.sender === "owner" ? "from-owner" : "",
@@ -1161,13 +1163,22 @@ let switchCarry = null;
 // including the reply box. Matched by physical key: on a Mac, Option+[ is a
 // typed character. Vimium only binds keys outside text fields, and Chrome
 // leaves Alt+brackets free (Alt+digits switch tabs on Linux).
-function useTeammateKeys(members, user) {
+function useTeammateKeys(members) {
+  // One listener for the page's lifetime. The agent to step from is read
+  // from the URL, not the rendered page: a second Alt+] pressed before the
+  // last switch has rendered must step from where the URL already is, or it
+  // lands on the wrong teammate.
+  const current = useRef(null);
+  current.current = members;
   useEffect(() => {
-    if (!members) return;
     const onKey = (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const members = current.current;
+      const here = location.hash.startsWith("#/agent/")
+        ? decodeURIComponent(location.hash.slice("#/agent/".length)) : null;
       const by = e.code === "BracketRight" ? 1 : e.code === "BracketLeft" ? -1 : 0;
-      const next = by && stepTeammate(members, user, by);
+      const known = members && members.some(m => m.user_id === here);
+      const next = by && known && stepTeammate(members, here, by);
       if (!next) return;
       e.preventDefault();
       switchCarry = {
@@ -1178,7 +1189,7 @@ function useTeammateKeys(members, user) {
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [members, user]);
+  }, []);
 }
 
 function TeamStrip({ crew, user, unreadFor }) {
@@ -1204,7 +1215,7 @@ function TeamStrip({ crew, user, unreadFor }) {
 function FocusView({ user, state, refresh, freshIds, unreadFor }) {
   const crew = useMemo(() => teammates(state.recipients, state.teams, user), [state.recipients, state.teams, user]);
   const members = useMemo(() => crew && crew.members, [crew && crew.members.map(m => m.user_id).join(" ")]);
-  useTeammateKeys(members, user);
+  useTeammateKeys(members);
   // Arriving by a teammate switch: put the cursor back in the reply box.
   useEffect(() => {
     const carry = switchCarry;

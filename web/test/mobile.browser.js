@@ -406,6 +406,32 @@ test('the first message to an agent clears the composer', async () => {
   } finally { await page.close(); }
 });
 
+test("between two agents, the page's agent sits on the right", async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  const peer = 'numbat-claude-opus-karansmbp';
+  state.messages.push(
+    { id: 70, sender: 'stoat', recipient: peer, content: 'from stoat', ts: state.now, status: 'delivered', attachments: [] },
+    { id: 71, sender: peer, recipient: 'stoat', content: 'from numbat', ts: state.now, status: 'delivered', attachments: [] },
+    { id: 72, sender: 'stoat', recipient: 'stoat', content: 'note to self', ts: state.now, status: 'delivered', attachments: [] });
+  const sides = () => page.locator('.thread .msg').evaluateAll(els => Object.fromEntries(
+    els.map(e => [e.querySelector('.md')?.textContent.trim(), e.classList.contains('right')])));
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.thread-goto');
+    let s = await sides();
+    assert.equal(s['from stoat'], true);
+    assert.equal(s['from numbat'], false);
+    // A thread with itself has no other agent to open.
+    assert.equal(await page.locator('.thread-goto').count(), 1);
+    await page.goto(base + '#/agent/' + peer);
+    await page.waitForSelector('.thread-goto');
+    s = await sides();
+    assert.equal(s['from numbat'], true);
+    assert.equal(s['from stoat'], false);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('a message sent with literal \\n from the shell shows line breaks', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
   state.messages.push({ id: 60, sender: 'stoat', recipient: 'owner', ts: state.now, status: 'delivered', attachments: [],
@@ -416,6 +442,21 @@ test('a message sent with literal \\n from the shell shows line breaks', async (
     const bubble = page.locator('.thread .msg .md').last();
     assert.equal(await bubble.locator('p').count(), 2);
     assert.ok(!(await bubble.innerText()).includes('\\n'));
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('two quick Alt+] presses step two teammates', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.team-strip');
+    // The second press comes before the first switch has rendered.
+    await page.keyboard.press('Alt+BracketRight');
+    await page.keyboard.press('Alt+BracketRight');
+    await page.waitForFunction(() => location.hash === '#/agent/numbat-claude-opus-karansmbp');
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/numbat-claude-opus-karansmbp');
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

@@ -8925,8 +8925,10 @@ var FOCUS_FONT = {
 	step: 2
 };
 var FOCUS_FONT_KEY = "agent-swarm:focus-font";
-function sentByViewer(sender, a, b) {
-	return a === "owner" || b === "owner" ? sender === "owner" : sender !== a;
+function sentByViewer(sender, a, b, page) {
+	if (a === "owner" || b === "owner") return sender === "owner";
+	if (page === a || page === b) return sender === page;
+	return sender !== a;
 }
 function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
 	const boxRef = A(null);
@@ -8935,7 +8937,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
-	const peer = recipient ? null : page === a ? b : page === b ? a : null;
+	const peer = recipient || a === b ? null : page === a ? b : page === b ? a : null;
 	const [expanded, setExpanded] = d(!!recipient);
 	const [focused, setFocused] = d(() => !!(recipient && switchCarry?.focus));
 	const [focusFont, setFocusFont] = d(() => {
@@ -9066,7 +9068,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
       ${msgs.slice(-40).map((m) => m$1`
         <div key=${m.id} class=${[
 		"msg",
-		sentByViewer(m.sender, a, b) ? "right" : "",
+		sentByViewer(m.sender, a, b, page) ? "right" : "",
 		freshIds.has(m.id) ? "fresh" : "",
 		m.status === "failed" ? "failed" : m.status === "unknown" ? "unknown" : "",
 		m.sender === "owner" ? "from-owner" : "",
@@ -9132,13 +9134,17 @@ function AgentTaskRow({ t, taskIds, agentIds, refresh }) {
   </div>`;
 }
 var switchCarry = null;
-function useTeammateKeys(members, user) {
+function useTeammateKeys(members) {
+	const current = A(null);
+	current.current = members;
 	h(() => {
-		if (!members) return;
 		const onKey = (e) => {
 			if (!e.altKey || e.ctrlKey || e.metaKey) return;
+			const members = current.current;
+			const here = location.hash.startsWith("#/agent/") ? decodeURIComponent(location.hash.slice(8)) : null;
 			const by = e.code === "BracketRight" ? 1 : e.code === "BracketLeft" ? -1 : 0;
-			const next = by && stepTeammate(members, user, by);
+			const known = members && members.some((m) => m.user_id === here);
+			const next = by && known && stepTeammate(members, here, by);
 			if (!next) return;
 			e.preventDefault();
 			switchCarry = {
@@ -9149,7 +9155,7 @@ function useTeammateKeys(members, user) {
 		};
 		addEventListener("keydown", onKey);
 		return () => removeEventListener("keydown", onKey);
-	}, [members, user]);
+	}, []);
 }
 function TeamStrip({ crew, user, unreadFor }) {
 	return m$1`<nav class="team-strip" aria-label=${`Team ${crew.team.name}`}>
@@ -9176,7 +9182,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 		state.teams,
 		user
 	]);
-	useTeammateKeys(T(() => crew && crew.members, [crew && crew.members.map((m) => m.user_id).join(" ")]), user);
+	useTeammateKeys(T(() => crew && crew.members, [crew && crew.members.map((m) => m.user_id).join(" ")]));
 	h(() => {
 		const carry = switchCarry;
 		switchCarry = null;
