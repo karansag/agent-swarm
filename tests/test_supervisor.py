@@ -252,6 +252,43 @@ def test_interval_zero_disables_nudges(tmp_path, monkeypatch):
     assert len(calls) == n
 
 
+def test_nudge_delivery_runs_off_the_event_loop(client, monkeypatch):
+    """A remote node's send waits on a future scheduled on the server's loop,
+    so a nudge sent from the monitor coroutine itself would deadlock until
+    the timeout and end unknown. The fake below makes the same round trip."""
+    from agent_swarm import nodes
+
+    class LoopBoundNode(nodes.LocalNode):
+        loop = None
+
+        def deliver(self, op_id, pane, tmux_server, text, **kw):
+            future = asyncio.run_coroutine_threadsafe(asyncio.sleep(0), self.loop)
+            try:
+                future.result(timeout=1)
+            except TimeoutError:
+                return nodes.Result("unknown", "the loop was blocked")
+            return super().deliver(op_id, pane, tmux_server, text, **kw)
+
+    node = LoopBoundNode("macbook")
+    client.app.state.nodes.add(node)
+    client.post("/register", json={"tmux_pane": "0:0.0", "requested_user": "heron", "node": "macbook"})
+    _register(client, "0:1.0", "vole")
+    client.put("/supervisor", json={"user_id": "heron"})
+    clock = {"t": client.get("/supervisor").json()["supervisor"]["since"]}
+    monkeypatch.setattr(server.time, "time", lambda: clock["t"])
+    client.post("/send", json={"tmux_pane": "0:1.0", "recipient": "owner", "content": "hi"})
+    clock["t"] += 301
+
+    async def run():
+        node.loop = asyncio.get_running_loop()
+        await client.app.state.monitor_tick()
+
+    asyncio.run(run())
+    nudge = client.get("/messages", params={"user": "heron", "limit": 1}).json()["messages"][0]
+    assert nudge["sender"] == "hub"
+    assert nudge["status"] == "delivered", nudge["delivery_error"]
+
+
 # ---- renderer ----------------------------------------------------------------
 
 

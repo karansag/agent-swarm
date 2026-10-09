@@ -139,8 +139,9 @@ def render(
             lines.append(f"  waiting: #{t['id']} {_clip(t['title'], 90)} ({_ago(now - t['created_at'])} old)")
 
     # -- messages -------------------------------------------------------
-    own = [m for m in messages if supervisor and supervisor in (m["sender"], m["recipient"])]
-    shown = [m for m in messages if m not in own]
+    own_ids = {m["id"] for m in messages if supervisor and supervisor in (m["sender"], m["recipient"])}
+    own = [m for m in messages if m["id"] in own_ids]
+    shown = [m for m in messages if m["id"] not in own_ids]
     owner_side = sum(1 for m in shown if OWNER in (m["sender"], m["recipient"]))
     failed = [m for m in shown if m["status"] in ("failed", "unknown")]
     head = f"messages: {len(shown)} new"

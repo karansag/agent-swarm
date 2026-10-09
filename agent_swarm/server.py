@@ -653,7 +653,9 @@ def create_app(
                 content=f"needs attention: {note.detail}",
                 status="delivered",
             )
-        _nudge_supervisor(now, {o.user_id for o in observations if o.pane_alive})
+        # Off the loop: a nudge pastes into a pane, which blocks (local tmux
+        # subprocesses) or waits on this very loop (a remote node's send).
+        await asyncio.to_thread(_nudge_supervisor, now, {o.user_id for o in observations if o.pane_alive})
 
     retention_days = float(
         os.environ.get(

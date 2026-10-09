@@ -143,7 +143,10 @@ the README):
 
 That is the existing model, and the v1 supervisor lives inside it. The
 honest statement is: a supervisor on the hub machine has owner powers
-because every process on the hub machine does. If that becomes a
+because, by default, every process on the hub machine does. The off
+switch is `AGENT_SWARM_TRUST_LOOPBACK=0`, after which loopback callers
+need a node token like everyone else and the supervisor is limited to
+what an agent does wherever it runs. If that becomes a
 problem (a supervisor on a node that should be able to spawn, or a hub
 machine with agents that should not), the next step is a `role` column
 on recipients and endpoints that accept an acting agent with that role,
