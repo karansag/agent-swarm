@@ -407,7 +407,8 @@ test("between two agents, the page's agent sits on the right", async () => {
   state.messages.push(
     { id: 70, sender: 'stoat', recipient: peer, content: 'from stoat', ts: state.now, status: 'delivered', attachments: [] },
     { id: 71, sender: peer, recipient: 'stoat', content: 'from numbat', ts: state.now, status: 'delivered', attachments: [] },
-    { id: 72, sender: 'stoat', recipient: 'stoat', content: 'note to self', ts: state.now, status: 'delivered', attachments: [] });
+    { id: 72, sender: 'stoat', recipient: 'stoat', content: 'note to self', ts: state.now, status: 'delivered', attachments: [] },
+    { id: 73, sender: 'hub', recipient: 'stoat', context: 'digest', content: 'Since your last digest: 1 new message(s).', ts: state.now, status: 'delivered', attachments: [] });
   const sides = () => page.locator('.thread .msg').evaluateAll(els => Object.fromEntries(
     els.map(e => [e.querySelector('.md')?.textContent.trim(), e.classList.contains('right')])));
   try {
@@ -416,7 +417,7 @@ test("between two agents, the page's agent sits on the right", async () => {
     let s = await sides();
     assert.equal(s['from stoat'], true);
     assert.equal(s['from numbat'], false);
-    // A thread with itself has no other agent to open.
+    // A thread with itself, or with the hub (supervisor nudges), has no agent page to open.
     assert.equal(await page.locator('.thread-goto').count(), 1);
     await page.goto(base + '#/agent/' + peer);
     await page.waitForSelector('.thread-goto');

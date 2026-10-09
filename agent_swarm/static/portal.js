@@ -9049,14 +9049,15 @@ function sentByViewer(sender, a, b, page) {
 	if (page === a || page === b) return sender === page;
 	return sender !== a;
 }
-function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
+function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null }) {
 	const boxRef = A(null);
 	const follower = A(null);
 	if (!follower.current) follower.current = createBottomFollower();
 	const resizeRef = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
-	const peer = recipient || a === b ? null : page === a ? b : page === b ? a : null;
+	const other = recipient || a === b ? null : page === a ? b : page === b ? a : null;
+	const peer = other && agents?.has(other) ? other : null;
 	const [expanded, setExpanded] = d(!!recipient);
 	const [focused, setFocused] = d(() => !!(recipient && switchCarry?.focus));
 	const [focusFont, setFocusFont] = d(() => {
@@ -9375,6 +9376,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 	}, [user]);
 	const threadOrder = A(/* @__PURE__ */ new Map());
 	const nextThreadOrder = A(0);
+	const registered = new Set(state.recipients.map((x) => x.user_id));
 	const r = state.recipients.find((x) => x.user_id === user);
 	if (!r) return m$1`<div class="empty">No agent named "${user}".
     <br /><br /><button class="mini" onClick=${() => {
@@ -9431,7 +9433,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
     ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>` : threads.map((msgs) => {
 		const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
-		return m$1`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user}
+		return m$1`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user} agents=${registered}
             freshIds=${freshIds} now=${state.now} refresh=${refresh} />`;
 	})}
     ${threads.length > 0 && !hasOwnerThread && m$1`<div class="thread" style="margin-top:14px">

@@ -1039,7 +1039,7 @@ function sentByViewer(sender, a, b, page) {
   return sender !== a;
 }
 
-function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
+function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null }) {
   const boxRef = useRef(null);
   const follower = useRef(null);
   if (!follower.current) follower.current = createBottomFollower();
@@ -1048,7 +1048,9 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null }) {
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
   // In a thread between two agents, the one whose page this is not: a link
   // in the header goes to that agent's page to message them.
-  const peer = recipient || a === b ? null : page === a ? b : page === b ? a : null;
+  const other = recipient || a === b ? null : page === a ? b : page === b ? a : null;
+  // Only a registered agent has a page; the hub (supervisor nudges) has none.
+  const peer = other && agents?.has(other) ? other : null;
   const [expanded, setExpanded] = useState(!!recipient);
   // Focus mode: the thread fills the window for reading. The owner's thread
   // also answers to "f" (outside a text field); Esc leaves.
@@ -1372,6 +1374,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
   // every existing conversation on the next polling render.
   const threadOrder = useRef(new Map());
   const nextThreadOrder = useRef(0);
+  const registered = new Set(state.recipients.map(x => x.user_id));
   const r = state.recipients.find(x => x.user_id === user);
   if (!r) return html`<div class="empty">No agent named "${user}".
     <br /><br /><button class="mini" onClick=${() => { location.hash = "#/"; }}>back to overview</button></div>`;
@@ -1432,7 +1435,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>`
       : threads.map(msgs => {
           const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
-          return html`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user}
+          return html`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user} agents=${registered}
             freshIds=${freshIds} now=${state.now} refresh=${refresh} />`;
         })}
     ${threads.length > 0 && !hasOwnerThread && html`<div class="thread" style="margin-top:14px">
