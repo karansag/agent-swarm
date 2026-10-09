@@ -59,7 +59,7 @@ for (const [width, height] of [[320,568],[390,844],[430,932],[768,1024],[820,118
     try {
       for (const hash of ['#/', '#/agent/stoat', `#/agent/${names[1]}`, '#/tasks']) {
         await page.goto(base + hash);
-        await page.waitForSelector('.roster-drawer');
+        await page.waitForSelector('.stage');
         await fit(page);
         assert.equal(await page.locator('canvas').count(), 0);
       }
@@ -109,21 +109,14 @@ test('touch navigation, filtering, roster stacking, task details and assignment'
     await page.waitForFunction(() => document.querySelector('.hive-task-detail p').textContent.includes('ferret'));
     assert.deepEqual(patches, [{team_id:1}, {assignee:'ferret',team_id:null}]);
     await fit(page);
-    await page.getByRole('button', { name: /Agent roster/ }).tap();
-    await page.waitForTimeout(500);
-    assert.ok(await page.locator('#agent-sidebar').evaluate(e => e.getBoundingClientRect().top < innerHeight));
-    const bounds = await page.evaluate(() => ({stage:document.querySelector('.stage').getBoundingClientRect().bottom, roster:document.querySelector('#agent-sidebar').getBoundingClientRect().top}));
-    assert.ok(bounds.roster >= bounds.stage - 1);
-    await page.getByRole('button', { name: 'Hide agents' }).tap();
-    assert.equal(await page.locator('#agent-sidebar').isVisible(), false);
-    await page.getByRole('button', { name: /Agent roster/ }).tap();
-    assert.equal(await page.locator('#agent-sidebar').isVisible(), true);
-    const chip = page.locator('.chip-card').filter({has:page.locator('.nm', {hasText:names[1]})}).first();
+    // Phones have no roster below the page: the agents panel at the top holds
+    // it, as its "roster" view with all the management controls.
+    assert.equal(await page.locator('#agent-sidebar').count(), 0);
+    assert.equal(await page.getByRole('button', { name: /Agent roster/ }).count(), 0);
+    await page.locator('.agents-view-switch button', { hasText: 'roster' }).tap();
+    const chip = page.locator('.agents-panel .chip-card').filter({has:page.locator('.nm', {hasText:names[1]})}).first();
     await chip.tap();
     await page.waitForSelector('.focus-back');
-    const selected = page.url();
-    await chip.tap();
-    assert.equal(page.url(), selected);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -246,16 +239,16 @@ test('home-screen app gets a reload button; a browser tab does not', async () =>
   const { page, errors } = await setup(390, 844);
   try {
     await page.goto(base);
-    await page.waitForSelector('.roster-drawer');
+    await page.waitForSelector('.stage');
     assert.equal(await page.locator('header.top .reload').count(), 0);
     // iOS marks a page opened from the home screen with navigator.standalone.
     await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
     await page.reload();
-    await page.waitForSelector('.roster-drawer');
+    await page.waitForSelector('.stage');
     await fit(page);
     await page.evaluate(() => { window.beforeReload = true; });
     await page.locator('header.top .reload').click();
-    await page.waitForSelector('.roster-drawer');
+    await page.waitForSelector('.stage');
     assert.equal(await page.evaluate(() => window.beforeReload), undefined);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }

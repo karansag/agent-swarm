@@ -1468,13 +1468,9 @@ function App() {
     setRosterOpen(open);
     try { localStorage.setItem("swarm-roster-open", String(open)); } catch {}
   };
-  const toggleRoster = () => {
-    const opening = compact || !rosterOpen;
-    updateRoster(opening);
-    if (opening && compact) requestAnimationFrame(() => {
-      document.getElementById("agent-sidebar")?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
-    });
-  };
+  // Desktop only: the compact layout has no drawer (the overview's agents
+  // panel holds the roster).
+  const toggleRoster = () => updateRoster(!rosterOpen);
   const closeRoster = () => { updateRoster(false); toggleRef.current?.focus(); };
   const [connected, setConnected] = useState(true);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
@@ -1586,10 +1582,10 @@ function App() {
     <div class="main-col">
     ${header}
     <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
-    <button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+    ${!compact && html`<button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
       aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
-      <span class="desktop-roster-label">${rosterOpen ? "Agents ›" : "‹ Agents"}</span><span class="mobile-roster-label">Agent roster ↓</span> · ${state.recipients.filter(r => r.pane_alive).length}
-    </button>
+      ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter(r => r.pane_alive).length}
+    </button>`}
     <div class="stage">
       ${focusUser
         ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />`
@@ -1600,10 +1596,10 @@ function App() {
             : html`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
-    <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
+    ${!compact && html`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
         pings=${pings} refresh=${poll} machine=${machine} onClose=${closeRoster} />
-    </div>
+    </div>`}
   </main>`;
 }
 
