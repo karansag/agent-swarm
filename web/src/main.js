@@ -24,7 +24,7 @@ import {
 import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
 import { machineColor, machineList, machineName } from "./machines.js";
 import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
-import { HiveView } from "./hive.js";
+import { CompactBees, HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
 import { createBottomFollower } from "./scroll-follow.js";
@@ -463,7 +463,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose 
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
   return html`<aside class="roster">
-    <div class="roster-heading"><h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2><button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>
+    <div class="roster-heading"><h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>${onClose && html`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>
     <div class="roster-grouping" aria-label="Group agents by">
       <span>Group by</span>${["machine", "team"].map(g => html`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
     </div>
@@ -661,10 +661,86 @@ function Kanban({ state, refresh }) {
   </div>`;
 }
 
-function Overview({ state, refresh, machine }) {
+// Phone agents panel (task #154, still being tried out): a switcher between
+// a compact view grouped by team, the original tile grid, and the full team
+// roster above the task board. The choice is kept per browser.
+const AGENTS_VIEW_KEY = "agent-swarm:mobile-agents-view";
+const AGENTS_VIEWS = [["teams", "teams"], ["tiles", "tiles"], ["roster", "roster"]];
+const COLLAPSED_TEAMS_KEY = "agent-swarm:collapsed-teams";
+
+function readJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
+}
+
+// Live agents in outlined, collapsible team boxes, queen first; agents with
+// no team come last. Each agent is one small chip that opens its page.
+function TeamBees({ state, machine, unreadFor }) {
+  const [collapsed, setCollapsed] = useState(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
+  const toggle = (key, open) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (open) next.delete(key); else next.add(key);
+    try { localStorage.setItem(COLLAPSED_TEAMS_KEY, JSON.stringify([...next])); } catch { /* not kept */ }
+    return next;
+  });
+  const live = state.recipients.filter(r => r.pane_alive && (machine === null || machineName(r.node) === machine));
+  const teams = state.teams || [];
+  const groups = teams.map(t => ({
+    key: `t:${t.id}`, name: t.name, queen: t.queen,
+    members: live.filter(r => r.team_id === t.id)
+      .sort((a, b) => (b.user_id === t.queen) - (a.user_id === t.queen) || a.user_id.localeCompare(b.user_id)),
+  })).filter(g => g.members.length);
+  const loners = live.filter(r => !teams.some(t => t.id === r.team_id)).sort((a, b) => a.user_id.localeCompare(b.user_id));
+  if (loners.length) groups.push({ key: "none", name: "no team", queen: null, members: loners });
+  if (!groups.length) return html`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}.</p>`;
+  return html`<div class="team-bees">${groups.map(g => {
+    const busy = g.members.filter(r => agentStatus(r) === "working").length;
+    const attention = g.members.filter(r => agentStatus(r) === "needs_attention").length;
+    return html`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""}`}
+        open=${!collapsed.has(g.key)} onToggle=${e => toggle(g.key, e.currentTarget.open)}>
+      <summary><span class="team-bees-name">${g.name}</span>
+        <span class="team-bees-counts">${g.members.length}${busy ? html` · <span class="working">${busy} working</span>` : ""}${attention ? html` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
+      <div class="team-bees-chips">${g.members.map(r => {
+        const st = STATE[agentStatus(r)] || STATE.unknown;
+        return html`<a key=${r.user_id} class="team-mate" href=${`#/agent/${encodeURIComponent(r.user_id)}`}
+          style=${`--machine:${machineColor(r.node)}`} title=${`${r.user_id} · ${machineName(r.node)} · ${st.word}`}>
+          <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
+          <span class="team-mate-name">${r.user_id}</span>
+          ${g.queen === r.user_id && html`<span class="crown" title="team queen">♛</span>`}
+          <span class=${`status ${st.cls}`}></span>
+          ${unreadFor(r.user_id) && html`<span class="team-mate-unread" title="new reply">●</span>`}
+        </a>`;
+      })}</div>
+    </details>`;
+  })}</div>`;
+}
+
+function AgentsPanel({ state, refresh, machine, unreadFor, pings }) {
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(AGENTS_VIEW_KEY) || "teams"; } catch { return "teams"; }
+  });
+  const pick = (v) => {
+    setView(v);
+    try { localStorage.setItem(AGENTS_VIEW_KEY, v); } catch { /* not kept */ }
+  };
+  return html`<div class="agents-panel">
+    <div class="agents-view-switch" role="group" aria-label="Agents view">
+      <span>view</span>
+      ${AGENTS_VIEWS.map(([v, label]) => html`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
+    </div>
+    ${view === "tiles"
+      ? html`<${CompactBees} state=${state} machine=${machine} />`
+      : view === "roster"
+        ? html`<${Roster} state=${state} focusUser=${null} unreadFor=${unreadFor} pings=${pings}
+            refresh=${refresh} machine=${machine} onClose=${null} />`
+        : html`<${TeamBees} state=${state} machine=${machine} unreadFor=${unreadFor} />`}
+  </div>`;
+}
+
+function Overview({ state, refresh, machine, unreadFor, pings }) {
   return html`<div>
     <h2>activity</h2>
-    <${HiveView} state=${state} refresh=${refresh} machine=${machine} />
+    <${HiveView} state=${state} refresh=${refresh} machine=${machine}
+      compactBody=${html`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -1521,7 +1597,7 @@ function App() {
           ? html`<${HistoryView} state=${state} />`
           : onChats
             ? html`<${ChatsView} state=${state} unreadFor=${unreadFor} />`
-            : html`<${Overview} state=${state} refresh=${poll} machine=${machine} />`}
+            : html`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
     <div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>

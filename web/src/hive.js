@@ -57,7 +57,7 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 }
 
 // Native links keep every agent reachable by touch and keyboard without a map.
-function CompactBees({ state, machine }) {
+export function CompactBees({ state, machine }) {
   const agents = (state.recipients || []).filter(r => r.pane_alive &&
     (machine === null || machineName(r.node) === machine));
   return html`<nav class="compact-hive" aria-label="Live agents">
@@ -115,7 +115,9 @@ function HiveTaskDetail({ task, state, refresh, onClose }) {
   </section>`;
 }
 
-export function HiveView({ state, refresh, machine }) {
+// `compactBody`, when given, replaces the tile grid in the compact layout
+// (the overview's phone agents panel with its view switcher).
+export function HiveView({ state, refresh, machine, compactBody = null }) {
   const compact = useMedia(COMPACT_LAYOUT);
   const [selectedTask, setSelectedTask] = useState(null);
   const taskDetail = (state.tasks || []).find(t => t.id === selectedTask);
@@ -926,7 +928,7 @@ export function HiveView({ state, refresh, machine }) {
       drawRef.current(performance.now(), true);
   }, [state, machine]);
 
-  return html`<div class="hive-panel">${compact ? html`<${CompactBees} state=${state} machine=${machine} />` : html`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+  return html`<div class="hive-panel">${compact ? (compactBody || html`<${CompactBees} state=${state} machine=${machine} />`) : html`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
     aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div>`}
     <div class="harness-legend" aria-label="Bee harness legend">
       <span class="legend-title">Body = machine · stripes + symbol = harness</span>

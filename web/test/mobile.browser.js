@@ -77,6 +77,8 @@ test('touch navigation, filtering, roster stacking, task details and assignment'
     await route.fulfill({ json: { ok: true } });
   });
   try {
+    // These checks are about the tile grid, one of the phone agents views.
+    await page.addInitScript(() => localStorage.setItem('agent-swarm:mobile-agents-view', 'tiles'));
     await page.goto(base);
     await page.waitForSelector('.bee-tile');
     assert.equal(await page.locator('.bee-tile').count(), 8);
@@ -227,7 +229,7 @@ test('desktop baseline and rotation remount the canvas without errors', async ()
     assert.equal(await page.locator('.compact-hive').count(),0);
     await page.getByRole('button',{name:'Hide agents'}).click();
     await page.setViewportSize({width:390,height:844});
-    await page.waitForSelector('.compact-hive');
+    await page.waitForSelector('.agents-panel');
     assert.equal(await page.locator('#agent-sidebar').isVisible(),false);
     assert.equal(await page.locator('canvas').count(),0);
     await page.setViewportSize({width:1440,height:900});
@@ -477,6 +479,31 @@ test('chats tab lists owner conversations newest first and searches them', async
     assert.equal(await page.evaluate(() => location.hash), '#/chats?q=Zephyr');
     await page.locator('.chat-row').click();
     await page.waitForFunction(() => location.hash === '#/agent/tapir');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('phone agents panel: team view groups and collapses, and the view choice sticks', async () => {
+  const { page, errors } = await setup(390, 844);
+  try {
+    await page.goto(base + '#/');
+    await page.waitForSelector('.agents-panel');
+    // Default view: live agents in team boxes, then a "no team" box.
+    const groups = await page.locator('.team-bees-group .team-bees-name').allInnerTexts();
+    assert.equal(groups[0].toLowerCase(), 'agent-swarm');
+    assert.equal(groups[groups.length - 1].toLowerCase(), 'no team');
+    assert.equal(await page.locator('.team-bees-group').first().locator('.team-mate').count(), 3);
+    await page.locator('.team-bees-group > summary').first().click();
+    assert.equal(await page.locator('.team-bees-group').first().locator('.team-mate').first().isVisible(), false);
+    await page.locator('.agents-view-switch button', { hasText: 'tiles' }).click();
+    assert.ok(await page.locator('.bee-grid').isVisible());
+    await page.locator('.agents-view-switch button', { hasText: 'roster' }).click();
+    assert.ok(await page.locator('.agents-panel aside.roster').isVisible());
+    await page.reload();
+    await page.waitForSelector('.agents-panel aside.roster');
+    await page.locator('.agents-view-switch button', { hasText: 'teams' }).click();
+    // Still collapsed after the reload.
+    assert.equal(await page.locator('.team-bees-group').first().evaluate(d => d.open), false);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
