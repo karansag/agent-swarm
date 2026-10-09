@@ -156,8 +156,9 @@ def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> s
     return pick({row[0] for row in conn.execute("SELECT user_id FROM recipients")}, rng)
 
 
-# Handles the server refuses to hand out: 'owner' is the human operator.
-RESERVED = frozenset({"owner"})
+# Handles the server refuses to hand out: 'owner' is the human operator,
+# 'hub' is the server itself (it signs the supervisor's digest nudges).
+RESERVED = frozenset({"owner", "hub"})
 
 # 48 rather than 32 because handles issued by earlier versions carried harness,
 # model, and host suffixes of up to 35 characters, and an agent that loses its

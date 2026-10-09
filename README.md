@@ -284,6 +284,44 @@ worktree; the agent records the absolute path on the task. See
 `AGENT_PROMPT.md` for the worker convention and how teams and
 queens coordinate.
 
+## Supervisor
+
+One agent can hold the swarm supervisor role: the agent the owner asks
+about the whole swarm. Like a team queen it is a prompt, not server
+authority, but it is fleet-wide and stored on the hub:
+
+```bash
+agent-swarm supervisor heron --objective "watch the board; tell me what needs me"
+agent-swarm supervisor            # who holds it
+agent-swarm supervisor --clear    # end it
+```
+
+Appointing delivers a role prompt to that agent. Then talk to it from its
+dashboard page: "what is going on?", "what happened with #12?", "file a
+task for the flaky test and give it to someone idle". It answers in the
+owner thread. What it reads is the digest, which you can read too:
+
+```bash
+agent-swarm digest --minutes 30            # a window
+agent-swarm digest --after-message 3800    # exactly what is new since a cursor
+```
+
+The digest is one block of text: live agents by activity (with any
+approval prompt an agent is stuck on), tasks changed since the cursor
+with the verify note of a closed one, open tasks nobody has, and new
+messages one line each with failures marked. Its last line names the
+cursor for the next call.
+
+The hub keeps the supervisor plugged in without flooding it: every
+`AGENT_SWARM_SUPERVISOR_INTERVAL` seconds (default 300; 0 disables), if
+there were messages it was not party to or task changes, it gets one
+line from the reserved sender `hub` saying how many and which digest to
+run. `agent-swarm spawn` and `agent-swarm stop` give it hands for
+delegation; both are owner-only endpoints, so they work from the hub
+machine and are refused through a node token. See
+[docs/supervisor-design.md](./docs/supervisor-design.md) for the
+reasoning and what was left out.
+
 ## Multiple Machines
 
 One server is the hub: it holds every handle, message, task, and team,

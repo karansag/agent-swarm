@@ -7994,6 +7994,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	const [stopping, setStopping] = d(false);
 	const [crowning, setCrowning] = d(false);
 	const isQueen = !!team && team.queen === r.user_id;
+	const isSupervisor = !!state.supervisor && state.supervisor.user_id === r.user_id;
 	const task = currentTask(state.tasks, r.user_id);
 	const flavor = (r.flavor || "generic").toLowerCase();
 	const status = agentStatus(r);
@@ -8060,7 +8061,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     <div class="who">
       <${MachineBadge} node=${r.node} />
       ${team && m$1`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
-      <div class="nm">${r.user_id}${isQueen && m$1`<span class="crown" title="team queen">♛</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
+      <div class="nm">${r.user_id}${isQueen && m$1`<span class="crown" title="team queen">♛</span>`}${isSupervisor && m$1`<span class="crown supervisor" title=${`swarm supervisor: ${state.supervisor.objective}`}>✪</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
       <div class="tech" title=${[
 		flavor,
@@ -8687,6 +8688,7 @@ function TeamBees({ state, machine, unreadFor }) {
           <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
           <span class="team-mate-name">${r.user_id}</span>
           ${g.queen === r.user_id && m$1`<span class="crown" title="team queen">♛</span>`}
+          ${state.supervisor && state.supervisor.user_id === r.user_id && m$1`<span class="crown supervisor" title="swarm supervisor">✪</span>`}
           <span class=${`status ${st.cls}`}></span>
           ${unreadFor(r.user_id) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
         </a>`;

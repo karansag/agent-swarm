@@ -466,7 +466,63 @@ def delete_recipient(conn: sqlite3.Connection, user_id: str) -> bool:
         cur = conn.execute("DELETE FROM recipients WHERE user_id=?", (user_id,))
         conn.execute("UPDATE teams SET queen=NULL WHERE queen=?", (user_id,))
         conn.execute("DELETE FROM summaries WHERE user_id=?", (user_id,))
+        if _supervisor_row(conn).get("user_id") == user_id:
+            conn.execute("DELETE FROM meta WHERE key='supervisor'")
     return cur.rowcount > 0
+
+
+# ---- supervisor: the one agent the owner talks to about the whole swarm ----
+
+SUPERVISOR_KEY = "supervisor"
+
+
+def _supervisor_row(conn: sqlite3.Connection) -> dict:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (SUPERVISOR_KEY,)).fetchone()
+    return json.loads(row["value"]) if row else {}
+
+
+@_serialized
+def get_supervisor(conn: sqlite3.Connection) -> dict | None:
+    """{user_id, objective, since, cursor} or None. `cursor` is the last
+    message id the hub has nudged the supervisor about."""
+    row = _supervisor_row(conn)
+    return row or None
+
+
+@_serialized
+def set_supervisor(
+    conn: sqlite3.Connection, user_id: str, objective: str, cursor: int
+) -> dict:
+    """Appoint `user_id`; the nudge cursor starts at the newest message so the
+    first nudge covers only what happens from now on."""
+    if conn.execute("SELECT 1 FROM recipients WHERE user_id=?", (user_id,)).fetchone() is None:
+        raise ValueError(f"{user_id} is not registered")
+    row = {"user_id": user_id, "objective": objective, "since": time.time(),
+           "cursor": cursor, "nudged_at": None}
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)",
+            (SUPERVISOR_KEY, json.dumps(row)),
+        )
+    return row
+
+
+@_serialized
+def set_supervisor_cursor(conn: sqlite3.Connection, cursor: int, nudged_at: float) -> None:
+    row = _supervisor_row(conn)
+    if not row:
+        return
+    row["cursor"], row["nudged_at"] = cursor, nudged_at
+    with conn:
+        conn.execute("UPDATE meta SET value=? WHERE key=?", (json.dumps(row), SUPERVISOR_KEY))
+
+
+@_serialized
+def clear_supervisor(conn: sqlite3.Connection) -> dict | None:
+    row = _supervisor_row(conn)
+    with conn:
+        conn.execute("DELETE FROM meta WHERE key=?", (SUPERVISOR_KEY,))
+    return row or None
 
 
 @_serialized
@@ -930,6 +986,31 @@ def fetch_messages(
             "SELECT * FROM messages ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
     return [_message(r) for r in rows]
+
+
+@_serialized
+def fetch_messages_after(
+    conn: sqlite3.Connection, after_id: int = 0, since_ts: float = 0.0, limit: int = 500
+) -> list[dict]:
+    """Messages newer than a cursor, oldest first. Ids only go up, so a message
+    id is an exact cursor; `since_ts` is the coarse alternative for a first look."""
+    rows = conn.execute(
+        "SELECT * FROM messages WHERE id > ? AND ts >= ? ORDER BY id ASC LIMIT ?",
+        (after_id, since_ts, limit),
+    ).fetchall()
+    return [_message(r) for r in rows]
+
+
+@_serialized
+def message_ts(conn: sqlite3.Connection, message_id: int) -> float | None:
+    row = conn.execute("SELECT ts FROM messages WHERE id=?", (message_id,)).fetchone()
+    return float(row["ts"]) if row else None
+
+
+@_serialized
+def newest_message_id(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT MAX(id) AS m FROM messages").fetchone()
+    return int(row["m"] or 0)
 
 
 @_serialized

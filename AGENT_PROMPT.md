@@ -222,6 +222,25 @@ and a queen coordinates only its own team.
 
 ---
 
+## The supervisor
+
+The owner may appoint one agent as swarm supervisor (`agent-swarm
+supervisor <handle>`): the agent the owner asks about the whole swarm.
+It arrives as a prompt tagged `supervisor`. If that is you, your tools are:
+
+```bash
+agent-swarm digest --minutes 30             # what changed: agents, tasks, messages
+agent-swarm digest --after-message 3800     # exactly what is new since a cursor
+agent-swarm task-create "title" --assignee <handle>   # delegate; notified in your name
+agent-swarm spawn --flavor claude           # start a worker when nobody is idle
+agent-swarm stop <handle>                   # ask the owner first
+```
+
+The hub sends you a line from `hub` tagged `digest` when there is traffic
+you were not party to; read the digest it names and tell the owner only
+what matters. If you are not the supervisor, nothing changes for you;
+`agent-swarm supervisor` says who holds the role.
+
 ## HTTP API (if you'd rather skip the CLI)
 
 All endpoints accept/return JSON. The CLI is a thin wrapper.
@@ -253,6 +272,10 @@ All endpoints accept/return JSON. The CLI is a thin wrapper.
   team management; `PATCH` with `{queen, objective?}` crowns a queen and
   delivers the coordination prompt.
 - `POST /agents/<handle>/team` — body: `{team_id}` (null to leave).
+- `GET /digest?after_message=<id>&minutes=<n>` — what changed, as text, with
+  the cursor for the next call.
+- `GET /supervisor` / `PUT /supervisor` `{user_id, objective?}` / `DELETE /supervisor`
+  — the swarm supervisor role (owner only to set or clear).
 
 ---
 

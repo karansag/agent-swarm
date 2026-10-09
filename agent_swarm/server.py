@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import activity, attachments, bundle, db, names, nodes, panes, protocol, tmux
+from . import activity, attachments, bundle, db, digest, names, nodes, panes, protocol, tmux
 
 log = logging.getLogger("agent_swarm.monitor")
 
@@ -43,6 +43,8 @@ PORTAL_STATIC_PATH = Path(__file__).parent / "static"
 # (the name pool contains only animals). Messages sent to it are recorded
 # for the dashboard instead of being injected into a tmux pane.
 OWNER = "owner"
+# The server itself, when it signs a message (the supervisor's digest nudges).
+HUB = "hub"
 
 # Said the same way wherever a worker meets it: in the assignment message, in
 # the protocol brief, and in the error it gets if it tries to close without one.
@@ -351,6 +353,16 @@ class AgentTeamReq(BaseModel):
     team_id: int | None = None
 
 
+class SupervisorReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1)
+    objective: str | None = Field(
+        default=None,
+        description="What the owner wants watched or driven; delivered with the role prompt.",
+    )
+
+
 class TerminalReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -395,6 +407,44 @@ def _queen_prompt(team: dict, objective: str) -> str:
         "definition of done. Coordinate only your own team.\n\n"
         "This is a prompt-driven role, not special server authority. The owner "
         "retains every right and can replace or demote you at any time."
+    )
+
+
+def _supervisor_prompt(user_id: str, objective: str, peers: list[dict]) -> str:
+    live = [p["user_id"] for p in peers if p.get("alive") and p["user_id"] != user_id]
+    roster = ", ".join(live) if live else "(no other live agents right now)"
+    return (
+        f"The owner has made you the swarm supervisor: the one agent the owner "
+        f"asks about the whole swarm. Live agents right now: {roster}.\n\n"
+        f"Objective: {objective}\n\n"
+        "What you do:\n"
+        "- Answer the owner. When asked what is going on, run `agent-swarm digest` "
+        "(`--minutes N` for a window, or `--after-message ID` from the end of your "
+        "last digest) and reply in a few lines: what changed, who needs attention, "
+        "what is done, what is stalled. For one task, read `agent-swarm tasks` and "
+        "the messages tagged `task-N` (`agent-swarm messages --user <handle>`); "
+        "if the board does not say, ask the assignee with `agent-swarm send` and "
+        "relay the answer.\n"
+        "- Delegate when asked. File work with `agent-swarm task-create \"title\" "
+        "--description ... --assignee <handle>`; the assignee is notified in your "
+        "name. Prefer an idle agent of a suitable harness; when none is free, "
+        "`agent-swarm spawn --flavor claude|codex|pi|hermes` starts one, then assign "
+        "to the handle it prints. Record ordering with --depends-on.\n"
+        "- Watch the swarm. The hub sends you a message from `hub` tagged `digest` "
+        "when there is new traffic or task changes you were not party to; read the "
+        "digest it names and tell the owner only what matters. Agents whose pane "
+        "shows an approval prompt appear as `needs attention`; you cannot answer "
+        "the prompt, but you can tell the owner which agent and why.\n"
+        "- Admin. `agent-swarm stop <handle>` kills an agent's pane: ask the owner "
+        "first unless they already told you to. Never delete tasks or change team "
+        "membership on your own.\n\n"
+        "Report facts, not guesses: a delivery marked unknown may or may not have "
+        "arrived, so say so and never resend on your own. Keep replies to the owner "
+        "short; they land on the dashboard via `agent-swarm send --to owner`. "
+        "Set `agent-swarm status \"supervising: ...\"` so the dashboard shows the "
+        "role.\n\n"
+        "This is a prompt-driven role, not special server authority. The owner "
+        "retains every right and can end the role at any time."
     )
 
 
@@ -473,7 +523,9 @@ def _protocol_brief(user_id: str, peers: list[dict]) -> str:
         f"\n"
         f"The owner may group agents into teams, each with a queen who "
         f"coordinates that team's work. Tasks can be assigned to a team; "
-        f"they reach the queen, who parcels them out."
+        f"they reach the queen, who parcels them out. The owner may also "
+        f"appoint one agent as swarm supervisor, the agent they ask about the "
+        f"whole swarm; `agent-swarm supervisor` says who, if anyone, holds it."
     )
 
 
@@ -517,6 +569,32 @@ def create_app(
             os.environ.get("AGENT_MSG_ATTENTION_GRACE", "60.0"),
         )
     )
+
+    # How often the supervisor is told about traffic it was not party to.
+    # Every nudge is a paste into its pane, so this is deliberately coarse.
+    supervisor_interval = float(os.environ.get("AGENT_SWARM_SUPERVISOR_INTERVAL", "300"))
+
+    def _nudge_supervisor(now: float, alive: set[str]) -> None:
+        """One short message when enough time has passed and something changed.
+
+        The cursor moves every interval, nudge or not, so a quiet spell is
+        never reported late, and an unknown delivery is never resent.
+        """
+        sup = db.get_supervisor(conn)
+        if not sup or supervisor_interval <= 0 or sup["user_id"] not in alive:
+            return
+        last = sup.get("nudged_at") or sup["since"]
+        if now - last < supervisor_interval:
+            return
+        msgs = db.fetch_messages_after(conn, sup["cursor"])
+        counts = digest.changed(msgs, db.list_tasks(conn), last, sup["user_id"])
+        newest = max([sup["cursor"], *(m["id"] for m in msgs)])
+        db.set_supervisor_cursor(conn, newest, now)
+        if counts["messages"] or counts["tasks"]:
+            try:
+                _deliver_as(HUB, sup["user_id"], digest.nudge_text(counts, sup["cursor"]), "digest")
+            except HTTPException as exc:
+                log.warning("supervisor nudge not delivered: %s", exc.detail)
 
     async def _monitor_tick():
         _migrate_legacy_panes()
@@ -564,7 +642,8 @@ def create_app(
             observations.append(
                 activity.Observation(r["user_id"], r.get("flavor"), alive, capture)
             )
-        notes = activity.step(registry, observations, time.time(), interval, grace)
+        now = time.time()
+        notes = activity.step(registry, observations, now, interval, grace)
         for note in notes:
             db.record_message(
                 conn,
@@ -574,6 +653,7 @@ def create_app(
                 content=f"needs attention: {note.detail}",
                 status="delivered",
             )
+        _nudge_supervisor(now, {o.user_id for o in observations if o.pane_alive})
 
     retention_days = float(
         os.environ.get(
@@ -1828,6 +1908,84 @@ def create_app(
             raise HTTPException(status_code=404, detail={"error": "unknown agent"})
         return {"ok": True, "recipient": recipient}
 
+    def _recipients_with_activity() -> list[dict]:
+        recipients = _annotated_recipients()
+        summaries = db.summaries_by_user(conn, db.SUMMARY_HISTORY)
+        for r in recipients:
+            r["pane_alive"] = r["alive"]
+            r["summaries"] = summaries.get(r["user_id"], [])
+            r["compact_command"] = tmux.compact_command_for_flavor(r.get("flavor"))
+            row = registry.get(r["user_id"])
+            r["activity"] = (
+                {"status": row["status"], "detail": row["detail"], "since": row["since"]}
+                if row
+                else dict(UNKNOWN_ACTIVITY)
+            )
+        return recipients
+
+    @app.get("/supervisor")
+    def supervisor_get():
+        return {"supervisor": db.get_supervisor(conn)}
+
+    @app.put("/supervisor")
+    def supervisor_set(req: SupervisorReq, _: None = Depends(_require_owner)):
+        """Appoint the swarm supervisor and deliver its role prompt.
+
+        Like the queen, this is a prompt the agent is given, stored on the hub
+        so the dashboard and `agent-swarm supervisor` can say who holds it.
+        The nudge cursor starts at the newest message: the supervisor is told
+        about what happens from now on, not the whole backlog.
+        """
+        objective = (req.objective or "").strip() or (
+            "Keep the owner informed about the swarm and act on their requests."
+        )
+        try:
+            row = db.set_supervisor(conn, req.user_id, objective, db.newest_message_id(conn))
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail={"error": str(exc)}) from exc
+        peers = _annotated_recipients()
+        delivery = _deliver_as(
+            OWNER, req.user_id, _supervisor_prompt(req.user_id, objective, peers), "supervisor"
+        )
+        return {"ok": True, "supervisor": row, "delivery": delivery}
+
+    @app.delete("/supervisor")
+    def supervisor_clear(_: None = Depends(_require_owner)):
+        row = db.clear_supervisor(conn)
+        if row is None:
+            raise HTTPException(status_code=404, detail={"error": "no supervisor is set"})
+        delivery = None
+        try:
+            delivery = _deliver_as(
+                OWNER, row["user_id"],
+                "The owner has ended your swarm supervisor role. Stop sending digests "
+                "and swarm reports; carry on as a normal agent.", "supervisor",
+            )
+        except HTTPException:
+            pass  # gone or offline: the role is cleared either way
+        return {"ok": True, "was": row, "delivery": delivery}
+
+    @app.get("/digest")
+    def digest_get(after_message: int = 0, minutes: float = 60):
+        """What changed, as text an agent can read in one go.
+
+        `after_message` is an exact cursor (message ids only go up); the last
+        line of every digest names the next one. Without it the window is the
+        last `minutes`.
+        """
+        now = time.time()
+        since_ts = now - max(minutes, 0) * 60
+        if after_message > 0:
+            since_ts = db.message_ts(conn, after_message) or since_ts
+            msgs = db.fetch_messages_after(conn, after_message)
+        else:
+            msgs = db.fetch_messages_after(conn, 0, since_ts)
+        sup = db.get_supervisor(conn)
+        return digest.render(
+            now, _recipients_with_activity(), db.list_tasks(conn), msgs,
+            after_message, since_ts, sup["user_id"] if sup else None, db.list_teams(conn),
+        )
+
     @app.post("/agents/{user_id}/model")
     def agents_set_model(user_id: str, req: AgentModelReq, _: None = Depends(_require_owner)):
         model = (req.model or "").strip() or None
@@ -2022,19 +2180,8 @@ def create_app(
 
     @app.get("/api/state")
     def state(limit: int = 300, _: None = Depends(_require_owner)):
-        recipients = _annotated_recipients()
-        # All that is kept, so the history search can find older lines too.
-        summaries = db.summaries_by_user(conn, db.SUMMARY_HISTORY)
-        for r in recipients:
-            r["pane_alive"] = r["alive"]
-            r["summaries"] = summaries.get(r["user_id"], [])
-            r["compact_command"] = tmux.compact_command_for_flavor(r.get("flavor"))
-            row = registry.get(r["user_id"])
-            r["activity"] = (
-                {"status": row["status"], "detail": row["detail"], "since": row["since"]}
-                if row
-                else dict(UNKNOWN_ACTIVITY)
-            )
+        # All summaries that are kept, so the history search finds older lines too.
+        recipients = _recipients_with_activity()
         msgs = db.fetch_messages(conn, None, limit)
         msgs.reverse()  # oldest first for thread rendering
         enrolled = db.list_nodes(conn)
@@ -2047,6 +2194,7 @@ def create_app(
             "messages": msgs,
             "tasks": db.list_tasks(conn),
             "teams": db.list_teams(conn),
+            "supervisor": db.get_supervisor(conn),
         }
 
     @app.get("/api/peek/{user_id}")

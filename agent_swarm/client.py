@@ -11,6 +11,10 @@
     agent-swarm task-create TITLE [--description TEXT] [--assignee HANDLE] [--depends-on 3,5]
     agent-swarm task-update ID --status open|picked_up|done [--assignee X] [--worktree PATH]
                             [--depends-on 3,5] [--note TEXT]   # --note required to close
+    agent-swarm digest [--minutes N | --after-message ID]   # what changed, as text
+    agent-swarm supervisor [HANDLE [--objective TEXT] | --clear]   # the swarm supervisor role
+    agent-swarm spawn [--flavor claude|codex|pi|hermes] [--model M] [--node N] [--supervised]
+    agent-swarm stop HANDLE   # kill that agent's tmux pane
 
 Defaults:
     --pane            current shell's tmux pane (via `TMUX_PANE`-targeted `tmux display-message`)
@@ -355,6 +359,52 @@ def cmd_task_update(args: argparse.Namespace) -> int:
     return 0 if r.is_success else 1
 
 
+def cmd_digest(args: argparse.Namespace) -> int:
+    params: dict = {"minutes": args.minutes}
+    if args.after_message is not None:
+        params["after_message"] = args.after_message
+    r = httpx.get(f"{base_url()}/digest", params=params, headers=_headers(), timeout=10)
+    if not r.is_success:
+        print(r.text, file=sys.stderr)
+        return 1
+    print(r.json()["text"] if not args.json else json.dumps(r.json(), indent=2))
+    return 0
+
+
+def cmd_supervisor(args: argparse.Namespace) -> int:
+    if args.clear:
+        r = httpx.delete(f"{base_url()}/supervisor", headers=_headers(), timeout=10)
+    elif args.handle:
+        payload = {"user_id": args.handle}
+        if args.objective:
+            payload["objective"] = args.objective
+        r = httpx.put(f"{base_url()}/supervisor", json=payload, headers=_headers(), timeout=15)
+    else:
+        r = httpx.get(f"{base_url()}/supervisor", headers=_headers(), timeout=5)
+        if r.is_success and r.json()["supervisor"] is None:
+            print("no supervisor is set; appoint one with: agent-swarm supervisor <handle> --objective \"...\"")
+            return 0
+    print(json.dumps(r.json(), indent=2) if r.headers.get("content-type", "").startswith("application/json") else r.text)
+    return 0 if r.is_success else 1
+
+
+def cmd_spawn(args: argparse.Namespace) -> int:
+    payload: dict = {"flavor": args.flavor, "autonomy": "supervised" if args.supervised else "auto"}
+    if args.model:
+        payload["model"] = args.model
+    if args.node:
+        payload["node"] = args.node
+    r = httpx.post(f"{base_url()}/agents/spawn", json=payload, headers=_headers(), timeout=30)
+    print(r.text)
+    return 0 if r.is_success else 1
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    r = httpx.post(f"{base_url()}/agents/{quote(args.handle, safe='')}/stop", headers=_headers(), timeout=15)
+    print(r.text)
+    return 0 if r.is_success else 1
+
+
 def cmd_join(args: argparse.Namespace) -> int:
     """Point this machine at a hub: write the settings file, then check the
     hub answers and takes this token for this node."""
@@ -601,6 +651,37 @@ def main(argv: list[str] | None = None) -> int:
 
     who = sub.add_parser("whoami")
     who.set_defaults(func=cmd_whoami)
+
+    dg = sub.add_parser(
+        "digest", help="what changed in the swarm (agents, tasks, messages), as text for an agent to read"
+    )
+    dg.add_argument("--minutes", type=float, default=60, help="window when no cursor is given (default 60)")
+    dg.add_argument(
+        "--after-message", type=int,
+        help="exact cursor: the message id the last digest ended with (its final line names it)",
+    )
+    dg.add_argument("--json", action="store_true", help="print the text, cursor, and counts as JSON")
+    dg.set_defaults(func=cmd_digest)
+
+    sup = sub.add_parser(
+        "supervisor",
+        help="show, appoint, or clear the swarm supervisor: the agent the owner asks about the whole swarm",
+    )
+    sup.add_argument("handle", nargs="?", help="agent to appoint; omit to show the current one")
+    sup.add_argument("--objective", help="what to watch or drive; delivered with the role prompt")
+    sup.add_argument("--clear", action="store_true", help="end the role")
+    sup.set_defaults(func=cmd_supervisor)
+
+    sp = sub.add_parser("spawn", help="launch a new agent in a fresh tmux window and register it")
+    sp.add_argument("--flavor", default="claude", choices=["claude", "codex", "pi", "hermes"])
+    sp.add_argument("--model", help="one of the harness's known models (see the dashboard's spawn menu)")
+    sp.add_argument("--node", help="machine to spawn on (default: the hub)")
+    sp.add_argument("--supervised", action="store_true", help="normal ask-first permissions instead of auto")
+    sp.set_defaults(func=cmd_spawn)
+
+    stp = sub.add_parser("stop", help="kill an agent's tmux pane")
+    stp.add_argument("handle")
+    stp.set_defaults(func=cmd_stop)
 
     join = sub.add_parser(
         "join", help="point this machine at a hub (writes ~/.agent-swarm/node.toml)"
