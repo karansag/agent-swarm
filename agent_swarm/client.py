@@ -13,7 +13,7 @@
                             [--depends-on 3,5] [--note TEXT]   # --note required to close
     agent-swarm digest [--minutes N | --after-message ID]   # what changed, as text
     agent-swarm supervisor [HANDLE [--objective TEXT] | --clear]   # the swarm supervisor role
-    agent-swarm spawn [--flavor claude|codex|pi|hermes] [--model M] [--node N] [--supervised]
+    agent-swarm spawn [--flavor claude|codex|pi|hermes] [--model M] [--node N]
     agent-swarm stop HANDLE   # kill that agent's tmux pane
 
 Defaults:
@@ -389,7 +389,7 @@ def cmd_supervisor(args: argparse.Namespace) -> int:
 
 
 def cmd_spawn(args: argparse.Namespace) -> int:
-    payload: dict = {"flavor": args.flavor, "autonomy": "supervised" if args.supervised else "auto"}
+    payload: dict = {"flavor": args.flavor}
     if args.model:
         payload["model"] = args.model
     if args.node:
@@ -676,7 +676,6 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--flavor", default="claude", choices=["claude", "codex", "pi", "hermes"])
     sp.add_argument("--model", help="one of the harness's known models (see the dashboard's spawn menu)")
     sp.add_argument("--node", help="machine to spawn on (default: the hub)")
-    sp.add_argument("--supervised", action="store_true", help="normal ask-first permissions instead of auto")
     sp.set_defaults(func=cmd_spawn)
 
     stp = sub.add_parser("stop", help="kill an agent's tmux pane")

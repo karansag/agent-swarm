@@ -154,17 +154,18 @@ The layout has two modes plus a persistent roster:
   assignment controls. The spawn control at the bottom launches a new
   agent in a fresh tmux window: pick a harness (claude, codex, pi, or
   hermes) and, optionally, one of that harness's known models, which is
-  passed to the harness binary with its model flag. Spawns default to
-  auto permissions: the harness launches with its non-blocking flags
-  (claude bypassPermissions, codex with approvals and sandbox off, hermes
-  yolo) so a spawned worker never stalls waiting for an approval nobody
-  sees. Codex's sandbox is off because it blocks the tmux socket, the local
-  agent-swarm API and DNS, so a sandboxed agent could not register or send.
-  Codex also gets `--no-daemon` when the installed version accepts it. Choose "permissions: ask first" to spawn a
-  supervised agent with the harness's normal prompts instead. Startup
-  blockers are removed in both modes (codex's update prompt is
-  suppressed). Agents you register from your own terminal are never
-  touched by any of this.
+  passed to the harness binary with its model flag; "default model" passes
+  no model flag at all. There is no permission choice. The launch commands
+  are `claude [--model M]`, `codex -c check_for_update_on_startup=false
+  [--model M] --yolo --no-daemon` (the update check would stall a fresh
+  pane; `--no-daemon` keeps codex from running the agent's commands in a
+  shared daemon that reports another pane, and is only passed when the
+  installed codex accepts it), `pi [--model M]`, and `hermes [-m M] --yolo
+  --accept-hooks`. Codex runs with `--yolo` because its sandbox blocks the
+  tmux socket, the local agent-swarm API and DNS, so a sandboxed agent could
+  not register or send. A spawned claude asks before running commands; the
+  dashboard shows that as needs attention. Agents you register from your own
+  terminal are never touched by any of this.
 - **Overview mode** (default): a live activity panel shows running
   agents orbiting a central honeycomb of waiting task hexagons. Bees
   carry assigned tasks, completed tokens fly toward the shipped pile,

@@ -318,12 +318,6 @@ class SpawnReq(BaseModel):
         description="Optional harness model. Only honored when it is one of "
         "the harness's known models; otherwise the harness default is used.",
     )
-    autonomy: Literal["auto", "supervised"] = Field(
-        default="auto",
-        description="'auto' launches the harness with its non-blocking "
-        "permission flags so the agent never stops for approval; "
-        "'supervised' keeps the harness's normal ask-first behavior.",
-    )
     node: str | None = Field(
         default=None,
         description="Machine to spawn on. Omitted means the server's own.",
@@ -1732,7 +1726,7 @@ def create_app(
 
     @app.post("/agents/spawn")
     def agents_spawn(req: SpawnReq, _: None = Depends(_require_owner)):
-        command = tmux.spawn_launch_command(req.flavor, req.model, req.autonomy)
+        command = tmux.spawn_launch_command(req.flavor, req.model)
         # Only record the model when it is one that actually launched.
         spec = tmux.HARNESS_SPAWN.get(req.flavor)
         model = req.model if (spec and req.model in spec.models) else None
@@ -1776,7 +1770,7 @@ def create_app(
             # harness launched in it did not report back.
             "launch": "ok" if spawned.ok else spawned.status,
             "launch_error": spawned.error,
-            "flavor": req.flavor, "model": model, "autonomy": req.autonomy,
+            "flavor": req.flavor, "model": model, "command": command,
         }
 
     @app.post("/agents/{user_id}/stop")

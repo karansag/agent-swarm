@@ -3,47 +3,31 @@
 from agent_swarm import tmux
 
 
-AUTO_CLAUDE = "claude --permission-mode bypassPermissions"
 CODEX_STARTUP = "codex -c check_for_update_on_startup=false"
-AUTO_CODEX = f"{CODEX_STARTUP} --dangerously-bypass-approvals-and-sandbox"
 
 
-def test_default_autonomy_is_auto():
-    assert tmux.spawn_launch_command("claude") == AUTO_CLAUDE
-    assert tmux.spawn_launch_command("codex") == AUTO_CODEX
-    # pi has no approval gating, so auto needs no extra flags
+def test_each_harness_has_one_launch_and_no_permission_choice():
+    # Task #170: claude is plain, codex gets --yolo (its sandbox would block
+    # the tmux socket and the agent-swarm API), and the default model passes
+    # no model flag at all.
+    assert tmux.spawn_launch_command("claude") == "claude"
+    assert tmux.spawn_launch_command("codex") == f"{CODEX_STARTUP} --yolo"
     assert tmux.spawn_launch_command("pi") == "pi"
     assert tmux.spawn_launch_command("hermes") == "hermes --yolo --accept-hooks"
 
 
-def test_supervised_keeps_ask_first_behavior():
-    assert tmux.spawn_launch_command("claude", autonomy="supervised") == "claude"
-    # startup blockers are removed even when supervised: the codex update
-    # prompt stalls a fresh pane before the agent is usable at all
-    assert tmux.spawn_launch_command("codex", autonomy="supervised") == CODEX_STARTUP
-    assert tmux.spawn_launch_command("pi", autonomy="supervised") == "pi"
-    assert tmux.spawn_launch_command("hermes", autonomy="supervised") == "hermes"
-
-
 def test_known_model_appends_harness_flag():
-    assert (
-        tmux.spawn_launch_command("claude", "opus")
-        == "claude --model opus --permission-mode bypassPermissions"
-    )
-    assert (
-        tmux.spawn_launch_command("claude", "opus", autonomy="supervised")
-        == "claude --model opus"
-    )
+    assert tmux.spawn_launch_command("claude", "opus") == "claude --model opus"
     assert (
         tmux.spawn_launch_command("codex", "gpt-5.6-terra")
-        == f"{CODEX_STARTUP} --model gpt-5.6-terra --dangerously-bypass-approvals-and-sandbox"
+        == f"{CODEX_STARTUP} --model gpt-5.6-terra --yolo"
     )
     # hermes uses -m rather than --model.
     tmux.HARNESS_SPAWN["hermes"].models.append("_probe")
     try:
         assert (
-            tmux.spawn_launch_command("hermes", "_probe", autonomy="supervised")
-            == "hermes -m _probe"
+            tmux.spawn_launch_command("hermes", "_probe")
+            == "hermes -m _probe --yolo --accept-hooks"
         )
     finally:
         tmux.HARNESS_SPAWN["hermes"].models.remove("_probe")
@@ -56,8 +40,8 @@ def test_pi_pattern_is_shell_quoted():
 
 
 def test_unknown_model_falls_back_to_bare_binary():
-    assert tmux.spawn_launch_command("claude", "not-a-real-model") == AUTO_CLAUDE
-    assert tmux.spawn_launch_command("claude", "") == AUTO_CLAUDE
+    assert tmux.spawn_launch_command("claude", "not-a-real-model") == "claude"
+    assert tmux.spawn_launch_command("claude", "") == "claude"
 
 
 def test_unspawnable_flavor_returns_none():
@@ -204,12 +188,6 @@ def test_spawn_window_reports_the_pane_with_the_server_that_made_it(monkeypatch)
         subprocess.CompletedProcess([], 0, "garbage\n", ""),
     ])
     assert tmux.spawn_window(command="claude") == (None, "tmux did not report the new pane")
-
-
-def test_auto_codex_runs_outside_the_sandbox_supervised_keeps_it():
-    assert "--dangerously-bypass-approvals-and-sandbox" in tmux.spawn_launch_command("codex")
-    supervised = tmux.spawn_launch_command("codex", autonomy="supervised")
-    assert "--dangerously-bypass-approvals-and-sandbox" not in supervised
 
 
 def test_login_shell_falls_back_to_the_account_shell(monkeypatch):

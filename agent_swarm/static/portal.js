@@ -8186,7 +8186,6 @@ function SpawnControl({ refresh, nodes }) {
 	const [node, setNode] = d("");
 	const [flavor, setFlavor] = d("claude");
 	const [model, setModel] = d(DEFAULT_MODEL);
-	const [autonomy, setAutonomy] = d("auto");
 	const [busy, setBusy] = d(false);
 	const [err, setErr] = d("");
 	h(() => {
@@ -8226,8 +8225,7 @@ function SpawnControl({ refresh, nodes }) {
 		setErr("");
 		const body = {
 			flavor,
-			model: model === DEFAULT_MODEL ? null : model,
-			autonomy
+			model: model === DEFAULT_MODEL ? null : model
 		};
 		if (target.remote) body.node = target.node;
 		try {
@@ -8267,10 +8265,6 @@ function SpawnControl({ refresh, nodes }) {
       disabled=${models.length === 0}>
       <option value=${DEFAULT_MODEL}>default model</option>
       ${models.map((m) => m$1`<option key=${m} value=${m}>${m}</option>`)}
-    </select>
-    <select title="permissions" value=${autonomy} onChange=${(e) => setAutonomy(e.target.value)}>
-      <option value="auto">permissions: auto</option>
-      <option value="supervised">permissions: ask first</option>
     </select>
     <button class="act" type="submit" disabled=${busy || !target.ok}>${busy ? "spawning…" : "spawn agent"}</button>
     ${err && m$1`<span style="color:var(--alert); font-size:11px">${err}</span>`}

@@ -506,12 +506,11 @@ def test_portal_bees_identify_their_harness_by_color_and_glyph(client):
     assert 'harness.key !== "generic" || liveHarnessKeys.has("generic")' in portal
 
 
-def test_portal_spawn_offers_autonomy_choice(client):
+def test_portal_spawn_has_no_permission_choice(client):
     portal = portal_source()
-    assert '<option value="auto">permissions: auto</option>' in portal
-    assert '<option value="supervised">permissions: ask first</option>' in portal
-    # the choice is sent with the spawn request
-    assert "model === DEFAULT_MODEL ? null : model, autonomy" in portal
+    assert "permissions:" not in portal
+    # "default model" sends no model, so the harness gets no model flag
+    assert "model: model === DEFAULT_MODEL ? null : model }" in portal
 
 
 def test_state_reports_agents_liveness_and_ordered_messages(client, monkeypatch):
@@ -714,11 +713,8 @@ def test_spawn_creates_window_and_registers_agent(client):
     body = r.json()
     assert body["ok"] is True
     assert body["tmux_pane"] == "agents:1.0"
-    # dashboard spawns default to auto permissions
-    assert body["autonomy"] == "auto"
-    assert client._spawns[-1] == (
-        tmux.AGENTS_SESSION, "claude --permission-mode bypassPermissions"
-    )
+    assert body["command"] == "claude"
+    assert client._spawns[-1] == (tmux.AGENTS_SESSION, "claude")
 
     recipients = client.get("/recipients").json()["recipients"]
     spawned = next(x for x in recipients if x["user_id"] == body["user_id"])
@@ -735,22 +731,15 @@ def test_spawn_pi_launches_pi_binary(client):
     assert r.json()["model"] is None
 
 
-def test_spawn_supervised_launches_ask_first(client):
-    r = client.post(
-        "/agents/spawn", json={"flavor": "claude", "autonomy": "supervised"}
-    )
+def test_spawn_codex_runs_yolo_and_permission_choice_is_gone(client):
+    r = client.post("/agents/spawn", json={"flavor": "codex", "model": "gpt-5.6-luna"})
     assert r.status_code == 200
-    assert r.json()["autonomy"] == "supervised"
-    assert client._spawns[-1] == (tmux.AGENTS_SESSION, "claude")
-    r = client.post(
-        "/agents/spawn", json={"flavor": "codex", "autonomy": "supervised"}
-    )
-    # supervised still suppresses the codex startup update prompt
     assert client._spawns[-1] == (
-        tmux.AGENTS_SESSION, "codex -c check_for_update_on_startup=false"
+        tmux.AGENTS_SESSION, "codex -c check_for_update_on_startup=false --model gpt-5.6-luna --yolo"
     )
+    # The old permission field is refused, not silently ignored.
     assert client.post(
-        "/agents/spawn", json={"flavor": "claude", "autonomy": "yolo"}
+        "/agents/spawn", json={"flavor": "claude", "autonomy": "supervised"}
     ).status_code == 422
 
 
@@ -759,7 +748,7 @@ def test_spawn_with_model_passes_cli_flag_and_records_model(client):
     assert r.status_code == 200
     assert client._spawns[-1] == (
         tmux.AGENTS_SESSION,
-        "claude --model opus --permission-mode bypassPermissions",
+        "claude --model opus",
     )
     body = r.json()
     assert body["model"] == "opus"
@@ -775,7 +764,7 @@ def test_spawn_ignores_unknown_model(client):
     assert r.status_code == 200
     # Falls back to the default command; nothing bogus is recorded or launched.
     assert client._spawns[-1] == (
-        tmux.AGENTS_SESSION, "claude --permission-mode bypassPermissions"
+        tmux.AGENTS_SESSION, "claude"
     )
     assert r.json()["model"] is None
 
