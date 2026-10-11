@@ -363,8 +363,8 @@ test('team strip and Alt+] / Alt+[ switch teammates, keeping the draft and the c
   try {
     await page.goto(base + '#/agent/stoat');
     await page.waitForSelector('.team-strip');
-    assert.equal(await page.locator('.team-mate').count(), 3);
-    assert.equal(await page.locator('.team-mate.here').innerText().then(t => t.trim().split(/\s/)[0]), 'stoat');
+    assert.equal(await page.locator('.team-strip .team-mate').count(), 3);
+    assert.equal(await page.locator('.team-strip .team-mate.here').innerText().then(t => t.trim().split(/\s/)[0]), 'stoat');
     const box = page.locator('.thread .composer textarea').first();
     await box.fill('draft for stoat');
     await box.focus();
@@ -498,6 +498,22 @@ test('phone agents panel: team view groups and collapses, and the view choice st
     await page.locator('.agents-view-switch button', { hasText: 'teams' }).click();
     // Still collapsed after the reload.
     assert.equal(await page.locator('.team-bees-group').first().evaluate(d => d.open), false);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('desktop sidebar opens on the team view, with roster a switch away', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('#agent-sidebar .team-bees');
+    assert.equal(await page.locator('#agent-sidebar .team-mate.here').innerText().then(t => t.trim().split(/\s/)[0]), 'stoat');
+    await page.locator('#agent-sidebar .agents-view-switch button', { hasText: 'roster' }).click();
+    assert.ok(await page.locator('#agent-sidebar .chip-card').first().isVisible());
+    // One heading with Hide, not one from the panel and one from the roster.
+    assert.equal(await page.locator('#agent-sidebar .roster-heading').count(), 1);
+    await page.reload();
+    await page.waitForSelector('#agent-sidebar .chip-card');
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

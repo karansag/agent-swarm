@@ -772,10 +772,11 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 /* Phone agents panel (#154): view switcher and the team-grouped view. */
 .agents-panel { padding: 12px; }
 .agents-view-switch { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--cream-dim); font-size: 11px; }
-.agents-view-switch button { min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; background: none; color: var(--cream-dim); font: inherit; cursor: pointer; }
+.agents-view-switch button { min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; background: none; color: var(--cream-dim); font: inherit; cursor: pointer; }
 .agents-view-switch button[aria-pressed=true] { color: var(--honey); border-color: var(--honey-dim); background: rgba(242,169,59,.08); }
 .agents-panel .compact-hive { padding: 0; }
 .agents-panel aside.roster { padding: 0; border: 0; position: static; max-height: none; }
+.roster-drawer .agents-panel { padding: 0; }
 .team-bees { display: grid; gap: 8px; }
 .team-bees-group { border: 1px solid var(--honey-dim); border-radius: 10px; padding: 0 8px; background: rgba(242,169,59,.03); }
 .team-bees-group.loose { border-style: dashed; border-color: var(--line); background: none; }
@@ -826,6 +827,7 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   .thread.focused { --thread-font: var(--focus-font); }
   .thread .composer textarea { font-size: max(16px, var(--thread-font)); }
   .team-mate { min-height: 44px; box-sizing: border-box; }
+  .agents-view-switch button { min-height: 44px; }
   .tcard, .trow, .htile, .doing-box, .fhead, .chip-card, .h-agentchip { overflow-wrap: anywhere; }
   .tcard .meta, .tnote-body, .h-field { font-size: 12px; }
   .tcard .t { font-size: 14px; }

@@ -445,7 +445,7 @@ function MachineBar({ state, machine, selectMachine }) {
   </section>`;
 }
 
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose, heading = true }) {
   const [groupBy, setGroupBy] = useState("team");
   const [overUnteam, setOverUnteam] = useState(false);
   const teams = state.teams || [];
@@ -459,7 +459,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose 
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
   return html`<aside class="roster">
-    <div class="roster-heading"><h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>${onClose && html`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>
+    ${heading && html`<div class="roster-heading"><h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>${onClose && html`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>`}
     <div class="roster-grouping" aria-label="Group agents by">
       <span>Group by</span>${["machine", "team"].map(g => html`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
     </div>
@@ -657,10 +657,12 @@ function Kanban({ state, refresh }) {
   </div>`;
 }
 
-// Phone agents panel (task #154, still being tried out): a switcher between
-// a compact view grouped by team, the original tile grid, and the full team
-// roster above the task board. The choice is kept per browser.
+// Agents panel: a switcher between a compact view grouped by team, the
+// original tile grid, and the full roster with its controls. It sits at the
+// top of the phone overview and is the desktop sidebar; each place keeps its
+// own choice per browser, and both start on the team view.
 const AGENTS_VIEW_KEY = "agent-swarm:mobile-agents-view";
+const SIDEBAR_VIEW_KEY = "agent-swarm:sidebar-agents-view";
 const AGENTS_VIEWS = [["teams", "teams"], ["tiles", "tiles"], ["roster", "roster"]];
 const COLLAPSED_TEAMS_KEY = "agent-swarm:collapsed-teams";
 
@@ -670,7 +672,7 @@ function readJSON(key, fallback) {
 
 // Live agents in outlined, collapsible team boxes, queen first; agents with
 // no team come last. Each agent is one small chip that opens its page.
-function TeamBees({ state, machine, unreadFor }) {
+function TeamBees({ state, machine, unreadFor, focusUser = null }) {
   const [collapsed, setCollapsed] = useState(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
   const toggle = (key, open) => setCollapsed(prev => {
     const next = new Set(prev);
@@ -697,7 +699,8 @@ function TeamBees({ state, machine, unreadFor }) {
         <span class="team-bees-counts">${g.members.length}${busy ? html` · <span class="working">${busy} working</span>` : ""}${attention ? html` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
       <div class="team-bees-chips">${g.members.map(r => {
         const st = STATE[agentStatus(r)] || STATE.unknown;
-        return html`<a key=${r.user_id} class="team-mate" href=${`#/agent/${encodeURIComponent(r.user_id)}`}
+        return html`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
+          aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
           style=${`--machine:${machineColor(r.node)}`} title=${`${r.user_id} · ${machineName(r.node)} · ${st.word}`}>
           <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
           <span class="team-mate-name">${r.user_id}</span>
@@ -711,15 +714,19 @@ function TeamBees({ state, machine, unreadFor }) {
   })}</div>`;
 }
 
-function AgentsPanel({ state, refresh, machine, unreadFor, pings }) {
+// `onClose` (the desktop sidebar) adds a heading with "Hide →" above every view.
+function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
   const [view, setView] = useState(() => {
-    try { return localStorage.getItem(AGENTS_VIEW_KEY) || "teams"; } catch { return "teams"; }
+    try { return localStorage.getItem(storageKey) || "teams"; } catch { return "teams"; }
   });
   const pick = (v) => {
     setView(v);
-    try { localStorage.setItem(AGENTS_VIEW_KEY, v); } catch { /* not kept */ }
+    try { localStorage.setItem(storageKey, v); } catch { /* not kept */ }
   };
+  const live = state.recipients.filter(r => r.pane_alive && (machine === null || machineName(r.node) === machine)).length;
   return html`<div class="agents-panel">
+    ${onClose && html`<div class="roster-heading"><h2>agents ${live > 0 && html`<span class="count">· ${live}</span>`}</h2>
+      <button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>`}
     <div class="agents-view-switch" role="group" aria-label="Agents view">
       <span>view</span>
       ${AGENTS_VIEWS.map(([v, label]) => html`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
@@ -727,9 +734,9 @@ function AgentsPanel({ state, refresh, machine, unreadFor, pings }) {
     ${view === "tiles"
       ? html`<${CompactBees} state=${state} machine=${machine} />`
       : view === "roster"
-        ? html`<${Roster} state=${state} focusUser=${null} unreadFor=${unreadFor} pings=${pings}
-            refresh=${refresh} machine=${machine} onClose=${null} />`
-        : html`<${TeamBees} state=${state} machine=${machine} unreadFor=${unreadFor} />`}
+        ? html`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
+            refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />`
+        : html`<${TeamBees} state=${state} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
 
@@ -1597,8 +1604,10 @@ function App() {
     </div>
     </div>
     ${!compact && html`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
-      <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-        pings=${pings} refresh=${poll} machine=${machine} onClose=${closeRoster} />
+      <aside class="roster">
+        <${AgentsPanel} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings}
+          storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
+      </aside>
     </div>`}
   </main>`;
 }

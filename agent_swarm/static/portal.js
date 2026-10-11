@@ -8397,7 +8397,7 @@ function MachineBar({ state, machine, selectMachine }) {
     ${machine !== null && m$1`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
   </section>`;
 }
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose, heading = true }) {
 	const [groupBy, setGroupBy] = d("team");
 	const [overUnteam, setOverUnteam] = d(false);
 	const teams = state.teams || [];
@@ -8411,7 +8411,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose 
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
 	return m$1`<aside class="roster">
-    <div class="roster-heading"><h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2>${onClose && m$1`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>
+    ${heading && m$1`<div class="roster-heading"><h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2>${onClose && m$1`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>`}
     <div class="roster-grouping" aria-label="Group agents by">
       <span>Group by</span>${["machine", "team"].map((g) => m$1`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
     </div>
@@ -8628,6 +8628,7 @@ function Kanban({ state, refresh }) {
   </div>`;
 }
 var AGENTS_VIEW_KEY = "agent-swarm:mobile-agents-view";
+var SIDEBAR_VIEW_KEY = "agent-swarm:sidebar-agents-view";
 var AGENTS_VIEWS = [
 	["teams", "teams"],
 	["tiles", "tiles"],
@@ -8641,7 +8642,7 @@ function readJSON(key, fallback) {
 		return fallback;
 	}
 }
-function TeamBees({ state, machine, unreadFor }) {
+function TeamBees({ state, machine, unreadFor, focusUser = null }) {
 	const [collapsed, setCollapsed] = d(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
 	const toggle = (key, open) => setCollapsed((prev) => {
 		const next = new Set(prev);
@@ -8677,7 +8678,8 @@ function TeamBees({ state, machine, unreadFor }) {
         <span class="team-bees-counts">${g.members.length}${busy ? m$1` · <span class="working">${busy} working</span>` : ""}${attention ? m$1` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
       <div class="team-bees-chips">${g.members.map((r) => {
 			const st = STATE[agentStatus(r)] || STATE.unknown;
-			return m$1`<a key=${r.user_id} class="team-mate" href=${`#/agent/${encodeURIComponent(r.user_id)}`}
+			return m$1`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
+          aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
           style=${`--machine:${machineColor(r.node)}`} title=${`${r.user_id} · ${machineName(r.node)} · ${st.word}`}>
           <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
           <span class="team-mate-name">${r.user_id}</span>
@@ -8690,10 +8692,10 @@ function TeamBees({ state, machine, unreadFor }) {
     </details>`;
 	})}</div>`;
 }
-function AgentsPanel({ state, refresh, machine, unreadFor, pings }) {
+function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
 	const [view, setView] = d(() => {
 		try {
-			return localStorage.getItem(AGENTS_VIEW_KEY) || "teams";
+			return localStorage.getItem(storageKey) || "teams";
 		} catch {
 			return "teams";
 		}
@@ -8701,16 +8703,19 @@ function AgentsPanel({ state, refresh, machine, unreadFor, pings }) {
 	const pick = (v) => {
 		setView(v);
 		try {
-			localStorage.setItem(AGENTS_VIEW_KEY, v);
+			localStorage.setItem(storageKey, v);
 		} catch {}
 	};
+	const live = state.recipients.filter((r) => r.pane_alive && (machine === null || machineName(r.node) === machine)).length;
 	return m$1`<div class="agents-panel">
+    ${onClose && m$1`<div class="roster-heading"><h2>agents ${live > 0 && m$1`<span class="count">· ${live}</span>`}</h2>
+      <button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>`}
     <div class="agents-view-switch" role="group" aria-label="Agents view">
       <span>view</span>
       ${AGENTS_VIEWS.map(([v, label]) => m$1`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
     </div>
-    ${view === "tiles" ? m$1`<${CompactBees} state=${state} machine=${machine} />` : view === "roster" ? m$1`<${Roster} state=${state} focusUser=${null} unreadFor=${unreadFor} pings=${pings}
-            refresh=${refresh} machine=${machine} onClose=${null} />` : m$1`<${TeamBees} state=${state} machine=${machine} unreadFor=${unreadFor} />`}
+    ${view === "tiles" ? m$1`<${CompactBees} state=${state} machine=${machine} />` : view === "roster" ? m$1`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
+            refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />` : m$1`<${TeamBees} state=${state} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
 function Overview({ state, refresh, machine, unreadFor, pings }) {
@@ -9590,8 +9595,10 @@ function App() {
     </div>
     </div>
     ${!compact && m$1`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
-      <${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor}
-        pings=${pings} refresh=${poll} machine=${machine} onClose=${closeRoster} />
+      <aside class="roster">
+        <${AgentsPanel} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings}
+          storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
+      </aside>
     </div>`}
   </main>`;
 }
