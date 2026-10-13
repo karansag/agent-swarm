@@ -11,7 +11,7 @@ export const FLAVOR_ICON = { claude: "✳", codex: "◇", pi: "π", hermes: "☿
 export const HARNESSES = Object.freeze({
   claude:  { key: "claude",  label: "Claude",  color: "#d8905f", mark: "✳" },
   codex:   { key: "codex",   label: "Codex",   color: "#56b4e9", mark: "◇" },
-  pi:      { key: "pi",      label: "Pi",      color: "#cc79a7", mark: "π" },
+  pi:      { key: "pi",      label: "Pi",      color: "#3cb44b", mark: "π" },
   hermes:  { key: "hermes",  label: "Hermes",  color: "#e5c14f", mark: "☿" },
   generic: { key: "generic", label: "Generic", color: "#9aa1a8", mark: "▪" },
 });

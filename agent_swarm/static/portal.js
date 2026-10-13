@@ -574,7 +574,7 @@ var HARNESSES = Object.freeze({
 	pi: {
 		key: "pi",
 		label: "Pi",
-		color: "#cc79a7",
+		color: "#3cb44b",
 		mark: "π"
 	},
 	hermes: {
