@@ -1,0 +1,7 @@
+{
+  "identifier": "setup",
+  "description": "Only the bundled setup page can read and change the saved hub URL.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": ["allow-setup-info", "allow-save-hub", "allow-open-dashboard"]
+}

@@ -1,0 +1,22 @@
+[package]
+name = "agent-swarm-mac"
+version = "0.1.0"
+description = "A Mac window for the Agent Swarm dashboard"
+edition = "2021"
+rust-version = "1.94"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-notification", "dep:tauri-plugin-single-instance"]
+
+[build-dependencies]
+tauri-build = { version = "2", optional = true }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+tempfile = "3"
+tauri = { version = "2", optional = true, features = ["tray-icon", "image-png", "dynamic-acl"] }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }
