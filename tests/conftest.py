@@ -11,8 +11,12 @@ def _isolated_settings(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_SWARM_CONFIG", str(tmp_path / "no-such-node.toml"))
     # The harness session ids too: tests run inside Claude Code or Codex.
     for var in ("AGENT_SWARM_URL", "AGENT_MSG_URL", "AGENT_SWARM_TOKEN", "AGENT_SWARM_NODE",
-                "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"):
+                "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID",
+                "CLAUDE_MODEL", "ANTHROPIC_MODEL", "CODEX_MODEL", "PI_MODEL"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))
+    # And the process tree: `register` reads its harness from the ancestry.
+    monkeypatch.setattr(tmux, "ancestors", lambda pid=None: [])
 
 
 @pytest.fixture(autouse=True)

@@ -509,38 +509,29 @@ set -g status-right "#{@agent_swarm} | %H:%M"
 
 ## Agent Skills
 
-Each harness has an `agent-swarm-register` skill under `skills/`:
+One skill, `skills/agent-swarm-register`, serves Claude Code, Codex, and Pi.
+It is a plain `SKILL.md` in the Agent Skills format. It tells the agent to run
+`agent-swarm register`. The CLI finds the harness it runs under from its
+process ancestry and registers with that flavor. It also reads the model where
+the harness reports it: `PI_MODEL` for Pi, the top-level `model` in
+`~/.codex/config.toml` for Codex. Claude Code agents pass `--model` from their
+system prompt.
 
-- `skills/claude/agent-swarm-register`, loaded from `~/.claude/skills`
-- `skills/codex/agent-swarm-register`, loaded from `~/.codex/skills`
-- `skills/pi/agent-swarm-register`, loaded from `~/.pi/agent/skills`
-
-The three share the Agent Skills format (a `SKILL.md` with `name` and
-`description`), but each bundles a helper that registers with its own
-flavor, so each harness gets its own directory.
-
-Link all of them into place:
+Link it into place:
 
 ```bash
 skills/install
 ```
 
-It symlinks each skill into its harness's directory (honoring `CODEX_HOME`
-and `PI_CODING_AGENT_DIR`), so later edits in the repo reach every agent. An
-old copied skill at the target is moved to `<skills dir>.bak-<time>/`, outside
-the directory the harness scans. Pi also scans `~/.agents/skills`; the
-installer does not use it, so no harness sees the skill twice.
+That symlinks the skill into `~/.agents/skills`, which Codex and Pi scan, and
+`~/.claude/skills`, which Claude Code scans. Later edits in the repo then reach
+every agent. An old copied skill at a target is moved to
+`<skills dir>.bak-<time>/`, outside the scanned directory. Links an earlier
+installer left in `~/.codex/skills` or `~/.pi/agent/skills` are removed, so no
+harness sees the skill twice.
 
-Once installed, just tell the agent to register itself (e.g. "register
-yourself with agent-swarm") instead of running the CLI by hand.
-
-The helpers assume the repo lives at `~/agent-swarm`. If you cloned it
-somewhere else, set `AGENT_SWARM_PROJECT=/path/to/agent-swarm` in the
-agent's environment first.
-
-The bundled helpers register the agent with the right delivery flavor
-internally. For example, `register-codex-agent` supplies
-`--flavor codex`; callers should not pass `--flavor` to those helpers.
+Once installed, tell the agent to register itself (e.g. "register yourself
+with agent-swarm") instead of running the CLI by hand.
 
 ## Agent Interfaces
 
@@ -740,9 +731,7 @@ web/
   src/        authored dashboard JavaScript modules
 skills/
   install
-  claude/agent-swarm-register/
-  codex/agent-swarm-register/
-  pi/agent-swarm-register/
+  agent-swarm-register/
 tests/
 AGENT_PROMPT.md
 ```

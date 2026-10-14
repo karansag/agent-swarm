@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Link each harness's agent-swarm skills from this checkout into that
-# harness's skills directory, so edits in the repo reach every agent.
-# A real directory already at the target (an old copy) is moved to a backup
-# beside the skills directory, never inside it, where it would load twice.
+# Link the shared agent-swarm skill from this checkout into the directories
+# the harnesses scan, so edits in the repo reach every agent:
+#   ~/.agents/skills  Codex and Pi
+#   ~/.claude/skills  Claude Code
+# An old copy at a target is moved to a backup beside the skills directory,
+# never inside it, where it would load twice. Links an earlier version of this
+# script left in ~/.codex/skills or ~/.pi/agent/skills are removed for the
+# same reason.
 set -euo pipefail
 
 repo_skills="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,12 +26,18 @@ link() {
   echo "$dest -> $src"
 }
 
-for skill in "$repo_skills"/claude/*/; do
+unlink_old() {
+  local dest="$1"
+  if [[ -L "$dest" && "$(readlink "$dest")" == "$repo_skills"/* ]]; then
+    rm "$dest"
+    echo "removed old link $dest"
+  fi
+}
+
+for skill in "$repo_skills"/*/; do
+  name="$(basename "$skill")"
+  link "${skill%/}" "${HOME}/.agents/skills"
   link "${skill%/}" "${HOME}/.claude/skills"
-done
-for skill in "$repo_skills"/codex/*/; do
-  link "${skill%/}" "${CODEX_HOME:-${HOME}/.codex}/skills"
-done
-for skill in "$repo_skills"/pi/*/; do
-  link "${skill%/}" "${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}/skills"
+  unlink_old "${CODEX_HOME:-${HOME}/.codex}/skills/$name"
+  unlink_old "${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}/skills/$name"
 done

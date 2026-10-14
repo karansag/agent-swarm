@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Swarm Register"
+  short_description: "Register this agent with agent-swarm"
+  default_prompt: "Use $agent-swarm-register to register this agent with agent-swarm."

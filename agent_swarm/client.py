@@ -28,6 +28,7 @@ import json
 import os
 import shlex
 import sys
+import tomllib
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -67,6 +68,55 @@ class AmbiguousSession(RuntimeError):
     """Both harnesses' session ids are set and the caller can't be told apart."""
 
 
+def harness_of(command: str) -> str | None:
+    """The harness a process command line belongs to, or None.
+
+    Codex runs as its native binary under .../codex/..., Claude Code as
+    `claude` or a versioned binary, and Pi renames its process to `pi`.
+    """
+    executable = command.split(" ", 1)[0]
+    program = executable.rsplit("/", 1)[-1]
+    if program == "codex" or "/codex/" in executable:
+        return "codex"
+    if program == "claude" or "/claude/versions/" in executable:
+        return "claude"
+    if program == "pi":
+        return "pi"
+    return None
+
+
+def nearest_harness() -> str | None:
+    """The harness this command runs under: the nearest one in its ancestry."""
+    for _, command in tmux.ancestors():
+        harness = harness_of(command)
+        if harness:
+            return harness
+    return None
+
+
+def harness_model(harness: str | None) -> str | None:
+    """The model a harness says it runs, where it tells its commands.
+
+    Pi sets PI_MODEL for every shell command. Codex has a top-level `model`
+    in its config. Claude Code exposes nothing reliable, so a Claude agent
+    passes --model from its system prompt.
+    """
+    if harness == "pi":
+        return os.environ.get("PI_MODEL") or None
+    if harness == "codex":
+        if os.environ.get("CODEX_MODEL"):
+            return os.environ["CODEX_MODEL"]
+        path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
+        try:
+            model = tomllib.loads(path.read_text()).get("model")
+        except (OSError, tomllib.TOMLDecodeError):
+            return None
+        return model if isinstance(model, str) and model else None
+    if harness == "claude":
+        return os.environ.get("CLAUDE_MODEL") or os.environ.get("ANTHROPIC_MODEL") or None
+    return None
+
+
 def harness_session_id() -> str | None:
     """The calling harness's session id, or None outside a harness."""
     return harness_session()[1]
@@ -87,11 +137,9 @@ def harness_session() -> tuple[str | None, str | None]:
     if len(found) < 2:
         return next(iter(found.items()), (None, None))
     for _, command in tmux.ancestors():
-        program = command.split(" ", 1)[0].rsplit("/", 1)[-1]
-        if program == "codex" or "/codex/" in command.split(" ", 1)[0]:
-            return "codex", found["codex"]
-        if program == "claude" or "/claude/versions/" in command.split(" ", 1)[0]:
-            return "claude", found["claude"]
+        harness = harness_of(command)
+        if harness in found:
+            return harness, found[harness]
     raise AmbiguousSession(
         "both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID are set and neither harness is in this\n"
         "  process's ancestry, so it can't tell which session is calling. Pass --agent-id <id>\n"
@@ -196,10 +244,14 @@ def cmd_register(args: argparse.Namespace) -> int:
         payload["requested_user"] = args.name
     if who["agent_id"]:
         payload["agent_id"] = who["agent_id"]
-    if args.model:
-        payload["model"] = args.model
-    if args.flavor:
-        payload["flavor"] = args.flavor
+    # Without --flavor, the harness this runs under decides how messages are
+    # typed into the pane; one skill then serves every harness.
+    flavor = args.flavor or nearest_harness() or who["harness"]
+    model = args.model or harness_model(flavor)
+    if model:
+        payload["model"] = model
+    if flavor:
+        payload["flavor"] = flavor
     if args.instructions:
         payload["instructions"] = args.instructions
     if args.message_prefix:
@@ -564,11 +616,13 @@ def main(argv: list[str] | None = None) -> int:
         help="stable session identifier (e.g. conversation UUID); used as real identity",
     )
     reg.add_argument(
-        "--model", help="model label for telemetry only (e.g. claude-opus-4-7)"
+        "--model",
+        help="exact model id shown on the dashboard (e.g. claude-opus-4-7); "
+        "default: what the harness reports (PI_MODEL, Codex config)",
     )
     reg.add_argument(
         "--flavor",
-        help="delivery flavor used to pick default submit behavior (e.g. codex)",
+        help="delivery flavor (claude, codex, pi, hermes); default: the harness this runs under",
     )
     reg.add_argument(
         "--instructions",

@@ -717,3 +717,54 @@ def test_process_in_pane_refuses_a_dead_pane_on_a_reachable_server(monkeypatch):
     monkeypatch.setattr(tmux, "_tmux_out", lambda *args: None)
     monkeypatch.setattr(tmux, "server_id", lambda: "running-server")
     assert tmux.process_in_pane("%115") is False
+
+
+def test_harness_of_names_each_harness_process():
+    assert client.harness_of("claude --permission-mode bypassPermissions") == "claude"
+    assert client.harness_of("/home/k/.local/share/claude/versions/2.1.280") == "claude"
+    assert client.harness_of(
+        "/n/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x/bin/codex --yolo"
+    ) == "codex"
+    assert client.harness_of("pi") == "pi"
+    assert client.harness_of("node /n/bin/pip install x") is None
+    assert client.harness_of("/bin/bash -c agent-swarm register") is None
+
+
+def _register_under(monkeypatch, *ancestry):
+    monkeypatch.setattr(tmux, "ancestors", lambda pid=None: [(9, "/bin/bash -c x"), *enumerate(ancestry)])
+    monkeypatch.setattr(client, "current_pane", lambda: "%5")
+    monkeypatch.setattr(tmux, "process_in_pane", lambda pane, pid=None: True)
+    return _fake_server(monkeypatch, {})
+
+
+def test_register_takes_flavor_and_model_from_pi(monkeypatch):
+    monkeypatch.setenv("PI_MODEL", "gpt-6.1-sol")
+    calls = _register_under(monkeypatch, "pi", "tmux")
+    assert client.main(["register"]) == 0
+    assert calls["post"][0]["flavor"] == "pi" and calls["post"][0]["model"] == "gpt-6.1-sol"
+
+
+def test_register_takes_codex_model_from_its_config(monkeypatch, tmp_path):
+    home = tmp_path / "codex"
+    home.mkdir()
+    (home / "config.toml").write_text('model = "gpt-6-sol"\n\n[profiles.x]\nmodel = "other"\n')
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    calls = _register_under(monkeypatch, "/x/codex/bin/codex --yolo")
+    assert client.main(["register"]) == 0
+    assert calls["post"][0]["flavor"] == "codex" and calls["post"][0]["model"] == "gpt-6-sol"
+
+
+def test_register_under_pi_inside_claude_is_pi(monkeypatch):
+    # A pi started from a Claude Code pane: the nearest harness is the caller.
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "outer-claude")
+    calls = _register_under(monkeypatch, "pi", "claude --model opus")
+    assert client.main(["register", "--model", "x-1"]) == 0
+    assert calls["post"][0]["flavor"] == "pi" and calls["post"][0]["model"] == "x-1"
+
+
+def test_register_flag_beats_detection_and_claude_sends_no_guessed_model(monkeypatch):
+    calls = _register_under(monkeypatch, "claude")
+    assert client.main(["register"]) == 0
+    assert calls["post"][0]["flavor"] == "claude" and "model" not in calls["post"][0]
+    assert client.main(["register", "--flavor", "hermes"]) == 0
+    assert calls["post"][1]["flavor"] == "hermes"

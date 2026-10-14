@@ -1,4 +1,0 @@
-interface:
-  display_name: "Agent Swarm Register"
-  short_description: "Register this Codex agent with agent-swarm"
-  default_prompt: "Use $agent-swarm-register to register this Codex agent with agent-swarm."
