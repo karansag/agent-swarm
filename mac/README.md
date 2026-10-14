@@ -30,7 +30,7 @@ from `../web/public/static/icon.svg`.
 ## Use it
 
 On first launch, enter the hub dashboard's HTTPS URL, for example
-`https://karans-linux.tail7b7d19.ts.net:8445/`. Keep Tailscale connected for a
+`https://your-linux.your-tailnet.ts.net:8445/`. Keep Tailscale connected for a
 Tailscale URL. HTTP is also accepted for a local test hub on localhost. The
 address is saved in
 `~/Library/Application Support/com.karansag.agent-swarm/settings.json`.
