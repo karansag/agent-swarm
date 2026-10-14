@@ -2,6 +2,7 @@
 
     agent-swarm register [--pane Y] [--name HANDLE] [--flavor NAME] [--instructions TXT]
                          [--message-prefix TXT]
+    agent-swarm autoregister [--hook] [--verbose]   # from a harness startup hook
     agent-swarm send --to Y [--context CTX] --message MSG
     agent-swarm messages [--user X] [--limit N]
     agent-swarm recipients
@@ -74,8 +75,12 @@ def harness_of(command: str) -> str | None:
     Codex runs as its native binary under .../codex/..., Claude Code as
     `claude` or a versioned binary, and Pi renames its process to `pi`.
     """
-    executable = command.split(" ", 1)[0]
+    executable, _, rest = command.partition(" ")
     program = executable.rsplit("/", 1)[-1]
+    if program == "node":
+        # npm installs launch the harness as `node .../bin/codex`.
+        script = rest.split(" ", 1)[0].rsplit("/", 1)[-1]
+        program = script if script in ("codex", "pi", "claude") else program
     if program == "codex" or "/codex/" in executable:
         return "codex"
     if program == "claude" or "/claude/versions/" in executable:
@@ -261,6 +266,141 @@ def cmd_register(args: argparse.Namespace) -> int:
     r = httpx.post(f"{base_url()}/register", json=payload, headers=_headers(), timeout=5)
     print(r.text)
     return 0 if r.is_success else 1
+
+
+# Processes that may sit between a pane's shell and its harness: shells and
+# launchers. Anything else (emacs, vim, another harness) means the harness is
+# embedded in a program, not the pane's own agent.
+PANE_SHELLS = {"bash", "zsh", "sh", "dash", "fish", "ksh", "tcsh", "env", "login", "nix-shell", "direnv"}
+
+
+def _one_shot(harness: str, command: str) -> bool:
+    """Whether a harness command line is a non-interactive run (`claude -p`,
+    `codex exec`): it has no pane of its own to receive messages."""
+    words = command.split()[1:]
+    if words and harness_of(command) and command.split(" ", 1)[0].rsplit("/", 1)[-1] == "node":
+        words = words[1:]  # `node .../bin/codex exec`: skip the script path
+    if harness == "codex":
+        first = next((w for w in words if not w.startswith("-")), "")
+        return first in ("exec", "e", "app-server", "mcp-server")
+    return "-p" in words or "--print" in words
+
+
+def own_pane_harness(pane: str) -> tuple[str | None, str]:
+    """(harness, "") when the nearest harness runs straight in `pane`'s shell,
+    else (None, why not).
+
+    Above the harness's own processes (itself and its node launcher) only
+    shells may stand before the pane's process. Another program there, an
+    editor or another harness, means it is embedded, not the pane's agent.
+    """
+    chain = tmux.ancestors()
+    for i, (_, command) in enumerate(chain):
+        harness = harness_of(command)
+        if harness:
+            break
+    else:
+        return None, "no claude, codex or pi process above this command"
+    pane_pid = tmux.pane_process(pane)
+    if pane_pid is None:
+        return None, f"tmux does not know pane {pane}"
+    own = True
+    for pid, command in chain[i:]:
+        if own and harness_of(command) == harness:
+            if _one_shot(harness, command):
+                return None, f"one-shot {harness} run: {command[:80]}"
+            if pid == pane_pid:
+                return harness, ""
+            continue
+        own = False
+        if pid == pane_pid:
+            return harness, ""
+        program = command.split(" ", 1)[0].rsplit("/", 1)[-1].lstrip("-")
+        if program not in PANE_SHELLS:
+            return None, f"{harness} runs inside {program}, not straight in pane {pane}"
+    return None, f"{harness} is not running in pane {pane}"
+
+
+def _hook_input() -> dict:
+    """The JSON a harness hook passes on stdin, or {} when there is none."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return {}
+    try:
+        data = json.loads(sys.stdin.read() or "{}")
+    except (ValueError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def short_brief(brief: str) -> str:
+    """The protocol brief without its peer list, for a session's context.
+
+    A hook's output lands in every new session; the full roster would cost
+    each one a screenful, and `agent-swarm recipients` gives it on demand.
+    """
+    lines = brief.splitlines()
+    peers = [line for line in lines if line.startswith("  - ")]
+    out = []
+    for line in lines:
+        if line.startswith("  - ") or line.startswith("Peers tagged OFFLINE"):
+            continue
+        out.append(line)
+        if line.endswith("Currently registered peers:"):
+            out.append(f"  ({len(peers)} registered; `agent-swarm recipients` lists them)")
+    return "\n".join(out)
+
+
+def cmd_autoregister(args: argparse.Namespace) -> int:
+    """Register at session start when the harness owns its tmux pane.
+
+    Run by each harness's startup hook. It never fails the harness: anything
+    that rules registration out (no tmux, an embedded or one-shot session, the
+    hub down) is a quiet exit 0, with the reason under --verbose.
+    """
+    def skip(why: str) -> int:
+        if args.verbose:
+            print(f"agent-swarm autoregister: skipped: {why}", file=sys.stderr)
+        return 0
+
+    if os.environ.get("AGENT_SWARM_AUTOREGISTER", "1") == "0":
+        return skip("AGENT_SWARM_AUTOREGISTER=0")
+    hook = _hook_input() if args.hook else {}
+    pane = os.environ.get("TMUX_PANE")
+    if not pane:
+        return skip("not inside tmux")
+    harness, why = own_pane_harness(pane)
+    if harness is None:
+        return skip(why)
+    # The hook's own input names the new session. The environment may be an
+    # outer session's: a nested `codex exec` inherits its parent's thread id.
+    session = hook.get("session_id") if isinstance(hook.get("session_id"), str) else None
+    if not session:
+        try:
+            env_harness, env_session = harness_session()
+        except AmbiguousSession as e:
+            return skip(str(e))
+        # Another harness's id, inherited through the pane, is not this session.
+        session = env_session if env_harness == harness else None
+    payload: dict = {"tmux_pane": pane, "node": local_node(), "flavor": harness}
+    if session:
+        payload["agent_id"] = session
+    model = hook.get("model") if isinstance(hook.get("model"), str) else None
+    model = model or harness_model(harness)
+    if model:
+        payload["model"] = model
+    try:
+        r = httpx.post(f"{base_url()}/register", json=payload, headers=_headers(), timeout=5)
+    except httpx.HTTPError as e:
+        return skip(f"hub unreachable: {e}")
+    if not r.is_success:
+        return skip(f"hub refused: {r.status_code} {r.text[:200]}")
+    brief = short_brief(r.json().get("protocol_brief", ""))
+    if args.hook:
+        # Claude Code and Codex both add this to the session's context.
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": brief}}))
+    else:
+        print(brief)
+    return 0
 
 
 def _identity_payload(who: dict) -> dict:
@@ -702,6 +842,15 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("text", help='e.g. "working on #12: pane-id migration"')
     st.add_argument("--pane", help="the agent's tmux pane, when this process isn't in it")
     st.set_defaults(func=cmd_status)
+
+    auto = sub.add_parser(
+        "autoregister",
+        help="register from a harness startup hook, only when it owns its tmux pane",
+    )
+    auto.add_argument("--hook", action="store_true",
+                      help="read the hook's JSON on stdin and answer as SessionStart hook output")
+    auto.add_argument("--verbose", action="store_true", help="say why registration was skipped")
+    auto.set_defaults(func=cmd_autoregister)
 
     who = sub.add_parser("whoami")
     who.set_defaults(func=cmd_whoami)

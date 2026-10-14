@@ -572,6 +572,15 @@ def ancestors(pid: int | None = None) -> list[tuple[int, str]]:
     return chain
 
 
+def pane_process(pane: str) -> int | None:
+    """The pid of the process tmux started in `pane` (usually a shell), or None."""
+    out = _tmux_out("display-message", "-p", "-t", pane, "#{pane_pid}")
+    try:
+        return int((out or "").strip())
+    except ValueError:
+        return None
+
+
 def process_in_pane(pane: str, pid: int | None = None) -> bool | None:
     """Whether process `pid` (default: this one) runs inside tmux pane `pane`.
 
@@ -581,10 +590,8 @@ def process_in_pane(pane: str, pid: int | None = None) -> bool | None:
     of the pane that started it), or, with no TMUX_PANE at all, tmux's guess
     of the active pane. None when it can't be told (no tmux, no ps).
     """
-    out = _tmux_out("display-message", "-p", "-t", pane, "#{pane_pid}")
-    try:
-        pane_pid = int((out or "").strip())
-    except ValueError:
+    pane_pid = pane_process(pane)
+    if pane_pid is None:
         # A reachable server with no matching pane is negative evidence,
         # not an unverifiable caller (e.g. a daemon holding a dead pane id).
         return False if server_id() is not None else None
