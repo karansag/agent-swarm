@@ -28,6 +28,7 @@ import { CompactBees, HiveView } from "./hive.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
 import { createBottomFollower } from "./scroll-follow.js";
+import { attentionReporter } from "./native.js";
 import { renderMarkdown } from "./markdown.js";
 import "../styles.css";
 import { stepTeammate, teammates } from "./teammates.js";
@@ -1482,6 +1483,8 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 // so it has no reload button and no pull-to-refresh. It gets its own.
 const STANDALONE = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
+const reportAttention = attentionReporter(globalThis.__TAURI__?.core?.invoke);
+
 function App() {
   const compact = useMedia(COMPACT_LAYOUT);
   const [state, setState] = useState(null);
@@ -1552,6 +1555,7 @@ function App() {
       st.first = false;
       setState(s);
       setConnected(true);
+      reportAttention(s.recipients);
     } catch {
       setConnected(false);
     }

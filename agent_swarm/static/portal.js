@@ -2426,6 +2426,24 @@ function createBottomFollower() {
 	};
 }
 //#endregion
+//#region web/src/native.js
+function attentionAgents(recipients) {
+	return recipients.filter((r) => r.pane_alive && r.activity?.status === "needs_attention").map((r) => r.user_id).sort();
+}
+function attentionReporter(invoke) {
+	if (!invoke) return () => {};
+	let sent = null;
+	return (recipients) => {
+		const agents = attentionAgents(recipients);
+		const key = agents.join("\n");
+		if (key === sent) return;
+		sent = key;
+		Promise.resolve(invoke("attention", { agents })).catch(() => {
+			sent = null;
+		});
+	};
+}
+//#endregion
 //#region node_modules/mdurl/lib/decode.mjs
 var decodeCache = {};
 function getDecodeCache(exclude) {
@@ -9467,6 +9485,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
   </div>`;
 }
 var STANDALONE = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+var reportAttention = attentionReporter(globalThis.__TAURI__?.core?.invoke);
 function App() {
 	const compact = useMedia(COMPACT_LAYOUT);
 	const [state, setState] = d(null);
@@ -9549,6 +9568,7 @@ function App() {
 			st.first = false;
 			setState(s);
 			setConnected(true);
+			reportAttention(s.recipients);
 		} catch {
 			setConnected(false);
 		}
