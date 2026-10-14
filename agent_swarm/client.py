@@ -308,7 +308,7 @@ def own_pane_harness(pane: str) -> tuple[str | None, str]:
     for pid, command in chain[i:]:
         if own and harness_of(command) == harness:
             if _one_shot(harness, command):
-                return None, f"one-shot {harness} run: {command[:80]}"
+                return None, f"not an interactive {harness} in a pane (one-shot run or daemon): {command[:80]}"
             if pid == pane_pid:
                 return harness, ""
             continue

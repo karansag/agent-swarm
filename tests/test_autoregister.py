@@ -52,10 +52,10 @@ def test_harness_nested_in_another_agent_is_not(monkeypatch):
 
 def test_one_shot_runs_are_not(monkeypatch):
     for command in ("claude -p hello", "claude --print x", "/x/codex/bin/codex exec hi",
-                    "node /n/bin/codex exec hi"):
+                    "node /n/bin/codex exec hi", "/x/codex/bin/codex app-server --listen x"):
         _tree(monkeypatch, (7, command), (PANE_SHELL, "zsh"))
         harness, why = client.own_pane_harness("%5")
-        assert harness is None and "one-shot" in why, command
+        assert harness is None and "not an interactive" in why, command
 
 
 def test_harness_outside_this_pane_is_not(monkeypatch):

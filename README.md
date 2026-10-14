@@ -554,11 +554,14 @@ failing the harness:
 - sessions outside tmux;
 - a harness inside an editor or another program in the pane (emacs, `script`);
 - a harness nested in another agent's session;
-- one-shot runs (`claude -p`, `codex exec`, Pi's print, JSON and RPC modes);
+- one-shot runs (`claude -p`, `codex exec`, Pi's print, JSON and RPC modes)
+  and Codex's shared app-server daemon, which runs every pane's sessions;
 - everything, when `AGENT_SWARM_AUTOREGISTER=0`.
 
 It takes the session id and model from the hook's input, not the environment,
-which a nested session inherits from its parent. It fires again on resume,
+which a nested session inherits from its parent. Codex runs the hook at the
+session's first turn, not when the TUI opens; agents spawned from the
+dashboard are registered by the hub before that. It fires again on resume,
 `/clear` and compaction, so a new session id is picked up. The new session gets
 the protocol brief in its context, without the peer list (`agent-swarm
 recipients` has it). `agent-swarm autoregister --verbose` says why it skipped.
