@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Link each harness's agent-swarm skills from this checkout into that
+# harness's skills directory, so edits in the repo reach every agent.
+# A real directory already at the target (an old copy) is moved to a backup
+# beside the skills directory, never inside it, where it would load twice.
+set -euo pipefail
+
+repo_skills="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+stamp="$(date +%Y%m%d-%H%M%S)"
+
+link() {
+  local src="$1" dest_dir="$2"
+  local dest="$dest_dir/$(basename "$src")"
+  mkdir -p "$dest_dir"
+  if [[ -e "$dest" && ! -L "$dest" ]]; then
+    local backup="$dest_dir.bak-$stamp"
+    mkdir -p "$backup"
+    mv "$dest" "$backup/"
+    echo "moved old copy to $backup/$(basename "$src")"
+  fi
+  ln -sfn "$src" "$dest"
+  echo "$dest -> $src"
+}
+
+for skill in "$repo_skills"/claude/*/; do
+  link "${skill%/}" "${HOME}/.claude/skills"
+done
+for skill in "$repo_skills"/codex/*/; do
+  link "${skill%/}" "${CODEX_HOME:-${HOME}/.codex}/skills"
+done
+for skill in "$repo_skills"/pi/*/; do
+  link "${skill%/}" "${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}/skills"
+done

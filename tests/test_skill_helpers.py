@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 HELPER = (
     Path(__file__).parents[1]
@@ -16,7 +18,7 @@ DEFAULT_INSTRUCTIONS = (
 )
 
 
-MODEL_ENV = ("CLAUDE_MODEL", "ANTHROPIC_MODEL", "CODEX_MODEL")
+MODEL_ENV = ("CLAUDE_MODEL", "ANTHROPIC_MODEL", "CODEX_MODEL", "PI_MODEL")
 
 
 def helper_env(tmp_path: Path, fake_bin: Path, **extra: str) -> dict[str, str]:
@@ -160,3 +162,66 @@ def test_helpers_reject_legacy_name_flags(tmp_path):
         )
         assert result.returncode == 2
         assert "--name" in result.stderr
+
+
+SKILLS = Path(__file__).parents[1] / "skills"
+PI_HELPER = SKILLS / "pi/agent-swarm-register/scripts/register-pi-agent"
+
+
+def run_pi_helper(tmp_path: Path, *args: str, **env: str) -> list[str]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(parents=True)
+    agent_swarm = fake_bin / "agent-swarm"
+    agent_swarm.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n')
+    agent_swarm.chmod(0o755)
+    result = subprocess.run(
+        [str(PI_HELPER), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=helper_env(tmp_path, fake_bin, **env),
+    )
+    return result.stdout.splitlines()
+
+
+def test_pi_helper_registers_with_pi_flavor(tmp_path):
+    assert run_pi_helper(tmp_path) == ["register", "--flavor", "pi"]
+
+
+def test_pi_helper_reads_model_from_pi_env(tmp_path):
+    out = run_pi_helper(tmp_path, PI_MODEL="gpt-6.1-sol")
+    assert out == ["register", "--model", "gpt-6.1-sol", "--flavor", "pi"]
+
+
+def test_pi_helper_rejects_flavor_override(tmp_path):
+    with pytest.raises(subprocess.CalledProcessError):
+        run_pi_helper(tmp_path, "--flavor", "claude")
+
+
+def test_every_harness_has_a_loadable_register_skill():
+    for harness in ("claude", "codex", "pi"):
+        skill = SKILLS / harness / "agent-swarm-register"
+        text = (skill / "SKILL.md").read_text()
+        front = text.split("---")[1]
+        assert "name: agent-swarm-register" in front
+        assert "description: " in front
+        assert "Do not pass `--flavor`" in text
+        helpers = list((skill / "scripts").iterdir())
+        assert len(helpers) == 1 and os.access(helpers[0], os.X_OK)
+        assert str(helpers[0].name) in text
+
+
+def test_install_links_every_harness_and_moves_old_copies_out(tmp_path):
+    old = tmp_path / ".codex/skills/agent-swarm-register"
+    old.mkdir(parents=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "PI_CODING_AGENT_DIR")}
+    subprocess.run([str(SKILLS / "install")], check=True, capture_output=True,
+                   env=env | {"HOME": str(tmp_path)})
+    for dest_dir, harness in ((".claude/skills", "claude"), (".codex/skills", "codex"),
+                              (".pi/agent/skills", "pi")):
+        dest = tmp_path / dest_dir / "agent-swarm-register"
+        assert dest.is_symlink()
+        assert dest.resolve() == (SKILLS / harness / "agent-swarm-register").resolve()
+        # Nothing else in the skills dir, so the harness loads the skill once.
+        assert [p.name for p in dest.parent.iterdir()] == ["agent-swarm-register"]
+    assert list(tmp_path.glob(".codex/skills.bak-*/agent-swarm-register"))

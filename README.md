@@ -509,17 +509,27 @@ set -g status-right "#{@agent_swarm} | %H:%M"
 
 ## Agent Skills
 
-Installable skill definitions live under `skills/`:
+Each harness has an `agent-swarm-register` skill under `skills/`:
 
-- `skills/codex/agent-swarm-register`
-- `skills/claude/agent-swarm-register`
+- `skills/claude/agent-swarm-register`, loaded from `~/.claude/skills`
+- `skills/codex/agent-swarm-register`, loaded from `~/.codex/skills`
+- `skills/pi/agent-swarm-register`, loaded from `~/.pi/agent/skills`
 
-Link the relevant skill directory into the corresponding agent home:
+The three share the Agent Skills format (a `SKILL.md` with `name` and
+`description`), but each bundles a helper that registers with its own
+flavor, so each harness gets its own directory.
+
+Link all of them into place:
 
 ```bash
-mkdir -p ~/.claude/skills && ln -sfn "$PWD/skills/claude/agent-swarm-register" ~/.claude/skills/agent-swarm-register
-mkdir -p ~/.codex/skills && ln -sfn "$PWD/skills/codex/agent-swarm-register" ~/.codex/skills/agent-swarm-register
+skills/install
 ```
+
+It symlinks each skill into its harness's directory (honoring `CODEX_HOME`
+and `PI_CODING_AGENT_DIR`), so later edits in the repo reach every agent. An
+old copied skill at the target is moved to `<skills dir>.bak-<time>/`, outside
+the directory the harness scans. Pi also scans `~/.agents/skills`; the
+installer does not use it, so no harness sees the skill twice.
 
 Once installed, just tell the agent to register itself (e.g. "register
 yourself with agent-swarm") instead of running the CLI by hand.
@@ -729,8 +739,10 @@ web/
   styles.css  dashboard styles
   src/        authored dashboard JavaScript modules
 skills/
-  codex/agent-swarm-register/
+  install
   claude/agent-swarm-register/
+  codex/agent-swarm-register/
+  pi/agent-swarm-register/
 tests/
 AGENT_PROMPT.md
 ```

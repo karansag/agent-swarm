@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AGENT_SWARM_PROJECT="${AGENT_SWARM_PROJECT:-${AGENT_MSG_PROJECT:-${HOME}/agent-swarm}}"
+# The exact model id is what the dashboard shows. Pi tells every shell command
+# its current model in PI_MODEL; --model overrides it. Send nothing rather
+# than a placeholder so a label already on record is kept.
+model="${PI_MODEL:-}"
+
+if [[ "${1:-}" == "--whoami" ]]; then
+  shift
+  if command -v agent-swarm >/dev/null 2>&1; then
+    exec agent-swarm whoami "$@"
+  fi
+  exec uv run --project "$AGENT_SWARM_PROJECT" agent-swarm whoami "$@"
+fi
+
+extra_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent-id|--pane|--name|--instructions|--message-prefix|--submit-key|--model)
+      if [[ $# -lt 2 ]]; then
+        echo "error: $1 requires a value" >&2
+        exit 2
+      fi
+      if [[ "$1" == "--model" ]]; then
+        model="$2"
+      else
+        extra_args+=("$1" "$2")
+      fi
+      shift 2
+      ;;
+    --flavor)
+      echo "error: this helper always registers Pi agents with --flavor pi" >&2
+      exit 2
+      ;;
+    --user|--handle)
+      echo "error: use --name to request a handle" >&2
+      exit 2
+      ;;
+    *)
+      echo "error: unknown option $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+args=(register)
+if [[ -n "$model" ]]; then
+  args+=(--model "$model")
+fi
+args+=(--flavor pi ${extra_args[@]+"${extra_args[@]}"})
+
+if command -v agent-swarm >/dev/null 2>&1; then
+  exec agent-swarm "${args[@]}"
+fi
+
+exec uv run --project "$AGENT_SWARM_PROJECT" agent-swarm "${args[@]}"
