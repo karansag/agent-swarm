@@ -672,7 +672,11 @@ function readJSON(key, fallback) {
 
 // Live agents in outlined, collapsible team boxes, queen first; agents with
 // no team come last. Each agent is one small chip that opens its page.
-function TeamBees({ state, machine, unreadFor, focusUser = null }) {
+// Chips drag between groups to change team, as in the roster. While one is
+// dragged, empty teams and "no team" show too (at the end), so any team is a target.
+function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
+  const [dragging, setDragging] = useState(null);
+  const [over, setOver] = useState(null);
   const [collapsed, setCollapsed] = useState(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
   const toggle = (key, open) => setCollapsed(prev => {
     const next = new Set(prev);
@@ -686,22 +690,40 @@ function TeamBees({ state, machine, unreadFor, focusUser = null }) {
     key: `t:${t.id}`, name: t.name, queen: t.queen,
     members: live.filter(r => r.team_id === t.id)
       .sort((a, b) => (b.user_id === t.queen) - (a.user_id === t.queen) || a.user_id.localeCompare(b.user_id)),
-  })).filter(g => g.members.length);
+    teamId: t.id,
+  }));
   const loners = live.filter(r => !teams.some(t => t.id === r.team_id)).sort((a, b) => a.user_id.localeCompare(b.user_id));
-  if (loners.length) groups.push({ key: "none", name: "no team", queen: null, members: loners });
+  groups.push({ key: "none", name: "no team", queen: null, members: loners, teamId: null });
+  // Groups that only appear during a drag go last, so nothing moves under the pointer.
+  groups.sort((a, b) => !a.members.length - !b.members.length);
+  if (!dragging) groups.splice(0, groups.length, ...groups.filter(g => g.members.length));
   if (!groups.length) return html`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}.</p>`;
   return html`<div class="team-bees">${groups.map(g => {
     const busy = g.members.filter(r => agentStatus(r) === "working").length;
     const attention = g.members.filter(r => agentStatus(r) === "needs_attention").length;
-    return html`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""}`}
-        open=${!collapsed.has(g.key)} onToggle=${e => toggle(g.key, e.currentTarget.open)}>
+    const drop = agentDropProps(
+      on => setOver(cur => on ? g.key : cur === g.key ? null : cur),
+      user => {
+        setDragging(null);
+        const from = live.find(r => r.user_id === user);
+        if (from && (teams.some(t => t.id === from.team_id) ? from.team_id : null) !== g.teamId)
+          moveAgentToTeam(user, g.teamId, refresh);
+      });
+    return html`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""} ${over === g.key ? "over" : ""}`}
+        open=${!collapsed.has(g.key)} onToggle=${e => toggle(g.key, e.currentTarget.open)} ...${drop}>
       <summary><span class="team-bees-name">${g.name}</span>
         <span class="team-bees-counts">${g.members.length}${busy ? html` · <span class="working">${busy} working</span>` : ""}${attention ? html` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
-      <div class="team-bees-chips">${g.members.map(r => {
+      <div class="team-bees-chips">${!g.members.length && html`<span class="team-bees-empty">drop here</span>`}${g.members.map(r => {
         const st = STATE[agentStatus(r)] || STATE.unknown;
         return html`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
           aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
-          style=${`--machine:${machineColor(r.node)}`} title=${`${r.user_id} · ${machineName(r.node)} · ${st.word}`}>
+          style=${`--machine:${machineColor(r.node)}`} title=${`${r.user_id} · ${machineName(r.node)} · ${st.word}`}
+          draggable="true" onDragStart=${e => {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData(AGENT_DRAG_TYPE, r.user_id);
+            e.dataTransfer.setData("text/plain", r.user_id);
+            setDragging(r.user_id);
+          }} onDragEnd=${() => { setDragging(null); setOver(null); }}>
           <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
           <span class="team-mate-name">${r.user_id}</span>
           ${g.queen === r.user_id && html`<span class="crown" title="team queen">♛</span>`}
@@ -736,7 +758,7 @@ function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = A
       : view === "roster"
         ? html`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
             refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />`
-        : html`<${TeamBees} state=${state} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
+        : html`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
 

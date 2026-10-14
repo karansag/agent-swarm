@@ -790,6 +790,8 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 .team-bees-counts .working { color: var(--moss); }
 .team-bees-counts .attn { color: var(--honey); }
 .team-bees-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 8px; }
+.team-bees-group.over { border-color: var(--honey); background: rgba(242,169,59,.12); outline: 1px dashed var(--honey); outline-offset: 2px; }
+.team-bees-empty { color: var(--cream-dim); font-size: 11px; padding: 4px 2px; }
 .compact-hive-empty { color: var(--cream-dim); font-size: 12px; }
 .hive-task-assignment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .hive-task-assignment select { min-width: 0; max-width: 100%; }

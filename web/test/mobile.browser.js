@@ -517,3 +517,44 @@ test('desktop sidebar opens on the team view, with roster a switch away', async 
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('team view: drag an agent chip to another team or to no team', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  // A second, empty team: it only shows while a chip is being dragged.
+  state.teams.push({ id: 2, name: 'spare', queen: null, members: [] });
+  const moves = [];
+  await page.route('**/agents/*/team', async route => {
+    const user = decodeURIComponent(route.request().url().split('/agents/')[1].split('/')[0]);
+    const { team_id } = route.request().postDataJSON();
+    moves.push([user, team_id]);
+    state.recipients.find(r => r.user_id === user).team_id = team_id;
+    await route.fulfill({ json: { ok: true } });
+  });
+  try {
+    await page.goto(base + '#/');
+    await page.waitForSelector('#agent-sidebar .team-bees');
+    const group = name => page.locator('#agent-sidebar .team-bees-group', { has: page.locator('.team-bees-name', { hasText: new RegExp(`^${name}$`) }) });
+    const chip = user => page.locator(`#agent-sidebar .team-mate[href="#/agent/${user}"]`);
+    assert.equal(await group('spare').count(), 0);
+
+    await chip('stoat').dragTo(group('no team'));
+    await page.waitForFunction(() => document.querySelector('#agent-sidebar .team-bees-group.loose a[href="#/agent/stoat"]'));
+    await chip('ferret').dragTo(group('agent-swarm'));
+    await page.waitForFunction(() => [...document.querySelectorAll('#agent-sidebar .team-bees-group:not(.loose) a')].some(a => a.getAttribute('href') === '#/agent/ferret'));
+    // Dropping a chip on its own group changes nothing.
+    await chip('ferret').dragTo(group('agent-swarm'));
+    // An empty team is a target while dragging.
+    await page.mouse.move(0, 0);
+    const box = await chip('smew').boundingBox();
+    await page.mouse.move(box.x + 10, box.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 30, box.y + 20, { steps: 5 });
+    await group('spare').waitFor();
+    const spare = await group('spare').boundingBox();
+    await page.mouse.move(spare.x + 40, spare.y + 20, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForFunction(() => document.querySelector('#agent-sidebar a[href="#/agent/smew"]')?.closest('details')?.querySelector('.team-bees-name')?.textContent === 'spare');
+    assert.deepEqual(moves, [['stoat', null], ['ferret', 1], ['smew', 2]]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
