@@ -533,6 +533,36 @@ harness sees the skill twice.
 Once installed, tell the agent to register itself (e.g. "register yourself
 with agent-swarm") instead of running the CLI by hand.
 
+## Startup Registration
+
+Agents can register themselves when they start, with no prompt:
+
+```bash
+hooks/install            # hooks/install --remove undoes it
+```
+
+- Claude Code: a `SessionStart` hook in `~/.claude/settings.json`.
+- Codex: a `SessionStart` hook in `~/.codex/hooks.json`. Codex skips a new
+  hook until you trust it once with `/hooks`.
+- Pi: an extension linked at `~/.pi/agent/extensions/agent-swarm`.
+
+Each runs `agent-swarm autoregister`. It registers only when the harness runs
+straight in its own tmux pane: walking up from the harness to the pane's
+process, only shells may stand in between. It skips, quietly and without
+failing the harness:
+
+- sessions outside tmux;
+- a harness inside an editor or another program in the pane (emacs, `script`);
+- a harness nested in another agent's session;
+- one-shot runs (`claude -p`, `codex exec`, Pi's print, JSON and RPC modes);
+- everything, when `AGENT_SWARM_AUTOREGISTER=0`.
+
+It takes the session id and model from the hook's input, not the environment,
+which a nested session inherits from its parent. It fires again on resume,
+`/clear` and compaction, so a new session id is picked up. The new session gets
+the protocol brief in its context, without the peer list (`agent-swarm
+recipients` has it). `agent-swarm autoregister --verbose` says why it skipped.
+
 ## Agent Interfaces
 
 Today, `agent-swarm` has a small `flavor` concept for Codex, Claude,
@@ -732,6 +762,9 @@ web/
 skills/
   install
   agent-swarm-register/
+hooks/
+  install
+  pi/agent-swarm/   Pi extension
 tests/
 AGENT_PROMPT.md
 ```
