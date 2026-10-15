@@ -35,8 +35,9 @@ Tailscale URL. HTTP is also accepted for a local test hub on localhost. The
 address is saved in
 `~/Library/Application Support/com.karansag.agent-swarm/settings.json`.
 
-The menu-bar icon has **Open dashboard**, **Change hub URL…**, and **Quit Agent
-Swarm**. Closing the window hides it; the app stays running. Click the Dock
+The menu-bar icon has **Open dashboard**, **Change hub URL…**, notification
+controls, and **Quit Agent Swarm**. Closing the window hides it; the app stays
+running. Click the Dock
 icon or use Open dashboard to show it again. **⌘Q** quits. Changing the URL saves
 it and restarts the wrapper only when the address actually changed. Cancel and
 saving an unchanged address return to the page you left, including its agent
@@ -47,7 +48,11 @@ The Dock badge counts unique agents needing attention. A notification appears
 when an agent first enters that list, including agents already waiting on
 launch. Returning to normal and later needing attention again generates a new
 notification. Permit notifications for Agent Swarm in macOS System Settings if
-prompted. Notification delivery is best effort; Focus and OS notification
+prompted. The app uses `UNUserNotificationCenter`, requests permission on launch,
+and presents banners even when its window is in front. **Enable notifications…**
+requests permission (or opens notification settings after denial); **Test
+notification** sends a local test without touching an agent. Clicking an agent's
+notification opens its page. Notification delivery is best effort; Focus and OS notification
 settings can suppress it. The page keeps polling while the window is hidden on
 macOS 14 and newer. On older macOS versions WebKit may pause background polling.
 Notifications require the app to be running and the dashboard to be reachable;
@@ -72,8 +77,11 @@ ACL. Settings commands are local-only and also verify the bundled page origin.
 No filesystem, shell, HTTP, notification-plugin, or window-control permissions
 are granted to the remote page. Cross-origin navigation and new windows are
 kept out of the app; ordinary HTTP(S) links open in the default browser. A
-restart on URL change discards the previous origin's grant. Native
-notifications and badge changes are performed by Rust.
+restart on URL change discards the previous origin's grant. Native notifications
+use a small Objective-C bridge to Apple's UserNotifications framework, with no
+notification IPC exposed to the page. Badge changes remain in Rust. This
+replaces the Tauri plugin's deprecated `NSUserNotificationCenter` backend and
+its desktop permission no-op.
 
 ## Verify
 
@@ -94,6 +102,8 @@ Build and exercise the installed `.app` on a Mac before merging:
 3. On a scratch hub, make an agent need attention. Check badge `1` and one
    notification. Repeated polls and a page reload should produce no duplicate.
    Add another agent, then clear the list; check badge `2`, then no badge.
+   Also try **Test notification** while the app is in front, and click an
+   agent notification to confirm it opens that agent's page.
 4. Leave the window hidden for at least five minutes, then trigger attention
    on the scratch hub; check that the native notification still arrives.
 5. Open an agent page, enter settings, and Cancel; check the exact agent page
@@ -106,3 +116,16 @@ Build and exercise the installed `.app` on a Mac before merging:
 
 Linux validates the portable logic and config, but cannot verify Cocoa,
 WKWebView, or native notifications. The Mac build and checks above are required.
+
+For notification troubleshooting, first quit any running copy, then launch the
+installed bundle's executable with stderr captured:
+
+```sh
+"/Applications/Agent Swarm.app/Contents/MacOS/agent-swarm-mac" 2> /tmp/agent-swarm-notifications.log
+```
+
+The log records the authorization result and any error, plus queued/delivery
+results. This matters for ad-hoc signed builds: a signing or authorization
+failure must be checked on the actual Mac. A `queued` result confirms scheduling,
+not that macOS displayed a banner; check Focus, notification settings, and the
+foreground/background cases as well.

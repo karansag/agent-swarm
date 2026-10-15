@@ -5,6 +5,8 @@ use url::{Host, Url};
 
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 pub mod app;
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+mod notifications;
 
 #[derive(Clone, Debug)]
 pub struct HubUrl(Url);

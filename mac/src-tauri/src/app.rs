@@ -9,7 +9,6 @@ use tauri::{
     AppHandle, Manager, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
-use tauri_plugin_notification::NotificationExt;
 
 struct AppState {
     hub: Option<HubUrl>,
@@ -117,7 +116,6 @@ fn open_dashboard(window: WebviewWindow, state: State<AppState>) -> Result<(), S
 
 #[tauri::command]
 fn attention(
-    app: AppHandle,
     window: WebviewWindow,
     state: State<AppState>,
     agents: Vec<String>,
@@ -143,18 +141,11 @@ fn attention(
         return Err(error.to_string());
     }
     *tracker = next;
+    drop(tracker);
     for name in added {
-        if let Err(error) = app
-            .notification()
-            .builder()
-            .title("Agent needs attention")
-            .body(format!("{name} is waiting for you."))
-            .show()
-        {
-            // Notification delivery is best effort (e.g. OS permission denied).
-            // Do not reject an applied list and spam repeats on every poll.
-            eprintln!("Could not notify about {name}: {error}");
-        }
+        // Native delivery is asynchronous; authorization/delivery errors go to
+        // stderr. An applied list is never retried just because the OS refused.
+        crate::notifications::send(&name);
     }
     Ok(())
 }
@@ -186,10 +177,22 @@ fn show_setup(app: &AppHandle) {
     }
 }
 
+pub(crate) fn show_agent(app: &AppHandle, name: &str) {
+    show_dashboard(app);
+    let state = app.state::<AppState>();
+    if let (Some(hub), Some(window)) = (&state.hub, app.get_webview_window("main")) {
+        if let Err(error) = window.navigate(hub.agent_url(name)) {
+            eprintln!("Could not open agent from notification: {error}");
+        }
+    }
+}
+
 fn menu_action(app: &AppHandle, id: &str) {
     match id {
         "dashboard" => show_dashboard(app),
         "change-hub" => show_setup(app),
+        "enable-notifications" => crate::notifications::enable(),
+        "test-notification" => crate::notifications::test(),
         "quit" => {
             if let Some(window) = app.get_webview_window("main") {
                 remember_route(&window);
@@ -218,7 +221,6 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_dashboard(app)
         }))
-        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             attention,
             setup_info,
@@ -322,11 +324,28 @@ pub fn run() {
             )?;
             let quit =
                 MenuItem::with_id(app, "quit", "Quit Agent Swarm", true, Some("CmdOrCtrl+Q"))?;
+            let enable_notifications = MenuItem::with_id(
+                app,
+                "enable-notifications",
+                "Enable notifications…",
+                true,
+                None::<&str>,
+            )?;
+            let test_notification = MenuItem::with_id(
+                app,
+                "test-notification",
+                "Test notification",
+                true,
+                None::<&str>,
+            )?;
             let tray_menu = Menu::with_items(
                 app,
                 &[
                     &dashboard,
                     &change_hub,
+                    &PredefinedMenuItem::separator(app)?,
+                    &enable_notifications,
+                    &test_notification,
                     &PredefinedMenuItem::separator(app)?,
                     &quit,
                 ],
@@ -347,6 +366,9 @@ pub fn run() {
                     &PredefinedMenuItem::separator(app)?,
                     &dashboard,
                     &change_hub,
+                    &PredefinedMenuItem::separator(app)?,
+                    &enable_notifications,
+                    &test_notification,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
@@ -382,6 +404,7 @@ pub fn run() {
                 app,
                 &[&app_menu, &edit_menu, &window_menu],
             )?)?;
+            crate::notifications::initialize(app.handle().clone());
             Ok(())
         })
         .on_menu_event(|app, event| menu_action(app, event.id.as_ref()))
