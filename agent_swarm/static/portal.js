@@ -8598,7 +8598,10 @@ function TaskComposer({ state, refresh, user = "", folded = false }) {
 	const form = m$1`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
     ${!folded && m$1`<div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>`}
     <input class="task-title" aria-label="Task title" placeholder="What needs doing?" value=${title} disabled=${busy} onInput=${(e) => setTitle(e.target.value)} onPaste=${attachments.onPaste} required />
-    <textarea aria-label="Task details" placeholder="Details, context, or steps to reproduce… (optional)" rows="2" value=${description} disabled=${busy} onInput=${(e) => setDescription(e.target.value)} onPaste=${attachments.onPaste} />
+    <textarea aria-label="Task details" placeholder="Details, context, or steps to reproduce… (optional) · Enter to create · Shift + Enter for a new line" rows="2" value=${description} disabled=${busy} onInput=${(e) => setDescription(e.target.value)} onPaste=${attachments.onPaste}
+      onKeyDown=${(e) => {
+		if (e.key === "Enter" && !e.shiftKey && !(e.metaKey || e.ctrlKey) && !e.isComposing) create(e);
+	}} />
     <${AttachmentPicker} files=${files} controls=${attachments} disabled=${busy} />
     <div class="task-compose-actions"><label>Assign to <select aria-label="Task assignee" value=${assignee} disabled=${busy} onChange=${(e) => setAssignee(e.target.value)}>
       <option value="">Unassigned</option>
