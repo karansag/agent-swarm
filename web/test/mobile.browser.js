@@ -581,3 +581,23 @@ test('inside the Mac app the page reports who needs attention', async () => {
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('opening the page on a gone agent falls back to the overview', async () => {
+  const { page, errors } = await setup(1280, 800, false);
+  try {
+    await page.goto(base + '#/agent/long-gone');
+    await page.waitForFunction(() => location.hash === '#/');
+    // Only the first load redirects: following a link to a gone agent later
+    // still says so.
+    await page.evaluate(() => { location.hash = '#/agent/long-gone'; });
+    await page.waitForSelector('text=No agent named');
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/long-gone');
+    // An agent that still exists stays where it was opened.
+    await page.evaluate(() => { location.hash = '#/agent/stoat'; });
+    await page.reload();
+    await page.waitForSelector('.stage');
+    await page.waitForTimeout(500);
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

@@ -1552,6 +1552,11 @@ function App() {
         if (st.first || !(rec.user_id in st.byAgent)) st.byAgent[rec.user_id] = maxId;
       }
       st.maxId = maxId;
+      // A page opened straight onto an agent that has since gone (a
+      // bookmark, or the Mac app reopening where it was) shows the overview.
+      if (st.first && location.hash.startsWith("#/agent/")
+          && !s.recipients.some(r => r.user_id === decodeURIComponent(location.hash.slice("#/agent/".length))))
+        location.replace("#/");
       st.first = false;
       setState(s);
       setConnected(true);

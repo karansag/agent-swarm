@@ -9565,6 +9565,7 @@ function App() {
 			}
 			for (const rec of s.recipients) if (st.first || !(rec.user_id in st.byAgent)) st.byAgent[rec.user_id] = maxId;
 			st.maxId = maxId;
+			if (st.first && location.hash.startsWith("#/agent/") && !s.recipients.some((r) => r.user_id === decodeURIComponent(location.hash.slice(8)))) location.replace("#/");
 			st.first = false;
 			setState(s);
 			setConnected(true);
