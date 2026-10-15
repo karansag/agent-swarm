@@ -473,7 +473,7 @@
   .thread-toggle[aria-expanded=false] + .thread-focus { border-bottom: 0; }
   /* Focus mode: the thread takes the window; the page behind is dimmed. */
   .thread.focused {
-    position: fixed; z-index: 50; inset: 24px max(24px, calc((100vw - 1400px) / 2));
+    position: fixed; z-index: 50; inset: 24px;
     margin: 0; display: flex; flex-direction: column; animation: none;
     border-color: var(--honey-dim); box-shadow: 0 0 0 100vmax rgba(8,6,3,.82);
   }

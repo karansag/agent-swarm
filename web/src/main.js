@@ -1121,7 +1121,12 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
   }, [focused]);
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape" && focused) { e.preventDefault(); setFocused(false); return; }
+      if (e.key === "Escape" && focused) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setFocused(false);
+        return;
+      }
       const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)
         || document.activeElement?.isContentEditable;
       if (e.key === "f" && recipient && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -1129,8 +1134,9 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
         toggleFocus();
       }
     };
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
+    // Consume Escape before page-level shortcuts, regardless of listener order.
+    addEventListener("keydown", onKey, true);
+    return () => removeEventListener("keydown", onKey, true);
   }, [focused, recipient]);
   const onScroll = (e) => {
     if (!expanded) return;
@@ -1572,9 +1578,10 @@ function App() {
     const c = setInterval(() => setClock(new Date().toLocaleTimeString()), 1000);
     const onHash = () => setRoute(location.hash);
     const onKey = (e) => {
-      if (e.key === "Escape" && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+      if (e.key === "Escape" && !e.defaultPrevented && !e.repeat
+          && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)
+          && !document.activeElement.isContentEditable) {
         if (rosterOpenRef.current) closeRoster();
-        else location.hash = "#/";
       }
     };
     addEventListener("hashchange", onHash);

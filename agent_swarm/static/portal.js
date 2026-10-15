@@ -9147,6 +9147,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 		const onKey = (e) => {
 			if (e.key === "Escape" && focused) {
 				e.preventDefault();
+				e.stopImmediatePropagation();
 				setFocused(false);
 				return;
 			}
@@ -9160,8 +9161,8 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 				toggleFocus();
 			}
 		};
-		addEventListener("keydown", onKey);
-		return () => removeEventListener("keydown", onKey);
+		addEventListener("keydown", onKey, true);
+		return () => removeEventListener("keydown", onKey, true);
 	}, [focused, recipient]);
 	const onScroll = (e) => {
 		if (!expanded) return;
@@ -9583,12 +9584,13 @@ function App() {
 		const c = setInterval(() => setClock((/* @__PURE__ */ new Date()).toLocaleTimeString()), 1e3);
 		const onHash = () => setRoute(location.hash);
 		const onKey = (e) => {
-			if (e.key === "Escape" && ![
+			if (e.key === "Escape" && !e.defaultPrevented && !e.repeat && ![
 				"INPUT",
 				"SELECT",
 				"TEXTAREA"
-			].includes(document.activeElement.tagName)) if (rosterOpenRef.current) closeRoster();
-			else location.hash = "#/";
+			].includes(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
+				if (rosterOpenRef.current) closeRoster();
+			}
 		};
 		addEventListener("hashchange", onHash);
 		addEventListener("keydown", onKey);
