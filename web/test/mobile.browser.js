@@ -615,7 +615,13 @@ for (const rosterOpen of [true, false]) {
         assert.equal(rect.x, 24);
         assert.equal(rect.width, width - 48);
       }
-      // Escape from the composer closes only the conversation overlay.
+      // With a toolbar button focused, both old window handlers used to run.
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.thread.focused', { state: 'detached' });
+      assert.equal(await page.locator('.roster-drawer.is-open').count(), Number(rosterOpen));
+      assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+      await page.locator('.thread-focus').first().click();
+      // Escape from the composer also closes only the conversation overlay.
       await page.locator('.thread.focused textarea').first().focus();
       await page.keyboard.press('Escape');
       await page.waitForSelector('.thread.focused', { state: 'detached' });

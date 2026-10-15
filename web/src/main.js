@@ -1119,8 +1119,9 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
     document.documentElement.classList.toggle("thread-focus-open", focused);
     return () => document.documentElement.classList.remove("thread-focus-open");
   }, [focused]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (e) => {
+      if (e.isComposing) return;
       if (e.key === "Escape" && focused) {
         e.preventDefault();
         e.stopImmediatePropagation();
