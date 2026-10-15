@@ -281,8 +281,36 @@ def _one_shot(harness: str, command: str) -> bool:
     if words and harness_of(command) and command.split(" ", 1)[0].rsplit("/", 1)[-1] == "node":
         words = words[1:]  # `node .../bin/codex exec`: skip the script path
     if harness == "codex":
-        first = next((w for w in words if not w.startswith("-")), "")
-        return first in ("exec", "e", "app-server", "mcp-server")
+        # Global options can precede the subcommand. Their values are not the
+        # subcommand (`codex -m MODEL exec` must never claim the pane).
+        takes_value = {
+            "-c", "--config", "-m", "--model", "-p", "--profile", "-s", "--sandbox",
+            "-a", "--ask-for-approval", "-C", "--cd", "-i", "--image", "--add-dir",
+            "--enable", "--disable", "--remote", "--remote-auth-token-env", "--local-provider",
+        }
+        switches = {
+            "--no-daemon", "--yolo", "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust", "--approve-for-me", "--no-alt-screen",
+            "--strict-config", "--search", "--worktree", "--oss",
+        }
+        index = 0
+        while index < len(words):
+            word = words[index]
+            if word == "--":  # everything after this is a prompt, not a subcommand
+                return False
+            if not word.startswith("-"):
+                return word in ("exec", "e", "review", "app-server", "mcp-server")
+            option, separator, _ = word.partition("=")
+            if option in takes_value:
+                index += 1 if separator else 2
+            elif word[:2] in takes_value and len(word) > 2 and not word.startswith("--"):
+                index += 1  # attached short value, such as -mMODEL
+            elif word in switches:
+                index += 1
+            else:
+                # Unknown option arity: don't risk registering a one-shot run.
+                return True
+        return False
     return "-p" in words or "--print" in words
 
 
@@ -394,7 +422,13 @@ def cmd_autoregister(args: argparse.Namespace) -> int:
         return skip(f"hub unreachable: {e}")
     if not r.is_success:
         return skip(f"hub refused: {r.status_code} {r.text[:200]}")
-    brief = short_brief(r.json().get("protocol_brief", ""))
+    try:
+        response = r.json()
+    except ValueError:
+        return skip("hub returned invalid JSON")
+    if not isinstance(response, dict) or not isinstance(response.get("protocol_brief"), str):
+        return skip("hub returned no protocol brief")
+    brief = short_brief(response["protocol_brief"])
     if args.hook:
         # Claude Code and Codex both add this to the session's context.
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": brief}}))
