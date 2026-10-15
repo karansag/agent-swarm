@@ -15,9 +15,9 @@ npm ci
 npm run build
 ```
 
-The output is `src-tauri/target/release/bundle/macos/Agent Swarm.app` and a DMG in
-`src-tauri/target/release/bundle/dmg/`. Copy the app to `/Applications`, or open
-the DMG and drag the app to Applications. A local unsigned build may need to be
+The output is `src-tauri/target/release/bundle/macos/Agent Swarm.app`. Copy it
+to `/Applications`. (No DMG: its Finder styling step needs Automation permission
+and fails from a plain terminal.) A local unsigned build may need to be
 opened once using Finder's context menu → Open. Signed distribution builds
 need Apple's signing and notarization setup; see [Tauri's Mac signing guide](https://v2.tauri.app/distribute/sign/macos/).
 
