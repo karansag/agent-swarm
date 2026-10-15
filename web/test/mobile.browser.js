@@ -558,3 +558,46 @@ test('team view: drag an agent chip to another team or to no team', async () => 
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('inside the Mac app the page reports who needs attention', async () => {
+  const { page, state, errors } = await setup(1280, 800, false);
+  await page.addInitScript(() => {
+    window.__calls = [];
+    window.__TAURI__ = { core: { invoke: async (cmd, args) => { window.__calls.push([cmd, args.agents]); } } };
+  });
+  const waiting = () => state.recipients
+    .filter(r => r.pane_alive && r.activity?.status === 'needs_attention').map(r => r.user_id).sort();
+  try {
+    await page.goto(base + '#/');
+    await page.waitForFunction(() => window.__calls.length === 1);
+    assert.ok(waiting().length > 0);
+    assert.deepEqual(await page.evaluate(() => window.__calls), [['attention', waiting()]]);
+    // Same list on the next poll: nothing new is sent.
+    await page.waitForTimeout(2500);
+    assert.equal(await page.evaluate(() => window.__calls.length), 1);
+    state.recipients.find(r => r.activity?.status === 'working').activity.status = 'needs_attention';
+    await page.waitForFunction(() => window.__calls.length === 2);
+    assert.deepEqual((await page.evaluate(() => window.__calls))[1], ['attention', waiting()]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('opening the page on a gone agent falls back to the overview', async () => {
+  const { page, errors } = await setup(1280, 800, false);
+  try {
+    await page.goto(base + '#/agent/long-gone');
+    await page.waitForFunction(() => location.hash === '#/');
+    // Only the first load redirects: following a link to a gone agent later
+    // still says so.
+    await page.evaluate(() => { location.hash = '#/agent/long-gone'; });
+    await page.waitForSelector('text=No agent named');
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/long-gone');
+    // An agent that still exists stays where it was opened.
+    await page.evaluate(() => { location.hash = '#/agent/stoat'; });
+    await page.reload();
+    await page.waitForSelector('.stage');
+    await page.waitForTimeout(500);
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

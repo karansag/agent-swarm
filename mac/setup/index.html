@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect to Agent Swarm</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js" defer></script>
+</head>
+<body>
+  <main>
+    <img src="icon.svg" width="80" height="80" alt="">
+    <h1>Connect to your swarm</h1>
+    <p>Enter the dashboard address from your hub. Keep Tailscale connected when using a Tailscale address.</p>
+    <form id="setup">
+      <label for="hub">Dashboard URL</label>
+      <input id="hub" name="hub" type="url" required spellcheck="false" autocomplete="url"
+        placeholder="https://your-linux.tailnet.ts.net:8445/" aria-describedby="help">
+      <p id="help">The app saves this address and opens the dashboard in its own window.</p>
+      <p id="error" role="alert" hidden></p>
+      <div class="actions">
+        <button type="submit" id="save">Save and open</button>
+        <button type="button" id="cancel" hidden>Cancel</button>
+      </div>
+    </form>
+    <p class="footnote">You can change this address from the Agent Swarm menu.</p>
+  </main>
+</body>
+</html>
