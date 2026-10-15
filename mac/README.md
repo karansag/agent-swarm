@@ -17,9 +17,13 @@ npm run build
 
 The output is `src-tauri/target/release/bundle/macos/Agent Swarm.app`. Copy it
 to `/Applications`. (No DMG: its Finder styling step needs Automation permission
-and fails from a plain terminal.) A local unsigned build may need to be
-opened once using Finder's context menu → Open. Signed distribution builds
-need Apple's signing and notarization setup; see [Tauri's Mac signing guide](https://v2.tauri.app/distribute/sign/macos/).
+and fails from a plain terminal.) Tauri ad-hoc signs the whole `.app` bundle
+using `signingIdentity: "-"`, binding its Info.plist and bundle identifier to the
+signature. The linker's binary-only signature is insufficient for notification
+authorization. macOS may ask for notification permission again after each
+rebuild because ad-hoc signatures change. A local build may need to be opened
+once using Finder's context menu → Open. Distribution to other users needs
+Apple's signing and notarization setup; see [Tauri's Mac signing guide](https://v2.tauri.app/distribute/sign/macos/).
 
 You can also install the Tauri CLI with `cargo install tauri-cli --locked` and
 run `cargo tauri build` from `mac/`. Icons are already checked in; no Node
@@ -134,6 +138,16 @@ If authorization is refused without a prompt, check Agent Swarm in System
 Settings → Notifications and test the installed copy in `/Applications`.
 Keep the authorization error in the report; a successful build alone does not
 verify notification permission or banner delivery.
+
+To check the bundle signature after building:
+
+```sh
+codesign --verify --deep --strict "src-tauri/target/release/bundle/macos/Agent Swarm.app"
+codesign --display --verbose=4 "src-tauri/target/release/bundle/macos/Agent Swarm.app"
+```
+
+The identifier should be `com.karansag.agent-swarm`, with Info.plist bound and
+sealed resources, rather than only a linker-generated binary identifier.
 
 The log records the authorization result and any error, plus queued/delivery
 results. This matters for ad-hoc signed builds: a signing or authorization
