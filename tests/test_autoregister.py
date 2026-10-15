@@ -5,7 +5,10 @@ from __future__ import annotations
 import io
 import json
 import os
+import shlex
+import shutil
 import subprocess
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -56,6 +59,31 @@ def test_one_shot_runs_are_not(monkeypatch):
         _tree(monkeypatch, (7, command), (PANE_SHELL, "zsh"))
         harness, why = client.own_pane_harness("%5")
         assert harness is None and "not an interactive" in why, command
+
+
+@pytest.mark.parametrize("command", [
+    "codex -m gpt-6.1-sol exec hello",
+    "codex --config model=gpt-6.1-sol --no-daemon exec hello",
+    "codex --model=gpt-6.1-sol e hello",
+    "codex -mgpt-6.1-sol review",
+    "node /n/bin/codex --profile work app-server --listen x",
+    "codex --future-option unknown exec hello",
+])
+def test_one_shot_global_options_cannot_hide_the_subcommand(monkeypatch, command):
+    _tree(monkeypatch, (7, command), (PANE_SHELL, "zsh"))
+    assert client.own_pane_harness("%5")[0] is None
+
+
+@pytest.mark.parametrize("command", [
+    "codex -m gpt-6.1-sol --no-daemon",
+    "codex -c model=gpt-6.1-sol resume session-id",
+    "node /n/bin/codex --model=gpt-6.1-sol fork session-id",
+    "codex -- exec is part of my prompt",
+    "codex --no-daemon explain exec",
+])
+def test_interactive_codex_options_resume_and_prompts_remain_allowed(monkeypatch, command):
+    _tree(monkeypatch, (7, command), (PANE_SHELL, "zsh"))
+    assert client.own_pane_harness("%5") == ("codex", "")
 
 
 def test_harness_outside_this_pane_is_not(monkeypatch):
@@ -129,6 +157,27 @@ def test_hub_down_never_fails_the_harness(monkeypatch, capsys):
     assert out.out == "" and "hub unreachable" in out.err
 
 
+@pytest.mark.parametrize("body", [[], None, "not an object", {}, {"protocol_brief": None}])
+def test_unexpected_hub_response_never_fails_the_harness(monkeypatch, capsys, body):
+    monkeypatch.setenv("TMUX_PANE", "%5")
+    _tree(monkeypatch, (7, "claude"), (PANE_SHELL, "zsh"))
+    _hub(monkeypatch)
+    monkeypatch.setattr(client.httpx, "post", lambda *a, **k: SimpleNamespace(is_success=True, json=lambda: body))
+    out = _run(monkeypatch, capsys, {"session_id": "s"})
+    assert not out.out and "no protocol brief" in out.err
+
+
+def test_invalid_hub_json_never_fails_the_harness(monkeypatch, capsys):
+    monkeypatch.setenv("TMUX_PANE", "%5")
+    _tree(monkeypatch, (7, "claude"), (PANE_SHELL, "zsh"))
+    _hub(monkeypatch)
+    def invalid_json():
+        raise ValueError("not JSON")
+    monkeypatch.setattr(client.httpx, "post", lambda *a, **k: SimpleNamespace(is_success=True, json=invalid_json))
+    out = _run(monkeypatch, capsys, {"session_id": "s"})
+    assert not out.out and "invalid JSON" in out.err
+
+
 INSTALL = Path(__file__).parents[1] / "hooks/install"
 
 
@@ -145,8 +194,9 @@ def test_install_adds_each_hook_once_and_remove_undoes_it(tmp_path):
     _install(tmp_path)
     claude = json.loads(settings.read_text())
     assert claude["model"] == "opus" and claude["hooks"]["Stop"]
-    assert [h["command"] for g in claude["hooks"]["SessionStart"] for h in g["hooks"]] == [
-        "agent-swarm autoregister --hook"]
+    commands = [h["command"] for g in claude["hooks"]["SessionStart"] for h in g["hooks"]]
+    assert len(commands) == 1
+    assert shlex.split(commands[0]) == [os.path.abspath(shutil.which("agent-swarm")), "autoregister", "--hook"]
     codex = json.loads((tmp_path / ".codex/hooks.json").read_text())
     assert len(codex["hooks"]["SessionStart"]) == 1
     ext = tmp_path / ".pi/agent/extensions/agent-swarm"
@@ -155,3 +205,51 @@ def test_install_adds_each_hook_once_and_remove_undoes_it(tmp_path):
     _install(tmp_path, "--remove")
     assert json.loads(settings.read_text()) == {"model": "opus", "hooks": {"Stop": [{"hooks": [{"command": "x"}]}]}}
     assert not ext.exists() and not ext.is_symlink()
+
+
+def test_install_and_remove_preserve_handlers_sharing_our_group(tmp_path):
+    settings = tmp_path / ".claude/settings.json"
+    settings.parent.mkdir()
+    other = {"type": "command", "command": "echo keep-me"}
+    settings.write_text(json.dumps({"hooks": {"SessionStart": [{
+        "matcher": "startup|resume", "hooks": [
+            other, {"type": "command", "command": "agent-swarm autoregister --hook"},
+        ],
+    }]}}))
+    _install(tmp_path)
+    groups = json.loads(settings.read_text())["hooks"]["SessionStart"]
+    assert groups[0] == {"matcher": "startup|resume", "hooks": [other]}
+    _install(tmp_path, "--remove")
+    assert json.loads(settings.read_text()) == {"hooks": {"SessionStart": [groups[0]]}}
+
+
+def test_installed_hook_works_without_cli_on_path(tmp_path):
+    launcher_dir = tmp_path / "tool launchers"
+    launcher_dir.mkdir()
+    cli = launcher_dir / "agent-swarm"
+    cli.write_text("#!/bin/sh\nprintf 'hook-ran\\n'\n")
+    cli.chmod(0o755)
+    monkey_env = {"PATH": str(launcher_dir) + os.pathsep + os.environ["PATH"], "HOME": str(tmp_path)}
+    env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "PI_CODING_AGENT_DIR")}
+    subprocess.run([str(INSTALL)], check=True, capture_output=True, env=env | monkey_env)
+    config = json.loads((tmp_path / ".codex/hooks.json").read_text())
+    command = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    result = subprocess.run(["/bin/sh", "-c", command], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"}, check=True)
+    assert result.stdout == "hook-ran\n"
+
+
+def test_install_keeps_the_stable_symlink_path(tmp_path):
+    target = tmp_path / "tool-version" / "agent-swarm"
+    target.parent.mkdir()
+    target.write_text("#!/bin/sh\nexit 0\n")
+    target.chmod(0o755)
+    launchers = tmp_path / "bin"
+    launchers.mkdir()
+    (launchers / "agent-swarm").symlink_to(target)
+    env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "PI_CODING_AGENT_DIR")}
+    subprocess.run([str(INSTALL)], check=True, capture_output=True, env=env | {
+        "HOME": str(tmp_path), "PATH": str(launchers) + os.pathsep + os.environ["PATH"],
+    })
+    config = json.loads((tmp_path / ".codex/hooks.json").read_text())
+    command = config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    assert shlex.split(command)[0] == str(launchers / "agent-swarm")

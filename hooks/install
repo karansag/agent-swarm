@@ -12,23 +12,42 @@ its harness runs straight in its own tmux pane. JSON files are backed up to
 
 import json
 import os
+import shlex
 import shutil
 import sys
 import time
 from pathlib import Path
 
-COMMAND = "agent-swarm autoregister --hook"
 HERE = Path(__file__).resolve().parent
 HOME = Path.home()
-STAMP = time.strftime("%Y%m%d-%H%M%S")
+STAMP = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns()}"
 
 
-def edit_hooks(path: Path, remove: bool) -> None:
+def is_our_hook(command: str) -> bool:
+    if not isinstance(command, str):
+        return False
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return False
+    return len(words) == 3 and Path(words[0]).name == "agent-swarm" and words[1:] == ["autoregister", "--hook"]
+
+
+def edit_hooks(path: Path, remove: bool, command: str | None) -> None:
     config = json.loads(path.read_text()) if path.exists() else {}
     groups = config.setdefault("hooks", {}).setdefault("SessionStart", [])
-    kept = [g for g in groups if not any(h.get("command") == COMMAND for h in g.get("hooks", []))]
+    kept = []
+    for group in groups:
+        handlers = group.get("hooks", [])
+        remaining = [h for h in handlers if not is_our_hook(h.get("command", ""))]
+        if remaining == handlers:
+            kept.append(group)
+        elif remaining:
+            # Only remove our handler, preserving other handlers and matcher
+            # metadata even if a user put them in the same group.
+            kept.append({**group, "hooks": remaining})
     if not remove:
-        kept.append({"hooks": [{"type": "command", "command": COMMAND, "timeout": 15}]})
+        kept.append({"hooks": [{"type": "command", "command": command, "timeout": 15}]})
     if kept == groups:
         print(f"{path}: unchanged")
         return
@@ -61,8 +80,16 @@ def link_pi(remove: bool) -> None:
 
 def main() -> None:
     remove = "--remove" in sys.argv[1:]
-    edit_hooks(HOME / ".claude/settings.json", remove)
-    edit_hooks(Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "hooks.json", remove)
+    command = None
+    if not remove:
+        executable = shutil.which("agent-swarm")
+        if not executable:
+            sys.exit("agent-swarm is not on PATH; install its CLI before installing startup hooks")
+        # Keep the stable launcher path (e.g. ~/.local/bin/agent-swarm), not
+        # its realpath into a uv environment that can change on reinstall.
+        command = f"{shlex.quote(os.path.abspath(executable))} autoregister --hook"
+    edit_hooks(HOME / ".claude/settings.json", remove, command)
+    edit_hooks(Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "hooks.json", remove, command)
     link_pi(remove)
     if not remove:
         print("Codex skips new hooks until trusted: run /hooks in Codex once and trust it.")

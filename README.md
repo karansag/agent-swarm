@@ -541,6 +541,11 @@ Agents can register themselves when they start, with no prompt:
 hooks/install            # hooks/install --remove undoes it
 ```
 
+Run the installer on each machine after installing the CLI. It records the
+absolute `agent-swarm` launcher path, so the hook still works when the harness
+doesn't inherit your shell's PATH. Re-running it upgrades old hooks while
+preserving unrelated handlers.
+
 - Claude Code: a `SessionStart` hook in `~/.claude/settings.json`.
 - Codex: a `SessionStart` hook in `~/.codex/hooks.json`. Codex skips a new
   hook until you trust it once with `/hooks`.
@@ -557,6 +562,10 @@ failing the harness:
 - one-shot runs (`claude -p`, `codex exec`, Pi's print, JSON and RPC modes)
   and Codex's shared app-server daemon, which runs every pane's sessions;
 - everything, when `AGENT_SWARM_AUTOREGISTER=0`.
+
+Registration is best effort: hub requests time out after five seconds of
+network inactivity, and the startup hook has a 15-second overall timeout.
+An unavailable hub or invalid response doesn't prevent starting the harness.
 
 It takes the session id and model from the hook's input, not the environment,
 which a nested session inherits from its parent. Codex runs the hook at the
