@@ -31,7 +31,7 @@ include = ["agent_swarm*"]
 exclude = ["skills*", "tests*", "docs*"]
 
 [tool.setuptools.package-data]
-agent_swarm = ["portal.html", "static/*.css", "static/*.js"]
+agent_swarm = ["portal.html", "static/*.css", "static/*.js", "static/*.png", "static/*.svg", "static/*.webmanifest"]
 
 [project.scripts]
 agent-swarm = "agent_swarm.client:main"
