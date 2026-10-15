@@ -179,6 +179,37 @@ function CompactButton({ r }) {
     onClick=${compact}>${busy ? "compacting…" : "compact"}</button>`;
 }
 
+function StopAgentButton({ r, refresh }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const stop = async () => {
+    if (busy || !confirm(`Stop ${r.user_id} on ${machineName(r.node)}? This kills its tmux pane and ends the running session. Messages and tasks are kept.`)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/agents/${encodeURIComponent(r.user_id)}/stop`, { method: "POST" });
+      const body = await response.json().catch(() => null);
+      if (response.ok && body?.ok === true) {
+        setMessage(body.already_stopped ? "Already stopped." : "Agent stopped. Messages and tasks are kept.");
+      } else if (body?.detail?.status === "unknown" || !body?.detail?.error) {
+        setMessage("Stop not confirmed. Check the agent's status before retrying.");
+      } else {
+        setMessage(`Could not stop agent: ${body.detail.error}${body.detail.detail ? ` — ${body.detail.detail}` : ""}`);
+      }
+    } catch {
+      setMessage("Stop not confirmed. Check the agent's status before retrying.");
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+  return html`<span class="agent-stop-control">
+    ${r.pane_alive && html`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
+      ${busy ? "stopping…" : "stop agent"}</button>`}
+    ${message && html`<span role="status"> ${message}</span>`}
+  </span>`;
+}
+
 // "claude-opus-4-7" reads as "opus-4-7" next to the claude flavor tag.
 function shortModel(model, flavor) {
   const prefix = `${flavor}-`;
@@ -1453,6 +1484,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
           <${ModelLabel} r=${r} refresh=${refresh} /> · <${MachineBadge} node=${r.node} /> · pane <b>${r.pane_label}</b>${r.pane_alive ? "" : " (stopped)"}
           <${JumpToPane} r=${r} />
           <${CompactButton} r=${r} />
+          <${StopAgentButton} key=${user} r=${r} refresh=${refresh} />
           · joined ${rel(r.registered_at, state.now)}
           · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? html` <span class="attn">${detail}</span>` : ""}
         </div>

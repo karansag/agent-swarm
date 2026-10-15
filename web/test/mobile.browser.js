@@ -635,3 +635,41 @@ for (const rosterOpen of [true, false]) {
     } finally { await page.close(); }
   });
 }
+
+test('detail stop confirms, handles failure, retries, and keeps history on the page', async () => {
+  const { page, state, errors } = await setup(390, 844);
+  let calls = 0;
+  await page.route('**/agents/stoat/stop', async route => {
+    calls++;
+    assert.equal(route.request().method(), 'POST');
+    if (calls === 1) return route.abort();
+    state.recipients.find(r => r.user_id === 'stoat').pane_alive = false;
+    await route.fulfill({ json: { ok: true, already_stopped: false } });
+  });
+  try {
+    await page.goto(base + '#/agent/stoat');
+    const stop = page.locator('.fhead').getByRole('button', { name: 'stop agent', exact: true });
+    page.once('dialog', dialog => dialog.dismiss());
+    await stop.click();
+    assert.equal(calls, 0);
+    page.once('dialog', dialog => {
+      assert.match(dialog.message(), /stoat on karans-linux/);
+      return dialog.accept();
+    });
+    await stop.click();
+    await page.getByText('Stop not confirmed. Check the agent\'s status before retrying.', { exact: true }).waitFor();
+    assert.equal(await stop.isEnabled(), true);
+    page.once('dialog', dialog => dialog.accept());
+    await stop.click();
+    await page.getByText('Agent stopped. Messages and tasks are kept.', { exact: true }).waitFor();
+    await stop.waitFor({ state: 'detached' });
+    assert.equal(calls, 2);
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+    assert.ok(await page.locator('.thread .msg').count() > 0);
+    assert.ok(await page.locator('.agent-task-row, .task-compose-fold').count() > 0);
+    await page.goto(base + '#/agent/stopped-agent');
+    await page.waitForSelector('.fhead');
+    assert.equal(await page.locator('.fhead .stop-agent').count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
