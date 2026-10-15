@@ -24,16 +24,19 @@ static BOOL hasBundle(void) {
     return NO;
 }
 
-static void authorize(BOOL openSettingsIfDenied, void (^completion)(BOOL)) {
+// Logs the result when asked to, and always when permission is refused.
+static void authorize(BOOL logResult, BOOL openSettingsIfDenied, void (^completion)(BOOL)) {
     if (!hasBundle()) { if (completion) completion(NO); return; }
     UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
     [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert |
                                             UNAuthorizationOptionSound |
                                             UNAuthorizationOptionBadge)
                          completionHandler:^(BOOL granted, NSError *error) {
-        fprintf(stderr, "Agent Swarm notifications: authorization granted=%s error=%s\n",
-                granted ? "yes" : "no", error ? error.description.UTF8String : "none");
-        fflush(stderr);
+        if (logResult || !granted) {
+            fprintf(stderr, "Agent Swarm notifications: authorization granted=%s error=%s\n",
+                    granted ? "yes" : "no", error ? error.description.UTF8String : "none");
+            fflush(stderr);
+        }
         if (!granted && openSettingsIfDenied) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:
@@ -74,7 +77,7 @@ static void sendNotification(NSString *agent) {
     // Strings are copied to ARC-owned objects before this async operation.
     // Calling requestAuthorization again does not reprompt after a decision;
     // it ensures the first attention update waits for the initial grant.
-    authorize(NO, ^(BOOL granted) {
+    authorize(NO, NO, ^(BOOL granted) {
         if (!granted) return;
         UNMutableNotificationContent *content = [UNMutableNotificationContent new];
         content.title = agent ? @"Agent needs attention" : @"Agent Swarm notifications";
@@ -82,8 +85,9 @@ static void sendNotification(NSString *agent) {
                              : @"Notifications are enabled. Your swarm can reach you here.";
         content.sound = UNNotificationSound.defaultSound;
         if (agent) content.userInfo = @{@"agent": agent};
+        // One notification per agent: a newer one replaces the older.
         UNNotificationRequest *request = [UNNotificationRequest
-            requestWithIdentifier:NSUUID.UUID.UUIDString content:content trigger:nil];
+            requestWithIdentifier:(agent ?: @"test") content:content trigger:nil];
         [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:request
             withCompletionHandler:^(NSError *error) {
                 if (error) logError("delivery", error);
@@ -102,12 +106,12 @@ void swarm_notifications_init(void (*callback)(const char *)) {
         if (!hasBundle()) return;
         notificationDelegate = [SwarmNotificationDelegate new];
         UNUserNotificationCenter.currentNotificationCenter.delegate = notificationDelegate;
-        authorize(NO, nil);
+        authorize(YES, NO, nil);
     }
 }
 
 void swarm_notifications_enable(void) {
-    @autoreleasepool { authorize(YES, nil); }
+    @autoreleasepool { authorize(YES, YES, nil); }
 }
 
 void swarm_notifications_send(const char *agent) {

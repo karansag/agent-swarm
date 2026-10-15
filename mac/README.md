@@ -1,95 +1,83 @@
 # Agent Swarm for Mac
 
-A separate Mac window for an existing hub dashboard. The hub keeps running on
-its own machine. This app saves a URL, displays that page in system WebKit, and
-adds a menu-bar icon, a Dock badge, and native notifications.
+The dashboard in its own Mac window. The hub keeps running where it is; the
+app only opens its URL. It adds a menu-bar icon, a Dock badge with the number
+of agents that need you, and a notification when an agent starts needing you.
+
+The badge and notifications need a hub whose dashboard includes
+`web/src/native.js` (on master since this app was added). An older hub still
+loads, without them.
 
 ## Build and install
 
-On the Mac, install Apple's Command Line Tools (`xcode-select --install`), current
-stable Rust using [rustup](https://rustup.rs), and Node.js 22 or newer. Xcode.app
-is not needed. Then, from this directory:
+On the Mac you need the Command Line Tools (`xcode-select --install`), Rust
+from [rustup](https://rustup.rs), and Node.js 22 or newer. Xcode.app is not
+needed. From this directory:
 
 ```sh
 npm ci
 npm run build
 ```
 
-The output is `src-tauri/target/release/bundle/macos/Agent Swarm.app`. Copy it
-to `/Applications`. (No DMG: its Finder styling step needs Automation permission
-and fails from a plain terminal.) Tauri ad-hoc signs the whole `.app` bundle
-using `signingIdentity: "-"`, binding its Info.plist and bundle identifier to the
-signature. The linker's binary-only signature is insufficient for notification
-authorization. macOS may ask for notification permission again after each
-rebuild because ad-hoc signatures change. A local build may need to be opened
-once using Finder's context menu → Open. Distribution to other users needs
-Apple's signing and notarization setup; see [Tauri's Mac signing guide](https://v2.tauri.app/distribute/sign/macos/).
+This makes `src-tauri/target/release/bundle/macos/Agent Swarm.app`. Copy it to
+`/Applications` (`ditto`, so the signature is kept). There is no DMG: its
+Finder step needs Automation permission and fails from a plain terminal.
 
-You can also install the Tauri CLI with `cargo install tauri-cli --locked` and
-run `cargo tauri build` from `mac/`. Icons are already checked in; no Node
-build step is required with the Cargo CLI. `npm run dev` runs the native app
-for development. `npm run icons` regenerates the rounded app and menu-bar icons
-from `../web/public/static/icon.svg`.
+The build signs the whole app ad hoc (`signingIdentity: "-"` in
+`tauri.conf.json`). macOS refuses notifications to an app whose bundle is not
+signed. Ad-hoc signatures change on every build, so macOS may ask for
+notification permission again after a rebuild.
+
+A local build is not quarantined and opens directly. A copy downloaded from
+elsewhere is blocked the first time; allow it in System Settings → Privacy &
+Security → Open Anyway. Signing for other people needs an Apple developer
+account; see [Tauri's guide](https://v2.tauri.app/distribute/sign/macos/).
+
+`npm run icons` remakes the app and menu-bar icons from
+`../web/public/static/icon.svg`. `npm run dev` runs the app in development.
 
 ## Use it
 
-On first launch, enter the hub dashboard's HTTPS URL, for example
-`https://your-linux.your-tailnet.ts.net:8445/`. Keep Tailscale connected for a
-Tailscale URL. HTTP is also accepted for a local test hub on localhost. The
-address is saved in
+On first launch, enter the dashboard URL, for example
+`https://your-linux.your-tailnet.ts.net:8445/`. It must be HTTPS, or HTTP on
+localhost for a test hub. It is saved in
 `~/Library/Application Support/com.karansag.agent-swarm/settings.json`.
 
-The menu-bar icon has **Open dashboard**, **Change hub URL…**, notification
-controls, and **Quit Agent Swarm**. Closing the window hides it; the app stays
-running. Click the Dock
-icon or use Open dashboard to show it again. **⌘Q** quits. Changing the URL saves
-it and restarts the wrapper only when the address actually changed. Cancel and
-saving an unchanged address return to the page you left, including its agent
-route. Quitting and relaunching restores that page too. Launching
-the app again reopens its existing window rather than starting another copy.
+- Closing the window hides it. The Dock icon or the menu-bar **Open dashboard**
+  shows it again. ⌘Q quits.
+- **Change hub URL…** opens the setup page. Cancel, or saving the same URL,
+  goes back to the page you were on. A new URL restarts the app on that hub's
+  main page.
+- After quitting, the app reopens on the page you left. If that agent is gone,
+  the dashboard shows the overview.
+- The Dock badge counts agents that need you. Each agent that starts needing
+  you gets one notification. Clicking it opens that agent's page.
+- **Enable notifications…** asks for permission, or opens notification
+  settings if it was refused. **Test notification** sends a test.
+- The page keeps polling while the window is hidden (macOS 14 and newer).
+  Notifications come from that polling, so the app must be running and the hub
+  reachable.
 
-The Dock badge counts unique agents needing attention. A notification appears
-when an agent first enters that list, including agents already waiting on
-launch. Returning to normal and later needing attention again generates a new
-notification. Permit notifications for Agent Swarm in macOS System Settings if
-prompted. The app uses `UNUserNotificationCenter`, requests permission on launch,
-and presents banners even when its window is in front. **Enable notifications…**
-requests permission (or opens notification settings after denial); **Test
-notification** sends a local test without touching an agent. Clicking an agent's
-notification opens its page. Notification delivery is best effort; Focus and OS notification
-settings can suppress it. The page keeps polling while the window is hidden on
-macOS 14 and newer. On older macOS versions WebKit may pause background polling.
-Notifications require the app to be running and the dashboard to be reachable;
-these are dashboard updates, not server push notifications.
+## Security
 
-## Page integration and permissions
-
-The hub page calls:
+The hub page can call one app command, `attention`, and only from the exact
+origin you saved (scheme, host and port):
 
 ```js
-await window.__TAURI__.core.invoke('attention', { agents: ['otter', 'stoat'] });
+window.__TAURI__.core.invoke('attention', { agents: ['otter', 'stoat'] });
 ```
 
-Send the complete list on the first poll and whenever it changes, including
-`[]` to clear the badge. Duplicate names are counted once. The Rust state keeps
-the prior list across page reloads during the same app run. A full app restart
-starts a fresh list.
+The page sends the full list on its first poll and then when it changes.
 
-The chosen hub's exact origin (scheme, hostname, and port) receives a runtime
-capability for **only `attention`**. All custom commands are subject to Tauri's
-ACL. Settings commands are local-only and also verify the bundled page origin.
-No filesystem, shell, HTTP, notification-plugin, or window-control permissions
-are granted to the remote page. Cross-origin navigation and new windows are
-kept out of the app; ordinary HTTP(S) links open in the default browser. A
-restart on URL change discards the previous origin's grant. Native notifications
-use a small Objective-C bridge to Apple's UserNotifications framework, with no
-notification IPC exposed to the page. Badge changes remain in Rust. This
-replaces the Tauri plugin's deprecated `NSUserNotificationCenter` backend and
-its desktop permission no-op.
+The setup commands work only on the bundled setup page. Links to other origins
+open in your browser, not in the app. Changing the URL restarts the app, which
+drops the old origin's access. Notifications go through a small Objective-C
+bridge to `UNUserNotificationCenter` (`native/notifications.m`), not through
+the page.
 
-## Verify
+## Check it
 
-Portable checks run on Linux or Mac without WebKit libraries:
+On Linux or a Mac, without WebKit:
 
 ```sh
 npm test
@@ -97,60 +85,46 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo check --manifest-path src-tauri/Cargo.toml --no-default-features
 ```
 
-Build and exercise the installed `.app` on a Mac before merging:
+On a Mac, with the app from `/Applications` and a scratch hub:
 
-1. First launch: enter a hub URL, save, and confirm the app restarts into that
-   dashboard. Relaunch it and confirm the saved URL is retained.
-2. Close the window; use the menu-bar menu and Dock icon to reopen it. Verify
-   ⌘Q quits, and Copy/Paste works in the chat composer.
-3. On a scratch hub, make an agent need attention. Check badge `1` and one
-   notification. Repeated polls and a page reload should produce no duplicate.
-   Add another agent, then clear the list; check badge `2`, then no badge.
-   Also try **Test notification** while the app is in front, and click an
-   agent notification to confirm it opens that agent's page.
-4. Leave the window hidden for at least five minutes, then trigger attention
-   on the scratch hub; check that the native notification still arrives.
-5. Open an agent page, enter settings, and Cancel; check the exact agent page
-   returns. Repeat with Save and the same URL, then ⌘Q and relaunch; check the
-   same page remains. Change to a second scratch URL; check its main page loads
-   and survives relaunch. Invalid URLs must not replace the saved address.
-6. In a debug app's Web Inspector, invoke `setup_info` or `save_hub` from the
-   remote page and confirm rejection; `attention` is the only allowed custom
-   command. Check that navigating to another origin is blocked.
+1. First launch: enter the URL and save; the dashboard opens. Quit and reopen;
+   it goes straight there.
+2. Close the window, reopen it from the menu bar and the Dock. Copy and paste
+   work in the chat box. ⌘Q quits.
+3. Make an agent need attention: badge 1 and one notification. A reload sends
+   no second one. A second agent gives badge 2; clearing both removes it.
+   Clicking the notification opens that agent.
+4. Hide the window for five minutes, then make an agent need attention; the
+   notification still arrives.
+5. Open an agent, go to Change hub URL…, and Cancel: the same agent page
+   returns. Same after saving the same URL, and after ⌘Q and reopening. An
+   invalid URL shows an error and keeps the saved one.
+6. Build with `npm run build -- --debug` to get the Web Inspector. From the hub
+   page, `setup_info` and `save_hub` must be refused, and `attention` allowed.
 
-Linux validates the portable logic and config, but cannot verify Cocoa,
-WKWebView, or native notifications. The Mac build and checks above are required.
+## Troubleshooting
 
-For notification troubleshooting, first quit any running copy, then launch the
-installed bundle's executable with stderr captured:
+To see the notification log, quit the app, then run its binary with stderr
+saved:
 
 ```sh
-"/Applications/Agent Swarm.app/Contents/MacOS/agent-swarm-mac" 2> /tmp/agent-swarm-notifications.log
+"/Applications/Agent Swarm.app/Contents/MacOS/agent-swarm-mac" 2> /tmp/agent-swarm.log
 ```
 
-Or, from `mac/`, run the bundle in the build folder:
+If the log stays empty, another copy was already running: the new one hands
+over to it and exits. Quit all copies first.
 
-```sh
-"src-tauri/target/release/bundle/macos/Agent Swarm.app/Contents/MacOS/agent-swarm-mac" 2> /tmp/agent-swarm-notifications.log
-```
+`authorization granted=no error=Error Domain=UNErrorDomain Code=1 "(null)"`
+means macOS refused notifications. Check, in order:
 
-If authorization is refused without a prompt, check Agent Swarm in System
-Settings → Notifications and test the installed copy in `/Applications`.
-Keep the authorization error in the report; a successful build alone does not
-verify notification permission or banner delivery.
+- `codesign -dv --verbose=4 "/Applications/Agent Swarm.app"` shows
+  `Identifier=com.karansag.agent-swarm` and a `Sealed Resources` line. If not,
+  the bundle is not signed; rebuild.
+- Only one copy is registered with macOS. Old copies (for example on an
+  unmounted DMG) can take the permission. List them with
+  `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump | grep -B5 com.karansag.agent-swarm`
+  and remove one with `lsregister -u "<path>"`.
+- Agent Swarm is allowed in System Settings → Notifications.
 
-To check the bundle signature after building:
-
-```sh
-codesign --verify --deep --strict "src-tauri/target/release/bundle/macos/Agent Swarm.app"
-codesign --display --verbose=4 "src-tauri/target/release/bundle/macos/Agent Swarm.app"
-```
-
-The identifier should be `com.karansag.agent-swarm`, with Info.plist bound and
-sealed resources, rather than only a linker-generated binary identifier.
-
-The log records the authorization result and any error, plus queued/delivery
-results. This matters for ad-hoc signed builds: a signing or authorization
-failure must be checked on the actual Mac. A `queued` result confirms scheduling,
-not that macOS displayed a banner; check Focus, notification settings, and the
-foreground/background cases as well.
+A `queued` line means macOS accepted the notification. Focus modes and
+notification settings can still hide the banner.
