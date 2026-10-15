@@ -1,539 +1,117 @@
 # agent-swarm
 
-`agent-swarm` is a tiny local message bus for AI agents running in
-separate tmux panes. Its package, command-line interface, and service are
-named `agent-swarm`.
+Run many coding agents in tmux and let them talk to each other.
 
-It gives agents a practical way to coordinate without a shared browser,
-cloud service, polling loop, or custom client integration. Messages are
-stored in SQLite and delivered through the recipient's tmux pane with a
-bracketed paste, so the message lands exactly where the agent is
-already listening: its prompt.
+agent-swarm is a small server that knows every agent you run (Claude Code,
+Codex, Pi, Hermes, or any terminal program) and the tmux pane it lives in.
+When one agent sends another a message, the server pastes it into the
+recipient's prompt, so it arrives as the agent's next turn. Agents never
+poll, and there is no plugin and no cloud service. Messages and tasks are
+kept in SQLite.
 
-![Live agent dashboard showing harnesses, teams, activity, and assigned work](demo/dashboard.gif)
+A web dashboard sits on top: you see every agent live, hand out tasks, form
+teams, and talk to any agent from your browser or your phone.
 
-The bundled [agent dashboard](#agent-dashboard) is the coordination
-surface: every running agent appears live, waiting tasks sit in a
-central comb until an agent or team picks them up, and the human
-operator assigns work, forms teams, and watches progress without
-leaving the browser.
+![The dashboard overview: agents fly around a comb of waiting tasks, messages travel between them, and finished tasks ship. The sidebar groups agents by team.](demo/dashboard.gif)
 
-![Agent detail view with a pinned owner thread and separate peer-agent message channels](demo/dashboard-agent-detail.png)
+## What you get
 
-Clicking an agent focuses it: a live capture of its tmux pane, a
-composer for sending it instructions directly, and a separate thread
-for each peer it has talked to.
+- **Messaging between agents.** `agent-swarm send --to stoat --message "..."`
+  types the message into stoat's pane. Every message is recorded, even when
+  delivery fails.
+- **A dashboard** at <http://127.0.0.1:8765/>. Each agent's activity
+  (working, idle, needs attention), its own one-line status, its tasks, and
+  its conversations, refreshed every two seconds.
+- **Tasks.** A board with assignees, teams, dependencies, and attachments.
+  An agent cannot close a task without a note saying how to check the work.
+- **Teams and queens.** Group agents; crown one to split a goal into tasks
+  and hand them out.
+- **A supervisor.** One agent you can ask about the whole swarm ("what needs
+  me?"). The hub nudges it when things change.
+- **Several machines.** One hub, plus a small daemon on each other machine.
+  Agents everywhere message each other the same way.
 
-![Claude and Codex registering with agent-swarm and exchanging a message over the bus](demo/conversation.gif)
+Each agent has its own page: a live view of its terminal, a box to type
+straight into that terminal, and its conversations with you and with other
+agents.
 
-Underneath the dashboard, delivery is plain tmux. Here Claude Code
-(top) and Codex (bottom) each register, then exchange messages live:
-one asks the other what model it's running, gets the reply injected
-straight into its prompt, and sends back an acknowledgment. The
-dashboard is where you watch and steer; tmux is how every message actually
-reaches an agent. See
-[demo/README.md](./demo/README.md) for how these demos were recorded,
-including the VHS tape used to generate them.
+![An agent's page: its team, status line, live terminal with a key bar, and the conversation with the owner](demo/agent-page.png)
 
-If you are an AI agent, start with [AGENT_PROMPT.md](./AGENT_PROMPT.md).
-It explains how to register, how to recognize inbound agent traffic, and
-how to avoid mistaking another agent's message for the user.
+The dashboard works on a phone. Agents are grouped by team at the top, and
+any conversation can fill the screen.
 
-## Why This Exists
+<p align="center"><img src="demo/phone.png" width="560" alt="The dashboard on a phone: the team view of agents, and a full-screen conversation with one agent"></p>
 
-Multiple coding agents are useful, but they usually cannot talk to each
-other directly. `agent-swarm` fills that gap with a local, inspectable
-protocol:
+Under the dashboard, delivery is plain tmux. Here Claude Code (top) asks
+Codex (bottom) a question. Codex gets it as a new prompt, does the work,
+and answers the same way:
 
-- A long-running server tracks registered agents and recent messages.
-- Each agent gets a short server-assigned handle for routing.
-- The server remembers the agent's stable session id, model label, tmux
-  pane, delivery flavor, and optional contact instructions.
-- Sending a message injects a formatted line into the recipient's pane
-  and submits it with the right key for that client.
-- Every message is recorded, even when delivery fails.
+![Claude Code and Codex in two tmux panes, asking and answering over agent-swarm](demo/conversation.gif)
 
-The result is intentionally simple: agents can ask each other for status,
-delegate work, hand off context, or report completion while the human
-operator keeps full visibility.
+If you are an AI agent, read [AGENT_PROMPT.md](./AGENT_PROMPT.md) first.
+It says how to register, how to tell a message from another agent apart
+from the user, and how to reply.
 
-## How It Fits
+## Quick start
 
-`agent-swarm` is not trying to be a project manager, task graph, workspace
-orchestrator, or mailbox product. It is the delivery layer underneath
-those systems: a small component that can wake or notify a running
-terminal agent.
-
-That makes it complementary to tools like:
-
-- [Beads](https://github.com/gastownhall/beads), which handles
-  structured work tracking and agent-readable project memory.
-- [Gas Town](https://github.com/gastownhall/gastown), which manages
-  multi-agent workspaces and persistent orchestration state.
-- [hcom](https://github.com/aannoo/hcom), which provides a broader
-  terminal-agent control surface.
-- [MCP Agent Mail](https://github.com/dicklesworthstone/mcp_agent_mail)
-  and [Swarm Protocol](https://github.com/phuryn/swarm-protocol), which
-  expose richer coordination state through MCP-style workflows.
-
-See [docs/landscape.md](./docs/landscape.md) for the longer comparison.
-
-## Quick Start
-
-Requirements: Python 3.12+, `uv`, and `tmux`.
+You need Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and `tmux`.
 
 ```bash
 git clone git@github.com:karansag/agent-swarm.git
 cd agent-swarm
 uv tool install --editable .
-```
-
-This puts `agent-swarm` and `agent-swarm-server` on your PATH (via `uv`'s tool
-shims, usually `~/.local/bin`) while still running from your editable
-source checkout. If you instead use `uv pip install -e .`, the
-`agent-swarm` CLI only resolves inside that project's venv — either run it
-as `uv run agent-swarm ...`, or put `.venv/bin` on PATH yourself.
-
-Start the server:
-
-```bash
 agent-swarm-server
 ```
 
-(If you installed with `uv pip install -e .` instead, use
-`uv run agent-swarm-server`.)
-
-In each agent's tmux pane, register that agent — by hand:
-
-```bash
-agent-swarm register \
-  --agent-id "<stable-session-id>" \
-  --model "<model-label>" \
-  --flavor "<codex|claude|hermes|pi|generic>"
-```
-
-Then send a message:
-
-```bash
-agent-swarm send --to <handle> --context "handoff" --message "Can you check the failing test?"
-```
-
-Or, if the agent is Claude Code or Codex, install the bundled skill
-(see [Agent Skills](#agent-skills) below) and just ask the agent to
-"register yourself with agent-swarm" — it runs the same commands for you.
-
-Useful status commands:
-
-```bash
-agent-swarm whoami
-agent-swarm recipients
-agent-swarm messages --limit 20
-```
-
-## Agent Dashboard
-
-The server doubles as the live dashboard shown at the top of this page.
-While the server is running, open <http://127.0.0.1:8765/> for a
-dynamic view of every registered agent and the conversations between
-them, refreshed every couple of seconds.
-
-The layout has two modes plus a persistent roster:
-
-- **Roster (right sidebar)**: one compact chip per running agent with
-  avatar, flavor, tmux pane, activity dot, and current task. Working
-  agents get a green card and sort to the top; a chip gets an unread
-  badge when messages involving that agent arrive while you are
-  elsewhere. Teams are built here: create one with the team-name form,
-  then drag chips into its box (or drop them back on the no-team area
-  to unteam). The crown button on a member asks for a coordination
-  objective and promotes that member to the team's queen: it receives a
-  prompt to decompose the objective, parcel tasks out to teammates, and
-  monitor them. This remains a prompt-driven role, not elevated server
-  authority. The stop control kills the agent's pane after confirmation;
-  stopped agents collapse into a group at the bottom and drop out of
-  assignment controls. The spawn control at the bottom launches a new
-  agent in a fresh tmux window: pick a harness (claude, codex, pi, or
-  hermes) and, optionally, one of that harness's known models, which is
-  passed to the harness binary with its model flag; "default model" passes
-  no model flag at all. There is no permission choice. The launch commands
-  are `claude [--model M]`, `codex -c check_for_update_on_startup=false
-  [--model M] --yolo --no-daemon` (the update check would stall a fresh
-  pane; `--no-daemon` keeps codex from running the agent's commands in a
-  shared daemon that reports another pane, and is only passed when the
-  installed codex accepts it), `pi [--model M]`, and `hermes [-m M] --yolo
-  --accept-hooks`. Codex runs with `--yolo` because its sandbox blocks the
-  tmux socket, the local agent-swarm API and DNS, so a sandboxed agent could
-  not register or send. A spawned claude asks before running commands; the
-  dashboard shows that as needs attention. Agents you register from your own
-  terminal are never touched by any of this.
-- **Overview mode** (default): a live activity panel shows running
-  agents orbiting a central honeycomb of waiting task hexagons. Bees
-  carry assigned tasks, completed tokens fly toward the shipped pile,
-  and owner/agent messages travel through the same scene. A stable body
-  color and upright glyph plate identify each bee's harness (Claude,
-  Codex, Pi, Hermes, or generic), with a compact legend in the panel;
-  activity remains a separate halo/marker channel. Teammates
-  cluster inside a labeled outline; the queen bee wears a crown, and
-  bees can be dragged into or out of a team outline to change teams.
-  Task hexagons can be dragged onto a bee (individual assignment) or a
-  team outline (the queen is told to parcel it out). A team outline can
-  itself be dragged by its empty space to move the whole team out of
-  the way; the spot sticks per browser, and bees outside a team are
-  nudged out of team outlines so the scene never piles up. Dependencies
-  show as edges between comb cells, and blocked tasks render dashed. The
-  kanban below remains the precise management surface: card drags work
-  the same way, and the assignee select lists teams as well as agents
-  for a keyboard and touch alternative.
-- **Agent focus mode** (click a chip, or `#/agent/<handle>`): a live
-  capture of that agent's tmux pane followed by its conversations. The
-  owner↔agent conversation has a full message composer: draft multi-line
-  instructions, optionally add a context tag, and send with Enter (use
-  Shift+Enter for a new line). Drafts are kept separately for each
-  composer and agent until delivery. For now, the terminal capture also
-  retains a matching composer so the two interactions can be compared.
-  Each conversation history has a full-width resize edge immediately above
-  its composer; drag it vertically, or focus it and use the arrow keys, to
-  show more or fewer prior messages without resizing the composer itself.
-  Messages are sent as `owner`, the reserved handle for the human
-  operator, straight into the agent's pane. The agent's tasks follow
-  below; Escape returns to the overview.
-
-A background monitor watches each agent's pane and classifies it as
-working, idle, needs attention, unknown, or stopped, updated within about
-ten seconds. Each state has one consistent color (and the status word,
-so color is never the only cue) across the roster dot, focus header, and
-hive marker. "Needs attention" means the pane looks like it is waiting on
-a prompt (for example a permission dialog); the monitor never answers it,
-it only surfaces the reason and, once the prompt outlasts a grace period,
-posts a single message to the owner's dashboard thread. Interval and
-grace are set by `AGENT_SWARM_MONITOR_INTERVAL` (default 5s) and
-`AGENT_SWARM_ATTENTION_GRACE` (default 60s).
-
-Agents reply to the human with `agent-swarm send --to owner`; those
-messages appear only on the dashboard. Owner messages include a short reply
-reminder on the first delivery after registration and after 25 minutes of
-conversation inactivity. Successful messages in either direction keep the
-conversation active; failed or unconfirmed deliveries do not suppress the
-reminder. The history-based check survives a hub restart.
-
-The portal is built from the JavaScript modules and stylesheet under `web/`
-with Vite and local Preact/HTM packages. The generated `agent_swarm/portal.html`
-and `agent_swarm/static/` assets are committed and included in the Python
-package, so production needs only the normal Python runtime and makes no
-external browser requests. The app polls `/api/state` and
-`/api/peek/<handle>`.
-
-### Remote access over Tailscale
-
-To reach the dashboard from other devices on your tailnet, publish the
-server on a separate HTTPS port:
-
-```bash
-tailscale serve --bg --https=8445 http://127.0.0.1:8765
-```
-
-Then open `https://<machine-name>.<tailnet>.ts.net:8445/` from any
-tailnet device. Remove it with `tailscale serve --https=8445 off`. Serve
-tells the hub who you are, and the hub treats you as the owner; on a
-shared tailnet, name who may with `AGENT_SWARM_OWNER_LOGINS` (see
-Security Model).
-
-## Tasks
-
-Tasks live in the same SQLite database. The owner creates and assigns
-them from the dashboard (or `POST /tasks`); agents update them over the
-CLI:
-
-```bash
-agent-swarm tasks                      # list all tasks
-agent-swarm tasks --status open        # filter by status
-agent-swarm task-create "investigate flaky build" --description "CI failed twice"
-agent-swarm task-create "review the fix" --assignee stoat
-agent-swarm task-create "ship it" --depends-on 3,5   # dependency graph, shown on the board
-agent-swarm task-update 3 --worktree /abs/path/to/repo-task-3 --status picked_up
-agent-swarm task-update 3 --status done --note "Run agent-swarm tasks; the note shows on the card"
-```
-
-Closing a task requires `--note`, and the close is refused without one.
-The note says how to check the work: how to use it if it is a feature,
-how to reproduce the problem if it is a fix, and where to look. It is
-stored on the task, so the board stays a record of what changed and how
-to confirm it rather than just a list of finished titles. On the
-dashboard each card shows a "how to verify" toggle, and a picked-up task
-links to its agent so you can open that agent and ask.
-
-### What each agent is doing
-
-Each agent card on the dashboard shows one line saying what the agent is
-doing, with how long ago it was set; the agent's page lists the last few.
-The line comes from two places, newest wins:
-
-- The agent says it: `agent-swarm status "working on #12: pane ids"`. The
-  protocol brief and every task assignment ask agents to do this when they
-  start something new. It is a request, so an agent can forget.
-- The harness title: Claude Code and Codex write a short topic into the
-  tmux pane title (`✳ PR 9130 review`). The server reads it every monitor
-  tick, so agents show something even if they never report. It is set per
-  conversation topic, so it can lag behind the actual work.
-
-Registration no longer overwrites the pane title, which would hide that topic.
-
-Statuses are `open`, `picked_up`, and `done`. Assigning or reassigning
-a task notifies the new assignee in their pane, tagged `task #N`. For
-repository work, each task uses branch `task/<id>` in its own git
-worktree; the agent records the absolute path on the task. See
-`AGENT_PROMPT.md` for the worker convention and how teams and
-queens coordinate.
-
-## Supervisor
-
-One agent can hold the swarm supervisor role: the agent the owner asks
-about the whole swarm. Like a team queen it is a prompt, not server
-authority, but it is fleet-wide and stored on the hub:
-
-```bash
-agent-swarm supervisor heron --objective "watch the board; tell me what needs me"
-agent-swarm supervisor            # who holds it
-agent-swarm supervisor --clear    # end it
-```
-
-Appointing delivers a role prompt to that agent. Then talk to it from its
-dashboard page: "what is going on?", "what happened with #12?", "file a
-task for the flaky test and give it to someone idle". It answers in the
-owner thread. What it reads is the digest, which you can read too:
-
-```bash
-agent-swarm digest --minutes 30            # a window
-agent-swarm digest --after-message 3800    # exactly what is new since a cursor
-```
-
-The digest is one block of text: live agents by activity (with any
-approval prompt an agent is stuck on), tasks changed since the cursor
-with the verify note of a closed one, open tasks nobody has, and new
-messages one line each with failures marked. Its last line names the
-cursor for the next call.
-
-The hub keeps the supervisor plugged in without flooding it: every
-`AGENT_SWARM_SUPERVISOR_INTERVAL` seconds (default 300; 0 disables), if
-there were messages it was not party to or task changes, it gets one
-line from the reserved sender `hub` saying how many and which digest to
-run. `agent-swarm spawn` and `agent-swarm stop` give it hands for
-delegation; both are owner-only endpoints, so they work from the hub
-machine and are refused through a node token. See
-[docs/supervisor-design.md](./docs/supervisor-design.md) for the
-reasoning and what was left out.
-
-## Multiple Machines
-
-One server is the hub: it holds every handle, message, task, and team,
-and serves the dashboard. Any other machine with agents in tmux runs a
-small daemon, `agent-swarm-node`, that dials the hub over one websocket
-and drives that machine's tmux on the hub's behalf. Agents register,
-send, and receive exactly as on one machine; the hub routes each message
-to the machine the recipient's pane is on. Nodes never listen and need
-no reachable address; the hub does need one, on the tailnet. Run the
-hub on the machine that stays on.
-
-On the hub:
-
-```bash
-# Listen on every interface, loopback included; loopback callers are the
-# owner, every other caller needs a node token. This is NOT limited to the
-# tailnet: restrict port 8765 to loopback and the Tailscale interface with
-# the host firewall before doing it (see Security Model).
-AGENT_SWARM_HOST=0.0.0.0 agent-swarm-server
-
-# Enrol a machine. Prints its token once, and the join command to run there.
-agent-swarm node-token karans-macbook-pro
-```
-
-On the other machine:
-
-```bash
-uv tool install --editable .              # same package, same version as the hub
-agent-swarm join http://karans-linux:8765 --token <token> --node karans-macbook-pro
-agent-swarm-node                          # keep it running: launchd, systemd --user, or a tmux window
-```
-
-`join` writes `~/.agent-swarm/node.toml` (hub URL, token, node name),
-which the CLI and the daemon both read, then checks that the hub takes
-the token for that node. An agent already running in a tmux pane needs
-nothing more: its harness runs the CLI as a subprocess, which reads the
-file, so "register yourself with agent-swarm" works unchanged.
-
-What a node may do is what an agent does, for its own machine only:
-register, send, report status, read recipients and messages, and file
-or update tasks. A task an agent on a node assigns is delivered in that
-agent's name. Everything the owner does from the dashboard (owner
-messages, spawn, stop, teams, prune, enrolment) is refused to a node
-token. Rotating a token (`node-token` again) or revoking a node
-(`DELETE /nodes/<name>`) disconnects it at once.
-
-The dashboard lists machines with a connected dot once more than one is
-enrolled, shows each agent's node on its card, and can spawn on a
-connected machine using the harnesses that machine reported.
-
-What changes when a paste crosses the network:
-
-- A message is recorded before it is pasted, and its status is
-  `delivered`, `failed`, or `unknown`. Unknown means the node may have
-  pasted it but the result was lost (the socket dropped, the node
-  restarted mid-paste). The server never resends an unknown message on
-  its own; the dashboard marks it and offers "send again", which posts
-  a new message. Read `status`, not `ok` alone, from `/send`.
-- A node remembers the commands with side effects it has executed, by
-  hub and operation id, for 24 hours; a command the hub resends within
-  that window gets the recorded result instead of running again, one
-  left in flight by a node restart becomes unknown and is not run while
-  that record lasts, and the hub never resends unknown or expired
-  commands on its own. The guarantee is that window: a deliberate resend
-  after the record is pruned runs again. A
-  command that waited past its time to live (a laptop waking with a
-  queue behind it), or that arrived under a connection that has since
-  ended, is refused before it touches tmux.
-- Attachments travel by name; the node fetches each from the hub,
-  verifies it against its hash, caches it, and pastes a path on its own
-  disk.
-- A node that disconnects, or that cannot read its tmux, leaves its
-  agents offline with that reason; sends to them are refused and
-  recorded, and prune leaves them alone until the node confirms a pane
-  is gone. A machine that comes back finds its agents as it left them.
-- A worktree path recorded on a task is stored with the machine it is
-  on. The task convention is unchanged; a worker pushes its branch and
-  reports the ref, since a path means nothing on another machine.
-
-### Bringing a machine that had its own hub
-
-A machine that has been running its own agent-swarm arrives with agents,
-teams, and a task board of its own. Carry them over as a bundle rather
-than merging databases:
-
-```bash
-# On that machine, before or after stopping its old server:
-agent-swarm export --out ~/swarm-bundle.json          # add --with-messages for history
-
-# Copy it to the hub, then there:
-agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro --dry-run
-agent-swarm import ~/swarm-bundle.json --node karans-macbook-pro
-```
-
-The export reads that database without writing to it, so it is safe
-against a live server's file or an archived copy. The dry run decides
-everything and writes nothing, so you can read the report first. Predicted names
-hold only while the destination roster and import options stay unchanged;
-pruning or unregistering agents before applying can change the chosen names.
-
-What the hub does with it:
-
-- The hub reconnects an imported agent automatically only when the export's
-  pane id and tmux server still match the connected node, the pane runs the
-  expected harness, and its `@agent_swarm` tag (or legacy title) names the
-  original agent. It never takes a pane already registered on this hub or
-  claimed by multiple imported agents. This requires a recent export and
-  node daemon; missing evidence leaves a reservation, not a guessed binding.
-  The report lists `reconnected` agents and `reservations` with reasons.
-- Every other agent becomes a reservation: an offline row holding its handle,
-  its harness, and its contact instructions until the agent registers
-  here through the node daemon. The import prints the line to run in
-  each remaining pane. Only agents that are still running need to run their
-  line now; stopped agents can wait until resumed. An agent that reports a stable id reclaims its handle by
-  itself. A handle reserved for a named agent cannot be taken by a
-  different one, and prune leaves reservations alone.
-- A handle already in use here is imported under a fresh one, and every
-  reference to it follows. An agent whose stable id this hub already
-  knows keeps the row and the machine it already has; nothing about it
-  is changed.
-- A team whose name is already here arrives under its own name, such as
-  "shipping (karans-macbook-pro)", rather than merging two unrelated
-  teams. Pass `--merge-teams` to add to the existing one instead.
-- Tasks keep their status, notes, assignees, and dependencies, renumbered
-  here. A worktree path is recorded with the machine it is on.
-- Messages come only with `--with-messages`, as history: they are
-  written as they were recorded, never delivered again, and tagged
-  `imported` so that task numbers in their text read as the old board's.
-  Attachments stay behind and are noted in the text.
-- Importing the same export twice is refused, so a retry cannot
-  duplicate a board. The whole import is one transaction: if any part of
-  a bundle is unusable, nothing is written.
-
-Anything the import could not resolve, a queen who is not a member, a
-dependency the bundle did not carry, a worktree on a machine this hub
-does not know, comes back as a warning in the report rather than being
-dropped quietly.
-
-The design and its trade-offs are in
-[docs/cross-machine-design.md](docs/cross-machine-design.md); the full
-upgrade path for such a machine is in
-[docs/upgrading.md](docs/upgrading.md).
-
-## How Delivery Works
-
-Inbound messages are pushed, not polled. When one agent sends a message,
-the server formats it like this:
-
-```text
-[agent-msg from <sender> · <context>] <content>
-```
-
-Then it loads the text into a temporary tmux buffer, delivers it as a
-bracketed paste, and sends the configured submit key. Codex/Pi default to
-`Enter`; Claude/Hermes default to `C-m`.
-
-After submission, the server briefly checks the tmux cursor row. If that row
-still contains composer text, it retries the submit key once without injecting
-the message again. Configure the check delay with
-`AGENT_SWARM_SUBMIT_VERIFY_DELAY` (default 1.5 seconds).
-
-Because delivery happens through the prompt, any agent using this system
-must treat lines starting with `[agent-msg from ` as inter-agent traffic,
-not user input. [AGENT_PROMPT.md](./AGENT_PROMPT.md) is written for that
-case. The legacy `agent-msg` marker is intentionally retained for one release
-so already-running agents continue to recognize inbound traffic during the
-project rename.
-
-On registration, `agent-swarm` records the handle in the tmux pane option
-`@agent_swarm`. It leaves the pane title alone: Claude Code and Codex keep
-their topic there, and the dashboard reads it. To show both in tmux pane
-borders, add something like this to `~/.tmux.conf`:
-
-```tmux
-set -g pane-border-status top
-set -g pane-border-format "#{@agent_swarm} #{pane_title}"
-```
-
-Or put the active pane's agent name in the main tmux status bar:
-
-```tmux
-set -g status-right "#{@agent_swarm} | %H:%M"
-```
-
-## Agent Skills
-
-One skill, `skills/agent-swarm-register`, serves Claude Code, Codex, and Pi.
-It is a plain `SKILL.md` in the Agent Skills format. It tells the agent to run
-`agent-swarm register`. The CLI finds the harness it runs under from its
-process ancestry and registers with that flavor. It also reads the model where
-the harness reports it: `PI_MODEL` for Pi, the top-level `model` in
-`~/.codex/config.toml` for Codex. Claude Code agents pass `--model` from their
-system prompt.
-
-Link it into place:
+`uv tool install` puts `agent-swarm` and `agent-swarm-server` on your PATH
+(usually `~/.local/bin`) and runs them from this checkout. If you use
+`uv pip install -e .` instead, prefix the commands with `uv run`.
+
+Open <http://127.0.0.1:8765/>. Then install the register skill, which
+Claude Code, Codex, and Pi share:
 
 ```bash
 skills/install
 ```
 
-That symlinks the skill into `~/.agents/skills`, which Codex and Pi scan, and
-`~/.claude/skills`, which Claude Code scans. Later edits in the repo then reach
-every agent. An old copied skill at a target is moved to
-`<skills dir>.bak-<time>/`, outside the scanned directory. Links an earlier
-installer left in `~/.codex/skills` or `~/.pi/agent/skills` are removed, so no
-harness sees the skill twice.
+It links `skills/agent-swarm-register` into `~/.claude/skills` (Claude Code)
+and `~/.agents/skills` (Codex and Pi), so later edits in the repo reach every
+agent. An old copy already there is moved aside to `<skills dir>.bak-<time>/`.
+Links an earlier installer left in `~/.codex/skills` or `~/.pi/agent/skills`
+are removed, so no harness sees the skill twice.
 
-Once installed, tell the agent to register itself (e.g. "register yourself
-with agent-swarm") instead of running the CLI by hand.
+Now tell any running agent "register yourself with agent-swarm". It gets a
+short handle such as `stoat` and shows up on the dashboard. To have agents
+register as soon as they start, see
+[Startup registration](#startup-registration).
 
-## Startup Registration
+To register by hand, run this inside the agent's tmux pane:
+
+```bash
+agent-swarm register [--model <model id>]
+```
+
+The CLI works out the harness from the processes it runs under, and so the
+delivery flavor. It reads the model from `PI_MODEL` for Pi and from
+`~/.codex/config.toml` for Codex. Claude Code does not expose its model, so
+pass `--model` there. For another program, pass `--flavor` (`claude`,
+`codex`, `pi`, `hermes`, or `generic`).
+
+Then:
+
+```bash
+agent-swarm recipients                                  # who is registered
+agent-swarm send --to stoat --context handoff --message "Can you check the failing test?"
+agent-swarm send --to owner --message "Done; see #12"   # to you, on the dashboard
+agent-swarm messages --limit 20
+agent-swarm whoami
+```
+
+You can also start agents from the dashboard: the spawn control in the
+sidebar's roster view opens a new tmux window running the harness you
+pick.
+
+## Startup registration
 
 Agents can register themselves when they start, with no prompt:
 
@@ -575,330 +153,498 @@ dashboard are registered by the hub before that. It fires again on resume,
 the protocol brief in its context, without the peer list (`agent-swarm
 recipients` has it). `agent-swarm autoregister --verbose` says why it skipped.
 
-## Agent Interfaces
+## How delivery works
 
-Today, `agent-swarm` has a small `flavor` concept for Codex, Claude,
-Hermes, Pi, and generic terminal delivery. That should become a real
-adapter interface:
-
-- What kind of agent is this?
-- What submit key wakes it?
-- Does it need a message prefix?
-- How should inbound messages be formatted?
-- Which endpoint can reach it: tmux pane, PTY, HTTP, MCP, or something
-  else?
-
-The long-term direction is a typed Rust core with built-in interfaces for
-common agents and a config-defined interface path for custom tools. See
-[docs/rust-rewrite-plan.md](./docs/rust-rewrite-plan.md).
-
-## Recording A Demo
-
-The fastest useful demo is a terminal recording:
-
-1. Open a tmux window with two panes.
-2. Start `uv run agent-swarm-server` in one pane or a background shell.
-3. Register pane A and pane B with distinct `--agent-id` values.
-4. Run `agent-swarm recipients` so viewers see the assigned handles.
-5. Send `agent-swarm send --to <handle> --context demo --message "hello"`.
-6. Show the receiving pane wake up with the injected message.
-
-Good tools:
-
-- `asciinema rec demo.cast` for a terminal recording.
-- `agg demo.cast demo.gif` to render an asciinema recording to GIF.
-- QuickTime, Screen Studio, or OBS if you want a polished video.
-
-Keep it under 30 seconds. The visual point is simple: the sender runs one
-CLI command, and the receiver gets a new prompt turn automatically.
-
-## Configuration
-
-The server defaults are local-only:
+A message arrives in the recipient's prompt with a header:
 
 ```text
-AGENT_SWARM_HOST=127.0.0.1          # 0.0.0.0 to accept nodes on the tailnet
-AGENT_SWARM_PORT=8765
-AGENT_SWARM_DB=~/.agent-swarm/db.sqlite
-AGENT_SWARM_TRUST_LOOPBACK=1        # 0 to make even the hub's own loopback callers identify themselves
-AGENT_SWARM_OWNER_LOGINS=           # Tailscale logins allowed as owner via Serve; empty means any
+[agent-msg from <sender> · <context>] <content>
 ```
 
-The CLI and the node daemon read `~/.agent-swarm/node.toml` (written by
-`agent-swarm join`; `AGENT_SWARM_CONFIG` points elsewhere) for the hub
-URL, this machine's node name, and its token. `AGENT_SWARM_URL`,
-`AGENT_SWARM_NODE`, and `AGENT_SWARM_TOKEN` override it; with neither,
-the hub is `http://127.0.0.1:8765` and the node name is the short
-hostname. The daemon keeps its result store and attachment cache under
-`AGENT_SWARM_NODE_HOME` (default `~/.agent-swarm`).
+Messages from `owner` also carry a short reminder of how to reply. The
+server puts the text in a tmux buffer, pastes it as a bracketed paste,
+and presses the submit key for that harness (`Enter` for Codex and Pi,
+`C-m` for Claude and Hermes). It then checks the pane once; if the text is
+still sitting in the composer, it presses submit one more time. It never
+pastes the same message twice. `AGENT_SWARM_SUBMIT_VERIFY_DELAY` sets how
+long it waits before that check (default 1.5 seconds).
 
-For one compatibility release, the `agent-msg` and `agent-msg-server` command
-aliases and legacy `AGENT_MSG_*` environment variables remain accepted. New
-configuration should use the `agent-swarm` names above.
+Because messages come in through the prompt, every agent must treat a line
+that starts with `[agent-msg from ` as another agent talking, not the user.
+The brief an agent gets when it registers says so, and
+[AGENT_PROMPT.md](./AGENT_PROMPT.md) explains it in full.
 
-Upgrading a machine that already runs agent-swarm (or agent-msg)? Follow
-[docs/upgrading.md](docs/upgrading.md): the rename moved the default
-database path, and existing agent registrations are converted to tmux pane
-ids on first start.
+An agent is known by its harness session id (`CLAUDE_CODE_SESSION_ID`,
+`CODEX_THREAD_ID`) and, as a fallback, its tmux pane. The sender of a
+message is always worked out by the server from those, never taken from the
+caller. If a harness starts a new session in the same pane (after `/clear`,
+say), the server moves the registration to the new session.
 
-Health check:
+Registering stores the handle in the pane option `@agent_swarm` and leaves
+the pane title alone, because Claude Code and Codex keep their current topic
+there. To show both in tmux:
+
+```tmux
+set -g pane-border-status top
+set -g pane-border-format "#{@agent_swarm} #{pane_title}"
+```
+
+## The dashboard
+
+The page has three tabs.
+
+- **Overview.** The animated hive (on wide screens): agents fly around a
+  comb of waiting tasks. A bee's body color is its machine, its stripes
+  and symbol are its harness, and a green halo means it is working. Drag a
+  task onto a bee to assign it, or onto a team's outline to give it to the
+  team. Drag bees in and out of teams. The task board below does
+  the same with plain controls and works on touch screens.
+- **Chats.** Every conversation you have had with an agent, newest first,
+  with search.
+- **Task history.** Every task and status line, searchable and filtered
+  by status or agent, with the notes that say how to check finished work.
+
+The sidebar lists agents in three views: **teams** (compact chips grouped
+by team; the default; drag a chip onto another team to move it),
+**tiles**, and **roster** (full cards with the controls to stop an agent,
+crown a queen, create teams, and spawn new agents). On a phone, the same
+views sit at the top of the overview.
+
+**An agent's page** (`#/agent/<handle>`):
+
+- its harness, model, machine, and pane, with a copyable
+  `tmux switch-client` command;
+- its recent status lines;
+- **terminal**: a live capture of its pane, refreshed every two seconds,
+  and a box that types straight into it. Use it for things like `/compact`,
+  `/model`, or answering a menu; the key bar sends Esc, Up, Down, Enter, and
+  Tab.
+- **conversations**: one thread with you, and one per agent it has talked
+  to. Your messages are sent as the reserved user `owner`. Enter sends;
+  Shift+Enter adds a line. You can paste or drop files. Drafts are kept per
+  agent until they are delivered, and a send that fails on a bad connection
+  is retried without creating duplicates. "⤢ focus" makes a thread fill the
+  window, with A−/A+ for text size.
+- its tasks, and a form to give it a new one.
+
+Teammates are listed at the top of the page; Alt+[ and Alt+] move between
+them.
+
+**Activity.** A monitor reads each pane every few seconds and labels the
+agent working, idle, needs attention, unknown, or stopped. "Needs
+attention" means the pane looks stuck on a prompt, such as a permission
+question. The monitor never answers it. If the prompt is still there after
+a grace period, you get one message about it on the dashboard.
+`AGENT_SWARM_MONITOR_INTERVAL` (default 5s) and
+`AGENT_SWARM_ATTENTION_GRACE` (default 60s) set the timing.
+
+**Status lines.** Each agent shows one line saying what it is doing. It
+comes from the agent (`agent-swarm status "working on #12: pane ids"`) or,
+if newer, from the topic Claude Code and Codex write into the pane title.
+
+**Spawning.** Pick a harness and, optionally, a model. The command is
+`claude [--model M]`, `codex [--model M] --yolo`, `pi [--model M]`, or
+`hermes --yolo --accept-hooks`. "default model" passes no model
+flag. Codex also gets `-c check_for_update_on_startup=false`, so an update
+prompt cannot stall a new pane, and `--no-daemon` when the installed Codex
+supports it, so its commands run in the agent's own pane. Codex needs
+`--yolo` because its sandbox blocks the tmux socket and the local hub. A
+spawned Claude asks before running commands, which the dashboard shows as
+needs attention.
+
+**From another device.** Publish the dashboard on your tailnet with
+Tailscale Serve:
 
 ```bash
-curl http://127.0.0.1:8765/health
-# {"ok":true,"db":"/home/<you>/.agent-swarm/db.sqlite"}
+tailscale serve --bg --https=8445 http://127.0.0.1:8765
 ```
 
-Run detached:
+Open `https://<machine>.<tailnet>.ts.net:8445/`. The hub treats the
+Tailscale user as the owner; on a shared tailnet, limit that with
+`AGENT_SWARM_OWNER_LOGINS` (see [Security model](#security-model)). Turn
+it off with `tailscale serve --https=8445 off`.
+
+**As an app.** In Safari, File > Add to Dock gives the dashboard its own
+window and Dock icon; Chrome's install button does the same. For a Dock
+badge and notifications when an agent needs you, build the Mac app in
+[mac/](mac/README.md). It only opens your hub's URL; the hub stays where it
+is.
+
+## Tasks
+
+The owner creates and assigns tasks on the dashboard. Agents use the CLI:
 
 ```bash
-setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
+agent-swarm tasks --status open
+agent-swarm task-create "investigate flaky build" --description "CI failed twice"
+agent-swarm task-create "review the fix" --assignee stoat
+agent-swarm task-create "ship it" --depends-on 3,5
+agent-swarm task-update 3 --worktree /abs/path/repo-task-3 --status picked_up
+agent-swarm task-update 3 --status done --note "Run make check; the new test is test_retry_timeout"
 ```
 
-Stop or restart:
+Statuses are `open`, `picked_up`, and `done`. Assigning a task pastes it
+into the assignee's pane, tagged `task #N`. A task given to a team goes to
+the queen, or to every member if the team has no queen. For code work,
+each task gets branch `task/<id>` in its own git worktree, and the path is
+recorded on the task.
+
+Closing needs `--note`. The note says how to check the work: how to use a
+feature, how to reproduce the bug a fix solves, and where to look.
+
+A task can carry up to ten files (10 MB each), added on the dashboard. They
+are included when the task is assigned, and agents on other machines get
+their own copy.
+
+## Teams and the supervisor
+
+A team is a named group of agents. Create one in the sidebar's roster view
+and drag agents in. The crown button makes a member the queen: it gets the
+team's objective and a prompt to split it into tasks, hand them out, and
+follow up. The queen has no special powers on the server; it is a role
+given by prompt.
+
+The supervisor is the same idea for the whole swarm: the one agent you ask
+"what is going on?", "what happened with #12?", or "file this and give it
+to someone idle".
 
 ```bash
-fuser -k 8765/tcp
-setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
+agent-swarm supervisor heron --objective "watch the board; tell me what needs me"
+agent-swarm supervisor            # who holds the role
+agent-swarm supervisor --clear    # end it
 ```
 
-Reset local state:
+It reads the swarm through the digest, which you can run too:
 
 ```bash
-fuser -k 8765/tcp
-rm -f ~/.agent-swarm/db.sqlite
-setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1
+agent-swarm digest --minutes 30
+agent-swarm digest --after-message 3800
 ```
 
-## CLI Reference
+The digest is one block of text: live agents by activity (with the prompt
+any of them is stuck on), tasks changed since the cursor, open tasks
+nobody has, and new messages, one line each. Its last line gives the
+cursor for the next call. Every `AGENT_SWARM_SUPERVISOR_INTERVAL` seconds
+(default 300; 0 turns it off), if something changed, the hub sends the
+supervisor one line saying so. `agent-swarm spawn` and `agent-swarm stop`
+let it start and stop agents, but only when it runs on the hub machine:
+both are owner actions. See
+[docs/supervisor-design.md](./docs/supervisor-design.md) for why it works
+this way.
 
-Use `agent-swarm unregister` to remove the current pane's registration, or
-`agent-swarm unregister --user HANDLE` to remove a specific registration.
-This leaves the agent process, message history, and tasks intact; team membership
-and any queen role are removed with the registration. The HTTP endpoint is
-`DELETE /recipients/{user_id}` (404 if not registered). The freed handle can be
-reclaimed with `agent-swarm register --name HANDLE`.
+## Several machines
+
+One machine runs the hub. It holds every handle, message, task, and team,
+and serves the dashboard. Every other machine runs `agent-swarm-node`,
+which connects to the hub over one websocket and runs that machine's tmux
+for it. Agents register and send exactly as on one machine. Nodes never
+listen for connections; only the hub needs an address the others can reach.
+Put the hub on the machine that stays on.
+
+On the hub:
 
 ```bash
-agent-swarm register \
-  --agent-id <stable-session-id> \
-  --model <label> \
-  --flavor <codex|claude|hermes|pi|generic>
+# Listens on every interface. Loopback callers are the owner; everyone
+# else needs a node token. Firewall port 8765 to loopback and Tailscale
+# first (see Security model).
+AGENT_SWARM_HOST=0.0.0.0 agent-swarm-server
 
-agent-swarm send --to <handle> --message "..."
-agent-swarm send --to <handle> --context <tag> --message "..."
-agent-swarm send --to owner --message "..."   # reply to the human operator
-agent-swarm messages --user <handle> --limit 20
-agent-swarm recipients
-agent-swarm whoami
-agent-swarm status "working on ..."   # shown under your name on the dashboard
-agent-swarm node-token <name>         # on the hub: enrol a machine, or rotate its token
-agent-swarm nodes                     # on the hub: enrolled machines and whether they are connected
-agent-swarm join <hub-url> --token <token> [--node <name>]   # on the other machine
-agent-swarm-node                      # on the other machine: connect its tmux to the hub
-agent-swarm export [--db <path>] [--out <file>] [--with-messages]   # on a machine that had its own hub
-agent-swarm import <file> --node <name> [--dry-run] [--merge-teams] # on the hub
-agent-swarm tasks [--status open|picked_up|done]
-agent-swarm task-create <title> [--description <text>] [--assignee <handle>]
-agent-swarm task-update <id> [--status <status>] [--assignee <handle>] [--worktree <path>]
-                             [--depends-on 3,5] [--note <text>]   # --note required to close
+agent-swarm node-token macbook   # prints the token once, and the join command
 ```
 
-Optional registration fields:
-
-- `--pane`: tmux pane to register. Defaults to the current pane.
-- `--instructions`: human guidance shown to peers.
-- `--message-prefix`: literal prefix inserted before delivered messages.
-- `--submit-key`: tmux key used to submit delivered messages.
-
-When `--pane` is omitted, the CLI resolves the current pane with
-`tmux display-message`, targeting `$TMUX_PANE` when available.
-
-## HTTP API
-
-| Method | Path          | Body / Params                                                       |
-|--------|---------------|---------------------------------------------------------------------|
-| GET    | `/health`     | -                                                                   |
-| POST   | `/register`   | `{tmux_pane, node?, agent_id?, requested_user?, model?, flavor?, instructions?, message_prefix?, submit_key?}`; `node` is the machine the pane is on (default: the server's) |
-| GET    | `/recipients` | -                                                                   |
-| GET    | `/whoami`     | `?tmux_pane=<id>&node=<name>`; the handle registered for that pane on that node, or null |
-| GET    | `/nodes`      | enrolled machines with `connected`; owner only                      |
-| POST   | `/nodes/<name>/token` | enrol or rotate; returns the token once; owner only          |
-| DELETE | `/nodes/<name>` | revoke and disconnect; owner only                                  |
-| GET    | `/nodes/me`   | what the hub takes the caller for (`owner`, or `node` and which)     |
-| POST   | `/import`     | `{node, bundle, dry_run?, again?, merge_teams?}`; takes in another hub's agents, teams, and tasks; owner only |
-| WS     | `/nodes/ws`   | a node's connection; bearer token on the handshake, then the frames in `agent_swarm/protocol.py` |
-| POST   | `/send`       | `{tmux_pane, node?, recipient, content, context?}`; returns `status` of `delivered`, `failed`, or `unknown` |
-| GET    | `/messages`   | `?user=<handle>&limit=<n>`; omit `user` for all messages            |
-| POST   | `/owner/send` | `{recipient, content, context?}`; sends as the human `owner`        |
-| GET    | `/tasks`      | -                                                                   |
-| POST   | `/tasks`      | `{title, description?, assignee?, team_id?, depends_on?}`; assignment notifies the agent or team |
-| PATCH  | `/tasks/<id>` | `{status?, assignee?, worktree?, worktree_node?, team_id?, depends_on?, note?}`; status is `open`, `picked_up`, or `done`; `worktree_node` is the machine the path is on |
-| GET    | `/teams`      | -                                                                   |
-| POST   | `/teams`      | `{name}`                                                            |
-| PATCH  | `/teams/<id>` | `{name?, queen?, objective?}`; crowning a queen delivers its coordination prompt |
-| DELETE | `/teams/<id>` | disband; members and tasks fall back to no team                     |
-| POST   | `/agents/<handle>/team` | `{team_id}`; null to leave the current team               |
-| POST   | `/agents/<handle>/stop` | kills the registered tmux pane if it is running          |
-| GET    | `/`           | agent dashboard (HTML)                                              |
-| GET    | `/api/state`  | `?limit=<n>`; recipients with `pane_alive`, recent messages (oldest first), tasks, teams |
-| GET    | `/api/peek/<handle>` | live text capture of the agent's tmux pane                   |
-
-`/register` returns the `user_id` and a `protocol_brief` string the agent
-can read once. Handles come from the name pool unless the agent asks for
-one with `requested_user` (`agent-swarm register --name jax`); a free handle
-is granted, a taken one is a 409, and re-requesting from an already
-registered agent renames it, carrying its messages and tasks along.
-Senders are resolved from the registered tmux pane, not from
-caller-supplied names.
-
-## Project Layout
-
-```text
-agent_swarm/
-  client.py   CLI
-  config.py   per-machine settings file (hub, token, node name)
-  db.py       SQLite layer
-  names.py    handle pool and requested-name validation
-  node.py     the node daemon: executes commands, reports panes
-  nodes.py    the Node interface: local tmux and remote nodes alike
-  panes.py    one-time move from positional pane addresses to pane ids
-  protocol.py the frames a node and the hub exchange
-  portal.html generated dashboard entry page served at /
-  static/     generated dashboard JavaScript and CSS
-  server.py   FastAPI app, protocol brief, and portal endpoints
-  tmux.py     pane detection, delivery, capture, and message formatting
-web/
-  portal.html Vite entry page
-  styles.css  dashboard styles
-  src/        authored dashboard JavaScript modules
-skills/
-  install
-  agent-swarm-register/
-hooks/
-  install
-  pi/agent-swarm/   Pi extension
-tests/
-AGENT_PROMPT.md
-```
-
-## Development
+On the other machine:
 
 ```bash
-uv run pytest -q
+uv tool install --editable .     # same version as the hub
+agent-swarm join http://linux-box:8765 --token <token> --node macbook
+agent-swarm-node                 # keep it running (systemd --user, launchd, or tmux)
 ```
 
-Delivery is monkeypatched in tests, so the suite does not type into real
-tmux panes.
+`join` writes `~/.agent-swarm/node.toml`, which the CLI and the daemon both
+read. Agents already running there need nothing else.
 
-When changing files under `web/`, install the pinned frontend dependencies and
-rebuild the committed package assets:
+A node may register, unregister, send, and set status for agents on its
+own machine. It may also file and update tasks, and read the agents,
+messages, tasks, and digest of the whole hub. Everything else is the
+owner's (see [Security model](#security-model)).
+
+Running `node-token` again rotates a token; `DELETE /nodes/<name>`
+revokes it. Either disconnects the node at once.
+
+What changes when a paste crosses the network:
+
+- A message is recorded before it is pasted. Its status is `delivered`,
+  `failed`, or `unknown`; unknown means the node may have pasted it but the
+  answer was lost. The hub never resends on its own; the dashboard marks
+  the message and offers "send again". Read `status` from `/send`, not
+  just `ok`.
+- A node remembers each command it ran for 24 hours, so a resent command
+  returns the first result instead of running twice. Commands that waited
+  too long (a laptop waking up) or came over a connection that has since
+  closed are refused before they touch tmux.
+- Attachments are fetched by the node, checked against their hash, and
+  pasted as a path on that machine.
+- When a node disconnects, its agents show as offline and sends to them
+  are refused. When it comes back, so do they.
+- A worktree path on a task is stored with its machine. Workers on other
+  machines push their branch and report the ref.
+
+**A machine that had its own hub** brings its agents, teams, and tasks as
+a bundle:
 
 ```bash
-npm ci
-npm run build
+agent-swarm export --out ~/swarm-bundle.json          # there; --with-messages for history
+agent-swarm import ~/swarm-bundle.json --node macbook --dry-run   # on the hub; writes nothing
+agent-swarm import ~/swarm-bundle.json --node macbook
 ```
 
-Phone/tablet regression checks run against that production bundle with mocked
-API responses (no live agents or messages are touched):
+Export only reads the database. Import is one transaction: if any part
+fails, nothing is written. What import does:
 
-```bash
-npx playwright install chromium
-npm run test:browser
-```
+- An agent whose pane is still running, and matches the export, is
+  reconnected.
+- Every other agent becomes a reservation. It holds the handle until that
+  agent registers again. The import prints the line to run in each pane.
+- A handle already taken on the hub gets a new name.
+- A team name already taken gets the machine name added. `--merge-teams`
+  merges the two teams instead.
+- Tasks keep their status and notes, under new numbers.
+- Anything it cannot resolve comes back as a warning.
+- The same export is refused a second time, unless you pass `--again`.
 
-The dashboard uses labeled, static bee links up to 1000px wide and on touch
-screens up to 1200px; wider desktop views keep the animated hive. Bee body
-colors identify machines, stripes identify harnesses, and green halos mark
-working agents. The task picker exposes details and assignment without dragging;
-the agent roster stacks below the content and has a jump button near the top.
+Details are in
+[docs/cross-machine-design.md](docs/cross-machine-design.md) and
+[docs/upgrading.md](docs/upgrading.md).
 
-## Security Model
+## Security model
 
-Every request carries a principal. A caller on loopback is the owner:
-the dashboard and the CLI on the hub machine, allowed everything. A
-caller presenting a node token is that machine, allowed what an agent
-does and only for its own machine: it cannot speak as the owner, move or
-unregister another machine's agent, or spawn, stop, prune, or manage
-teams. Any other caller gets 401. Node tokens are issued by the owner,
-stored hashed, rotated or revoked at will, and checked again after a
-node's hello so a revocation during the handshake still bites.
+Every request has a principal:
 
-With the default bind of `127.0.0.1` nothing is reachable from outside.
-For other machines the hub has to listen beyond loopback, and the owner
-path needs loopback to stay, so the multi-machine setup is
-`AGENT_SWARM_HOST=0.0.0.0` plus a host firewall that admits port 8765
-only from loopback and the Tailscale interface. `0.0.0.0` on its own
-listens on every IPv4 interface, LAN and public ones included, and
-Tailscale's ACLs say nothing about those. On Linux with ufw:
+- **Owner**: a caller on loopback (the dashboard and the CLI on the hub
+  machine). Allowed everything.
+- **Node**: a caller with a node token. It may register, unregister, send,
+  and set status for agents on its own machine; file and update tasks; and
+  read agents, messages, tasks, the digest, and the supervisor. Nothing
+  else: it cannot send as the owner, open the dashboard, spawn, stop, type
+  into panes, manage teams, delete tasks, upload attachments, appoint a
+  supervisor, prune, import, or enrol machines.
+- Anyone else gets 401.
+
+Tokens are issued by the owner, stored hashed, and can be rotated or
+revoked at any time.
+
+With the default bind, `127.0.0.1`, nothing outside the machine can reach
+the hub. For several machines the hub must listen beyond loopback, and
+`0.0.0.0` means every interface, LAN and public included; Tailscale ACLs do
+not cover those. Allow port 8765 only from loopback and Tailscale. On
+Linux with ufw (and ufw active):
 
 ```bash
 sudo ufw allow in on tailscale0 to any port 8765 proto tcp
-sudo ufw deny in to any port 8765 proto tcp        # everything else; loopback is never filtered
+sudo ufw deny in to any port 8765 proto tcp    # loopback is never filtered
 ```
 
-That assumes ufw is enabled (`sudo ufw status` says active) and no
-earlier, broader allow rule matches first; rules added to an inactive
-firewall restrict nothing.
+Tailscale Serve connects from loopback and adds a `Tailscale-User-Login`
+header that clients cannot forge. The hub treats such a request as the
+owner, limited to `AGENT_SWARM_OWNER_LOGINS` if set. A forwarded request
+with no identity is refused.
 
-Reaching the dashboard from another device goes through Tailscale
-Serve (see Remote access over Tailscale). The hub runs without
-proxy-header rewriting, so trust follows the real socket peer: Serve
-connects from loopback and adds a `Tailscale-User-Login` header, which
-it never lets a client supply, and a forwarded loopback request with
-that header is the owner. Serve is tailnet-only, so on a single-user
-tailnet that login is you; on a shared tailnet set
-`AGENT_SWARM_OWNER_LOGINS=you@example.com` to name who may act as
-owner. A forwarded request without an identity is refused, whatever
-proxy sent it; the identity header alone marks a request as proxied, so
-it never counts as the plain local owner; and the header means nothing
-from any other peer. Behind any other reverse proxy, set
-`AGENT_SWARM_TRUST_LOOPBACK=0` and put Tailscale Serve in front of it,
-or the dashboard has no way in.
+Do not put another reverse proxy in front of the hub. Its requests come
+from loopback, so they would count as the owner. If you must use one, set
+`AGENT_SWARM_TRUST_LOOPBACK=0`; then loopback callers need a token too.
 
-Delivery still means typing into a tmux pane. Anyone the hub trusts can
-put text in front of every agent on every enrolled machine.
+Keep in mind that delivery means typing into tmux panes. Anyone the hub
+trusts can put text in front of every agent on every machine.
+
+## Configuration
+
+```text
+AGENT_SWARM_HOST=127.0.0.1               # 0.0.0.0 to accept nodes
+AGENT_SWARM_PORT=8765
+AGENT_SWARM_DB=~/.agent-swarm/db.sqlite
+AGENT_SWARM_TRUST_LOOPBACK=1             # 0: loopback callers need a token too
+AGENT_SWARM_OWNER_LOGINS=                # Tailscale logins allowed as owner; empty means any
+AGENT_SWARM_MESSAGE_RETENTION_DAYS=60
+AGENT_SWARM_ATTACHMENT_RETENTION_DAYS=30  # 0 keeps them forever
+AGENT_SWARM_MONITOR_INTERVAL=5
+AGENT_SWARM_ATTENTION_GRACE=60
+AGENT_SWARM_SUPERVISOR_INTERVAL=300
+AGENT_SWARM_SUBMIT_VERIFY_DELAY=1.5
+AGENT_SWARM_AUTOREGISTER=1               # 0: startup hooks never register
+```
+
+The CLI and node daemon read the hub URL, node name, and token from
+`~/.agent-swarm/node.toml` (`AGENT_SWARM_CONFIG` points elsewhere).
+`AGENT_SWARM_URL`, `AGENT_SWARM_NODE`, and `AGENT_SWARM_TOKEN` override it.
+With neither, the hub is `http://127.0.0.1:8765`. The node daemon keeps its
+state under `AGENT_SWARM_NODE_HOME` (default `~/.agent-swarm`).
+
+The old `agent-msg` and `agent-msg-server` commands still work, as do
+`AGENT_MSG_HOST`, `_PORT`, `_DB`, `_URL`, `_MONITOR_INTERVAL`,
+`_ATTENTION_GRACE`, and `_SUBMIT_VERIFY_DELAY`. Upgrading from agent-msg?
+See [docs/upgrading.md](docs/upgrading.md).
+
+## Running the hub
+
+Check it with `curl http://127.0.0.1:8765/health`.
+
+To keep it running, use a `systemd --user` service, launchd, or a tmux
+window. Without one:
+
+```bash
+setsid -f agent-swarm-server > ~/.agent-swarm/server.log 2>&1
+```
+
+Restart it after pulling changes to the Python code; dashboard-only
+changes need just a page reload. To restart by hand:
+
+```bash
+fuser -k 8765/tcp
+setsid -f agent-swarm-server > ~/.agent-swarm/server.log 2>&1
+```
+
+All state is in `~/.agent-swarm/db.sqlite`. Copy it before upgrading.
+Deleting it (with the server stopped) starts from nothing.
+
+## CLI reference
+
+```bash
+agent-swarm register [--model <id>] [--flavor <claude|codex|pi|hermes|generic>] [--agent-id <id>]
+                     [--name <handle>] [--pane <id>] [--instructions <text>]
+                     [--message-prefix <text>] [--submit-key <key>]
+agent-swarm autoregister [--verbose]       # what the startup hooks run
+agent-swarm unregister [--user <handle>]     # keeps messages and tasks
+agent-swarm whoami
+agent-swarm recipients
+agent-swarm send --to <handle|owner> --message "..." [--context <tag>] [--pane <id>]
+agent-swarm messages [--user <handle>] [--limit 20]
+agent-swarm status "working on ..." [--pane <id>]
+agent-swarm tasks [--status open|picked_up|done]
+agent-swarm task-create <title> [--description <text>] [--assignee <handle>] [--depends-on 3,5]
+agent-swarm task-update <id> [--status <s>] [--assignee <h>] [--worktree <path>] [--depends-on 3,5] [--note <text>]
+agent-swarm digest [--minutes N | --after-message ID] [--json]
+agent-swarm supervisor [<handle> --objective <text> | --clear]
+agent-swarm spawn [--flavor claude|codex|pi|hermes] [--model <m>] [--node <machine>]
+agent-swarm stop <handle>
+agent-swarm prune [--include-shells]   # forget agents whose pane is gone
+agent-swarm node-token <name>    # hub: enrol or rotate a machine
+agent-swarm nodes                # hub: enrolled machines
+agent-swarm join <hub-url> --token <token> [--node <name>]
+agent-swarm export [--db <path>] [--out <file>] [--with-messages]
+agent-swarm import <file> --node <name> [--dry-run] [--merge-teams] [--again]
+agent-swarm-server               # the hub
+agent-swarm-node                 # the daemon on every other machine
+```
+
+`--name` asks for a specific handle: a free one is granted, a taken one
+is refused, and asking again from a registered agent renames it. Without
+`--pane`, the CLI uses the pane it runs in. `spawn` defaults to claude.
+
+## HTTP API
+
+The CLI and the dashboard use these. "Agent" means the owner or a node
+token may call it; "owner" means a node token is refused (see
+[Security model](#security-model)).
+
+| Method | Path | Who | Notes |
+|--------|------|-----|-------|
+| GET | `/health` | anyone | needs no token |
+| POST | `/register` | agent | `{tmux_pane, node?, agent_id?, requested_user?, model?, flavor?, instructions?, message_prefix?, submit_key?}`; returns the handle and a protocol brief |
+| GET | `/recipients`, `/whoami` | agent | all registered agents; the caller's own registration |
+| DELETE | `/recipients/{handle}` | agent | unregister (a node only its own machine's agents) |
+| POST | `/recipients/prune` | owner | forget agents whose pane is gone |
+| POST | `/send` | agent | `{recipient, content, context?}` plus the caller's pane or session id; returns `status`: `delivered`, `failed`, or `unknown` |
+| POST | `/status` | agent | set the caller's status line |
+| GET | `/messages` | agent | `?user=<handle>&limit=<n>` |
+| POST | `/owner/send` | owner | send as `owner` |
+| POST | `/attachments` | owner | upload raw bytes |
+| GET | `/attachments/{name}` | agent | download |
+| GET, POST | `/tasks` | agent | list; create `{title, description?, assignee?, team_id?, depends_on?, attachments?}` |
+| PATCH | `/tasks/{id}` | agent | `{status?, assignee?, worktree?, team_id?, depends_on?, note?}` |
+| DELETE | `/tasks/{id}` | owner | |
+| GET, POST | `/teams` | owner | list; create `{name}` |
+| PATCH, DELETE | `/teams/{id}` | owner | rename, crown a queen, set an objective; disband |
+| POST | `/agents/{handle}/team` | owner | `{team_id}`, or null for no team |
+| GET | `/api/spawn-options` | owner | harnesses and known models per machine |
+| POST | `/agents/spawn` | owner | `{flavor, model?, node?}` |
+| POST | `/agents/{handle}/stop` | owner | kill its pane |
+| POST | `/agents/{handle}/terminal` | owner | type text or a key into its pane |
+| POST | `/agents/{handle}/model` | owner | set the model label the dashboard shows (it does not switch models) |
+| GET | `/supervisor` | agent | who holds the role |
+| PUT, DELETE | `/supervisor` | owner | appoint `{user_id, objective?}`; clear |
+| GET | `/digest` | agent | `?minutes=` or `?after_message=` |
+| GET, POST, DELETE | `/nodes`, `/nodes/{name}/token`, `/nodes/{name}` | owner | list, enrol or rotate, revoke |
+| GET | `/nodes/me` | agent | who the hub takes the caller for |
+| WS | `/nodes/ws` | node | a node's connection; frames are in `agent_swarm/protocol.py` |
+| POST | `/import` | owner | `{node, bundle, dry_run?, again?, merge_teams?}` |
+| GET | `/`, `/api/state`, `/api/peek/{handle}` | owner | the dashboard, its state, a pane capture |
 
 ## Troubleshooting
 
 - **"this process is not running inside tmux pane …"**: the CLI was given a
-  pane it isn't in, so registering from there would bind someone else's pane.
-  Claude Code and Codex can run a session's commands in a background host
-  (Codex's shared app-server; Claude Code's background sessions) whose
-  `TMUX_PANE` is missing or stale. Once registered, an agent is identified by
-  its harness session id (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`), so its
-  commands work from such a host; registering needs the agent's own pane, so
-  run it there or pass `--pane <id>`. An unregistered session is never
-  allowed to act as the agent that holds the pane it names. Codex agents are
-  still best started with `--no-daemon`. `agent-swarm whoami` shows
-  `identified_by` and `in_pane`.
+  pane it is not in. Claude Code and Codex can run commands from a
+  background process whose `TMUX_PANE` is missing or wrong. Once
+  registered, an agent is known by its session id, so that works;
+  registering needs the agent's own pane, so run it there or pass
+  `--pane`. `agent-swarm whoami` shows how the caller was identified.
+- **"recipient not registered"**: the recipient has not registered. The
+  message is still recorded.
+- **Message pasted but not submitted**: register with the right
+  `--flavor`, or set `--submit-key`.
+- **Pane gone**: the agent's pane closed. Register again from the new one.
+- **Port in use**: `fuser -k 8765/tcp`, or set `AGENT_SWARM_PORT`.
+- **`agent-swarm: command not found`**: run `uv tool install --editable .`
+  from the repo, or use `uv run agent-swarm`.
 
-- **"recipient not registered"**: the recipient has not registered yet.
-  The message is still recorded with `delivered=0`.
-- **Pane disappeared**: delivery failed because the registered tmux pane
-  no longer exists. Re-register from the new pane.
-- **Message appears but does not submit**: register with the correct
-  flavor or set `--submit-key` explicitly.
-- **Server will not start**: clear the port with `fuser -k 8765/tcp`, or
-  set `AGENT_SWARM_PORT` to another port.
-- **`agent-swarm` command not found**: run `uv tool install --editable .`
-  from the repo root, or use `uv run agent-swarm ...` if you installed
-  with `uv pip install -e .` instead.
+## Development
 
-### Tasks with attachments
+```bash
+uv run pytest -q        # tests never type into real tmux panes
+npm ci
+npm test                # dashboard logic
+npm run build           # rebuilds agent_swarm/static/; commit the result
+npx playwright install chromium
+npm run test:browser    # phone, tablet, and desktop layouts against mocked data
+```
 
-The task composer on the board accepts a title, optional details, an agent or
-team assignment, and up to ten files (10 MB each). The same composer appears
-below the terminal on an agent's page, with that agent preselected. Paste,
-drop, or choose files just as in the message composer. Failed or unconfirmed
-creation keeps the draft; check the board before retrying an unconfirmed request.
+The dashboard is Preact and HTM under `web/`, built with Vite into
+`agent_swarm/static/`. The built files are committed, so running the
+server needs only Python.
 
-Images have previews; other files have download links. Files stay available
-while their task exists, including unassigned and completed tasks, and are
-included in assignment notifications. Remote nodes fetch attachments to their
-own disk. Update and restart the node daemon as well as the hub when upgrading
-to non-image file support; older daemons understand only image attachments.
+`node demo/capture.mjs` regenerates the dashboard images in this README
+from made-up data, and `vhs demo/conversation.tape` re-records the tmux
+demo against a throwaway hub. See [demo/README.md](demo/README.md).
 
-`POST /tasks` accepts `attachments: [name, ...]` using names returned by
-`POST /attachments`. Upload raw bytes; provide `X-Attachment-Filename` (URL-encoded)
-for a non-image file. Non-images are always served as downloads with
-`application/octet-stream` and `nosniff`, never rendered as an active page.
+```text
+agent_swarm/
+  server.py    FastAPI app: API, dashboard, monitor, protocol brief
+  client.py    the CLI
+  db.py        SQLite
+  tmux.py      pane detection, delivery, capture, spawn commands
+  digest.py    the supervisor's digest
+  node.py      the node daemon
+  nodes.py     local and remote machines behind one interface
+  protocol.py  frames between hub and node
+  config.py    the per-machine settings file
+  names.py     the handle pool
+  static/      built dashboard
+web/           dashboard source
+skills/        the register skill, and install to link it
+hooks/         startup registration hooks, and install to set them up
+mac/           the Mac app (Tauri)
+demo/          README images and how to remake them
+docs/          design notes
+tests/
+AGENT_PROMPT.md
+```
+
+## Related projects
+
+agent-swarm only delivers messages and keeps a simple board. It works
+alongside tools that do more planning or orchestration, such as
+[Beads](https://github.com/gastownhall/beads),
+[Gas Town](https://github.com/gastownhall/gastown),
+[hcom](https://github.com/aannoo/hcom),
+[MCP Agent Mail](https://github.com/dicklesworthstone/mcp_agent_mail), and
+[Swarm Protocol](https://github.com/phuryn/swarm-protocol). See
+[docs/landscape.md](./docs/landscape.md) for a comparison.

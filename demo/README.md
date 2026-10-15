@@ -1,50 +1,51 @@
-# Recording the README demo
+# README images
 
-`conversation.tape` drives a real Claude Code instance and a real Codex
-instance in two stacked tmux panes: both register with agent-swarm, then
-exchange a couple of messages live. The setup (booting the server,
-splitting tmux, launching and registering both agents) is hidden; the
-recording opens right as Claude sends the first message.
+| File | What it shows | How it is made |
+|------|---------------|----------------|
+| `dashboard.gif` | the overview: hive, machines, team sidebar | `node demo/capture.mjs` |
+| `agent-page.png` | one agent's page: terminal and owner thread | `node demo/capture.mjs` |
+| `phone.png` | the overview and a full-screen chat on a phone | `node demo/capture.mjs` |
+| `conversation.gif` | Claude Code and Codex talking over tmux | `vhs demo/conversation.tape` |
 
-## Run it
+## Dashboard images
+
+`capture.mjs` opens the built dashboard in headless Chromium with made-up
+agents, tasks, and messages (all in the script), the same way the browser
+tests do. It never contacts a hub. The GIF is a screen recording while
+the script adds messages and finishes tasks.
 
 ```bash
-cd agent-swarm
+npm ci && npm run build
+npx playwright install chromium   # once
+node demo/capture.mjs             # needs ffmpeg and ImageMagick (convert)
+```
+
+Rebuild first, so the images match the current dashboard. To change the
+story, edit `makeState()` and `script` in `capture.mjs`.
+
+## The tmux demo
+
+`conversation.tape` drives a real Claude Code and a real Codex in two
+tmux panes. Setup is hidden: it starts a throwaway hub on port 8799 with a
+database in a temp dir, opens a tmux session `swarm-demo`, and has both
+agents register. The recording starts when Claude is asked to send.
+
+```bash
 vhs demo/conversation.tape
 ```
 
-Output lands at `demo/conversation.gif`.
+Before you run it:
 
-## Before you record
+- `claude` and `codex` must be logged in, and the register skills
+  installed (see the main README).
+- Port 8799 and the tmux session name `swarm-demo` must be free.
+- Your real hub is never touched: the panes get `AGENT_SWARM_URL` for the
+  demo hub and an empty `AGENT_SWARM_CONFIG`.
+- Both agents run without permission prompts
+  (`--dangerously-skip-permissions`, `--yolo`). Only do this on a machine
+  you trust.
 
-- `claude` and `codex` must already be logged in (no first-run auth
-  prompts during the recording).
-- Nothing else should be using port 8765 or an existing `demo` tmux
-  session — the tape kills both at the start, but check first if you
-  have other work running there.
-- The tape passes `--dangerously-skip-permissions` (Claude) and
-  `--dangerously-bypass-approvals-and-sandbox` (Codex) so neither agent
-  stalls on an approval prompt mid-recording. Only do this in a
-  throwaway/demo context you trust, on your own machine.
-
-## Tuning
-
-The `Sleep` durations are guesses at live model response time, not
-measured values — actual agents vary run to run. Do one untimed dry
-run first:
-
-```bash
-tmux new-session -s demo
-```
-
-and walk through the same prompts by hand to see how long each step
-actually takes, then adjust the `Sleep` values in the tape to match.
-If a cut lands while a pane is still mid-response, increase the prior
-`Sleep`; if there's dead air, decrease it.
-
-## Optional: full setup recording
-
-If you also want a longer clip showing the server boot, tmux split,
-and both registrations (not just the conversation), copy
-`conversation.tape` and remove the `Hide`/`Show` pair so everything
-records.
+The waits are fixed `Sleep`s, because agent output is not predictable. If a
+step is cut off, raise the `Sleep` before it; if there is dead air, lower it.
+The agents' answers differ on every run, so watch the result before
+committing it.
