@@ -1,4 +1,5 @@
 //! Portable URL, persistence, and attention logic; native shell lives in app.rs.
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fs, io::Write, path::Path};
 use url::{Host, Url};
@@ -48,7 +49,14 @@ impl HubUrl {
     }
     pub fn agent_url(&self, name: &str) -> Url {
         let mut url = self.0.clone();
-        let encoded: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
+        let encoded = utf8_percent_encode(
+            name,
+            &NON_ALPHANUMERIC
+                .remove(b'-')
+                .remove(b'_')
+                .remove(b'.')
+                .remove(b'~'),
+        );
         url.set_fragment(Some(&format!("/agent/{encoded}")));
         url
     }
@@ -220,6 +228,10 @@ mod tests {
         }
         assert_eq!(hub.agent_url("otter").as_str(), route);
         assert_eq!(hub.agent_url("a/b").fragment(), Some("/agent/a%2Fb"));
+        assert_eq!(
+            hub.agent_url("an agent").fragment(),
+            Some("/agent/an%20agent")
+        );
     }
 
     #[test]
