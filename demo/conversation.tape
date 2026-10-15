@@ -1,104 +1,82 @@
-# VHS tape for the agent-swarm README demo.
-# Renders to demo/conversation.gif.
+# VHS tape for the README's tmux demo. Renders demo/conversation.gif.
 #
-# Drives two REAL agents (Claude Code on top, Codex on bottom) in one
-# tmux session, split top/bottom. Both register with agent-swarm, then
-# have a short live exchange over the bus. Setup (server boot, tmux
-# split, launching + registering both agents) is hidden; the recording
-# starts right as Claude sends the first cross-agent message.
+# Two real agents, Claude Code on top and Codex below, in one tmux
+# window. Both register with a throwaway hub, then Claude asks Codex a
+# question over the bus and Codex answers. The setup is hidden; the
+# recording opens as Claude is asked to send.
 #
-# Run from the repo root:
-#   vhs demo/conversation.tape
+# Run from the repo root:   vhs demo/conversation.tape
 #
-# Requirements:
-#   - agent-swarm installed (`uv pip install -e .` from repo root)
-#   - `claude` and `codex` CLIs on PATH and already logged in
-#   - tmux
-#
-# The Sleep durations below are guesses at live model response time —
-# they WILL need tuning. Run once, watch demo/conversation.gif, and
-# adjust: if a pane is still "thinking" when the recording cuts to it,
-# increase the preceding Sleep; if there's dead air, decrease it.
-# Prefer `Wait+Screen` over `Sleep` once you know a stable string each
-# agent prints (e.g. its assigned handle) — it's tuned here with plain
-# Sleep because exact agent output isn't predictable in advance.
+# It never touches your real hub: the demo hub listens on 8799 with a
+# database in a temp dir, and the panes get AGENT_SWARM_URL and an empty
+# AGENT_SWARM_CONFIG so their CLI cannot reach ~/.agent-swarm. Needs
+# claude and codex logged in, the agent-swarm-register skills installed,
+# and nothing else on port 8799 or in a tmux session named swarm-demo.
+# Both agents run without permission prompts (--dangerously-skip-permissions,
+# --yolo), so only run it on a machine you trust.
 
 Output demo/conversation.gif
 
 Set Shell "bash"
 Set FontFamily "DejaVu Sans Mono"
-Set FontSize 16
+Set FontSize 15
 Set Width 1280
-Set Height 860
-Set Padding 20
-Set TypingSpeed 40ms
+Set Height 820
+Set Padding 16
+Set TypingSpeed 15ms
+Set PlaybackSpeed 1.5
 
 Hide
 
-# Put the project venv's bin/ on PATH so plain `agent-swarm ...` resolves
-# in every pane (including subshells the agents spawn). Without this,
-# bare `agent-swarm` is "command not found" and the agents fall back to
-# curl or hunting for .venv/bin/agent-swarm by hand, which looks bad on
-# camera.
-Type "export PATH=$PWD/.venv/bin:$PATH"
+Type `export D=$(mktemp -d) && export SWARM_ENV="-e AGENT_SWARM_URL=http://127.0.0.1:8799 -e AGENT_SWARM_CONFIG=$D/none.toml"`
 Enter
-Sleep 200ms
-
-# Reset server + DB so handles/state are predictable, then start fresh.
-Type "fuser -k 8765/tcp 2>/dev/null; rm -f ~/.agent-swarm/db.sqlite; clear"
+Type `AGENT_SWARM_PORT=8799 AGENT_SWARM_DB=$D/db.sqlite setsid -f agent-swarm-server > $D/server.log 2>&1`
 Enter
-Sleep 1s
-Type "setsid -f uv run agent-swarm-server > /tmp/agent-swarm.log 2>&1"
-Enter
-Sleep 1500ms
-Type "clear"
-Enter
-Sleep 500ms
-
-# tmux session with two panes, stacked top/bottom.
-Type "tmux new-session -d -s demo -n agents && tmux split-window -v -t demo:agents && tmux select-pane -t demo:agents.0 && tmux attach -t demo"
+Sleep 2s
+Type `tmux new-session -d -s swarm-demo -c ~/agent-swarm $SWARM_ENV && tmux split-window -v -t swarm-demo -c ~/agent-swarm $SWARM_ENV && tmux select-pane -t swarm-demo.0 && tmux attach -t swarm-demo`
 Enter
 Sleep 1s
 
-# --- Top pane: Claude Code ---
+# Top pane: Claude Code.
 Type "claude --dangerously-skip-permissions"
 Enter
-Sleep 4s
-
-Type "Read AGENT_PROMPT.md in this repo, then register yourself with agent-swarm using the agent-swarm-register skill. Reply with just your assigned handle, nothing else."
+Sleep 6s
+Type "Register yourself with agent-swarm. Reply with just your handle."
 Enter
-Sleep 18s
+Sleep 40s
 
-# --- Bottom pane: Codex ---
+# Bottom pane: Codex.
 Ctrl+B
 Down
-Sleep 500ms
-Type "codex --dangerously-bypass-approvals-and-sandbox"
+Type "codex -c check_for_update_on_startup=false --yolo"
 Enter
-Sleep 4s
-
-Type "Read AGENT_PROMPT.md in this repo, then register yourself with agent-swarm using the agent-swarm-register skill. Reply with just your assigned handle, nothing else. After this, if you get an inbound agent-swarm message, reply to it briefly using agent-swarm send, then stop — don't send or do anything further."
+Sleep 6s
+Type "Register yourself with agent-swarm and reply with just your handle. If another agent then messages you, answer it in one sentence with agent-swarm send and stop."
 Enter
-Sleep 18s
-
-# Back to the top pane so the visible recording opens on Claude.
+Sleep 40s
 Ctrl+B
 Up
-Sleep 500ms
+Sleep 1s
 
 Show
 
-# --- Visible conversation starts here ---
-Type "Send a one-sentence agent-swarm message to the other registered agent asking what model they're running. Then wait for their reply, send back a one-sentence acknowledgment, and stop — don't send or do anything further after that."
+Type "Over agent-swarm, ask the other agent how many test functions tests/test_server.py has. When it answers, tell me in one line."
 Enter
-Sleep 10s
+# Long enough for the question, Codex's answer, and Claude's summary.
+Sleep 50s
 
-# Cut to the bottom pane to show Codex waking up on the inbound message and replying.
+Hide
+Type "/exit"
+Enter
+Sleep 2s
 Ctrl+B
 Down
-Sleep 6s
-
-# Back to Claude to show it receiving the acknowledgment-worthy reply.
-Ctrl+B
-Up
-Sleep 4s
+Ctrl+C
+Ctrl+C
+Sleep 1s
+Type "tmux kill-session -t swarm-demo"
+Enter
+Sleep 1s
+Type `fuser -k 8799/tcp; rm -rf $D`
+Enter
+Sleep 1s
