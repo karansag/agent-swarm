@@ -10,7 +10,7 @@ default = ["desktop"]
 desktop = ["dep:tauri", "dep:tauri-build", "dep:cc", "dep:tauri-plugin-single-instance"]
 
 [build-dependencies]
-tauri-build = { version = "2", optional = true }
+tauri-build = { version = "2", optional = true, features = [] }
 cc = { version = "1", optional = true }
 
 [dependencies]

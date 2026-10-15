@@ -124,6 +124,17 @@ installed bundle's executable with stderr captured:
 "/Applications/Agent Swarm.app/Contents/MacOS/agent-swarm-mac" 2> /tmp/agent-swarm-notifications.log
 ```
 
+Or, from `mac/`, run the bundle in the build folder:
+
+```sh
+"src-tauri/target/release/bundle/macos/Agent Swarm.app/Contents/MacOS/agent-swarm-mac" 2> /tmp/agent-swarm-notifications.log
+```
+
+If authorization is refused without a prompt, check Agent Swarm in System
+Settings → Notifications and test the installed copy in `/Applications`.
+Keep the authorization error in the report; a successful build alone does not
+verify notification permission or banner delivery.
+
 The log records the authorization result and any error, plus queued/delivery
 results. This matters for ad-hoc signed builds: a signing or authorization
 failure must be checked on the actual Mac. A `queued` result confirms scheduling,
