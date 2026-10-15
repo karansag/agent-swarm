@@ -601,3 +601,37 @@ test('opening the page on a gone agent falls back to the overview', async () => 
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+for (const rosterOpen of [true, false]) {
+  test(`focused conversation fills wide windows; Escape preserves route (roster ${rosterOpen})`, async () => {
+    const { page, errors } = await setup(1800, 1000, false);
+    try {
+      await page.addInitScript(open => localStorage.setItem('swarm-roster-open', String(open)), rosterOpen);
+      await page.goto(base + '#/agent/stoat');
+      await page.locator('.thread-focus').first().click();
+      for (const width of [1800, 2400]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const rect = await page.locator('.thread.focused').boundingBox();
+        assert.equal(rect.x, 24);
+        assert.equal(rect.width, width - 48);
+      }
+      // With a toolbar button focused, both old window handlers used to run.
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.thread.focused', { state: 'detached' });
+      assert.equal(await page.locator('.roster-drawer.is-open').count(), Number(rosterOpen));
+      assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+      await page.locator('.thread-focus').first().click();
+      // Escape from the composer also closes only the conversation overlay.
+      await page.locator('.thread.focused textarea').first().focus();
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.thread.focused', { state: 'detached' });
+      assert.equal(await page.locator('.roster-drawer.is-open').count(), Number(rosterOpen));
+      assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+      await page.evaluate(() => document.activeElement.blur());
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
