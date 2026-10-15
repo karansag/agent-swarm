@@ -15,7 +15,43 @@ struct AppState {
     hub: Option<HubUrl>,
     settings_path: PathBuf,
     settings_error: Option<String>,
+    last_url: Mutex<Option<tauri::Url>>,
     attention: Mutex<Attention>,
+}
+
+impl AppState {
+    fn dashboard_url(&self) -> Option<tauri::Url> {
+        self.hub.as_ref().map(|hub| {
+            self.last_url
+                .lock()
+                .ok()
+                .and_then(|last| last.clone())
+                .filter(|url| hub.allows(url))
+                .unwrap_or_else(|| hub.url().clone())
+        })
+    }
+}
+
+fn remember_route(window: &WebviewWindow) {
+    let state = window.state::<AppState>();
+    let (Some(hub), Ok(url)) = (&state.hub, window.url()) else {
+        return;
+    };
+    if !hub.allows(&url) {
+        return;
+    }
+    let Ok(mut last) = state.last_url.lock() else {
+        return;
+    };
+    if last.as_ref() == Some(&url) {
+        return;
+    }
+    // WKWebView.URL().absoluteString includes same-document hash changes;
+    // navigation callbacks alone would miss those changes.
+    *last = Some(url.clone());
+    if let Err(error) = Settings::save(&state.settings_path, hub, Some(&url)) {
+        eprintln!("Could not save last dashboard page: {error}");
+    }
 }
 
 // Defense in depth alongside the local-only setup capability. The remote
@@ -53,7 +89,18 @@ fn save_hub(
 ) -> Result<(), String> {
     require_setup(&window)?;
     let hub = HubUrl::parse(&url)?;
-    Settings::save(&state.settings_path, &hub)?;
+    if state
+        .hub
+        .as_ref()
+        .is_some_and(|current| current.url() == hub.url())
+    {
+        if let Some(url) = state.dashboard_url() {
+            Settings::save(&state.settings_path, &hub, Some(&url))?;
+            window.navigate(url).map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
+    Settings::save(&state.settings_path, &hub, None)?;
     // Capabilities added at runtime cannot be removed. A fresh runtime drops
     // the old origin's grant rather than accumulating grants as URLs change.
     app.restart();
@@ -62,10 +109,8 @@ fn save_hub(
 #[tauri::command]
 fn open_dashboard(window: WebviewWindow, state: State<AppState>) -> Result<(), String> {
     require_setup(&window)?;
-    if let Some(hub) = &state.hub {
-        window
-            .navigate(hub.url().clone())
-            .map_err(|e| e.to_string())?;
+    if let Some(url) = state.dashboard_url() {
+        window.navigate(url).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -123,7 +168,9 @@ fn show_dashboard(app: &AppHandle) {
         if let Some(hub) = &state.hub {
             // Preserve an existing agent route when opening a hidden window.
             if !window.url().is_ok_and(|url| hub.allows(&url)) {
-                let _ = window.navigate(hub.url().clone());
+                if let Some(url) = state.dashboard_url() {
+                    let _ = window.navigate(url);
+                }
             }
         }
     }
@@ -131,6 +178,7 @@ fn show_dashboard(app: &AppHandle) {
 
 fn show_setup(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        remember_route(&window);
         let _ = window.navigate(tauri::Url::parse("tauri://localhost/index.html").unwrap());
         let _ = window.show();
         let _ = window.unminimize();
@@ -142,7 +190,12 @@ fn menu_action(app: &AppHandle, id: &str) {
     match id {
         "dashboard" => show_dashboard(app),
         "change-hub" => show_setup(app),
-        "quit" => app.exit(0),
+        "quit" => {
+            if let Some(window) = app.get_webview_window("main") {
+                remember_route(&window);
+            }
+            app.exit(0);
+        }
         _ => (),
     }
 }
@@ -174,7 +227,12 @@ pub fn run() {
         ])
         .setup(|app| {
             let settings_path = app.path().app_config_dir()?.join("settings.json");
-            let (hub, settings_error) = match Settings::load(&settings_path) {
+            let loaded = Settings::load(&settings_path);
+            let saved_last = loaded
+                .as_ref()
+                .ok()
+                .and_then(|settings| settings.last_url.clone());
+            let (hub, settings_error) = match loaded {
                 Ok(settings) => match settings.hub_url {
                     Some(url) => match HubUrl::parse(&url) {
                         Ok(hub) => (Some(hub), None),
@@ -196,9 +254,10 @@ pub fn run() {
                         .permission("allow-attention"),
                 )?;
             }
-            let start = hub
+            let restored = hub.as_ref().map(|hub| hub.restore(saved_last.as_deref()));
+            let start = restored
                 .as_ref()
-                .map(|hub| WebviewUrl::External(hub.url().clone()))
+                .map(|url| WebviewUrl::External(url.clone()))
                 .unwrap_or_else(|| WebviewUrl::App("index.html".into()));
             let navigation_hub = hub.clone();
             let initial_size = if hub.is_some() {
@@ -210,6 +269,7 @@ pub fn run() {
                 hub,
                 settings_path,
                 settings_error,
+                last_url: Mutex::new(restored),
                 attention: Mutex::default(),
             });
             let window = WebviewWindowBuilder::new(app, "main", start)
@@ -236,8 +296,12 @@ pub fn run() {
                 let window = window.clone();
                 move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
+                        remember_route(&window);
                         api.prevent_close();
                         let _ = window.hide();
+                    }
+                    if let WindowEvent::Focused(false) = event {
+                        remember_route(&window);
                     }
                 }
             });
@@ -325,6 +389,11 @@ pub fn run() {
         .expect("could not start Agent Swarm");
 
     app.run(|app, event| {
+        if let RunEvent::ExitRequested { .. } = event {
+            if let Some(window) = app.get_webview_window("main") {
+                remember_route(&window);
+            }
+        }
         if let RunEvent::Reopen { .. } = event {
             show_dashboard(app);
         }

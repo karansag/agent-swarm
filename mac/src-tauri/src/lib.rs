@@ -38,12 +38,26 @@ impl HubUrl {
     pub fn allows(&self, url: &Url) -> bool {
         self.0.origin() == url.origin()
     }
+    pub fn restore(&self, last_url: Option<&str>) -> Url {
+        last_url
+            .and_then(|value| Url::parse(value).ok())
+            .filter(|url| self.allows(url) && url.username().is_empty() && url.password().is_none())
+            .unwrap_or_else(|| self.0.clone())
+    }
+    pub fn agent_url(&self, name: &str) -> Url {
+        let mut url = self.0.clone();
+        let encoded: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
+        url.set_fragment(Some(&format!("/agent/{encoded}")));
+        url
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub hub_url: Option<String>,
+    #[serde(default)]
+    pub last_url: Option<String>,
 }
 
 impl Settings {
@@ -56,12 +70,15 @@ impl Settings {
         }
     }
 
-    pub fn save(path: &Path, hub: &HubUrl) -> Result<(), String> {
+    pub fn save(path: &Path, hub: &HubUrl, last_url: Option<&Url>) -> Result<(), String> {
         let parent = path.parent().ok_or("Missing settings directory")?;
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
         let settings = Self {
             hub_url: Some(hub.url().to_string()),
+            last_url: last_url
+                .filter(|url| hub.allows(url))
+                .map(|url| url.to_string()),
         };
         file.write_all(&serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
@@ -171,18 +188,51 @@ mod tests {
         let path = dir.path().join("settings.json");
         assert!(Settings::load(&path).unwrap().hub_url.is_none());
         let first = HubUrl::parse("https://one.example:8445/").unwrap();
-        Settings::save(&path, &first).unwrap();
+        Settings::save(&path, &first, None).unwrap();
         assert_eq!(
             Settings::load(&path).unwrap().hub_url.unwrap(),
             first.url().as_str()
         );
         let second = HubUrl::parse("https://two.example:8445/").unwrap();
-        Settings::save(&path, &second).unwrap();
+        Settings::save(&path, &second, None).unwrap();
         assert_eq!(
             Settings::load(&path).unwrap().hub_url.unwrap(),
             second.url().as_str()
         );
         fs::write(&path, b"bad json").unwrap();
         assert!(Settings::load(&path).is_err());
+    }
+
+    #[test]
+    fn restores_the_full_route_only_for_the_selected_origin() {
+        let hub = HubUrl::parse("https://linux.example:8445/dashboard/#/").unwrap();
+        let route = "https://linux.example:8445/dashboard/#/agent/otter";
+        assert_eq!(hub.restore(Some(route)).as_str(), route);
+        for invalid in [
+            "https://other.example/#/agent/otter",
+            "https://linux.example:8446/#/",
+            "broken",
+            "https://user:secret@linux.example:8445/#/",
+        ] {
+            assert_eq!(hub.restore(Some(invalid)), *hub.url());
+        }
+        assert_eq!(hub.agent_url("otter").as_str(), route);
+        assert_eq!(hub.agent_url("a/b").fragment(), Some("/agent/a%2Fb"));
+    }
+
+    #[test]
+    fn last_route_survives_restart_but_not_a_change_of_hub() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let hub = HubUrl::parse("https://one.example:8445/").unwrap();
+        let route = hub.agent_url("otter");
+        Settings::save(&path, &hub, Some(&route)).unwrap();
+        let saved = Settings::load(&path).unwrap();
+        assert_eq!(hub.restore(saved.last_url.as_deref()), route);
+        let other = HubUrl::parse("https://two.example:8445/").unwrap();
+        Settings::save(&path, &other, None).unwrap();
+        assert!(Settings::load(&path).unwrap().last_url.is_none());
+        fs::write(&path, br#"{"hub_url":"https://one.example:8445/"}"#).unwrap();
+        assert!(Settings::load(&path).unwrap().last_url.is_none());
     }
 }

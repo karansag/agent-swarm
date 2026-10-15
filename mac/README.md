@@ -38,7 +38,9 @@ address is saved in
 The menu-bar icon has **Open dashboard**, **Change hub URL…**, and **Quit Agent
 Swarm**. Closing the window hides it; the app stays running. Click the Dock
 icon or use Open dashboard to show it again. **⌘Q** quits. Changing the URL saves
-it and restarts the wrapper. Cancel returns to the current dashboard. Launching
+it and restarts the wrapper only when the address actually changed. Cancel and
+saving an unchanged address return to the page you left, including its agent
+route. Quitting and relaunching restores that page too. Launching
 the app again reopens its existing window rather than starting another copy.
 
 The Dock badge counts unique agents needing attention. A notification appears
@@ -94,8 +96,10 @@ Build and exercise the installed `.app` on a Mac before merging:
    Add another agent, then clear the list; check badge `2`, then no badge.
 4. Leave the window hidden for at least five minutes, then trigger attention
    on the scratch hub; check that the native notification still arrives.
-5. Change to a second scratch URL and verify it survives relaunch. Invalid
-   URLs show a setup error without replacing the saved address. Cancel works.
+5. Open an agent page, enter settings, and Cancel; check the exact agent page
+   returns. Repeat with Save and the same URL, then ⌘Q and relaunch; check the
+   same page remains. Change to a second scratch URL; check its main page loads
+   and survives relaunch. Invalid URLs must not replace the saved address.
 6. In a debug app's Web Inspector, invoke `setup_info` or `save_hub` from the
    remote page and confirm rejection; `attention` is the only allowed custom
    command. Check that navigating to another origin is blocked.
