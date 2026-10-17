@@ -748,8 +748,8 @@ test('keyboard switchers search across teams and preserve focused chat on Escape
     await page.locator('dialog[open]').getByRole('combobox').fill('research');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => location.hash === '#/agent/ferret');
-    // Cmd on macOS uses the same shortcut handler; offline agents are searchable too.
-    await page.keyboard.press('Meta+k');
+    // Offline agents are searchable too.
+    await page.keyboard.press('Control+k');
     await page.locator('dialog[open]').getByRole('combobox').fill('stopped-agent');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => location.hash === '#/agent/stopped-agent');
@@ -792,3 +792,35 @@ test('switchers support arrows, touch, team fallback, and small viewports', asyn
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+for (const platform of ['MacIntel', 'Linux x86_64']) {
+  test(`switcher uses the platform modifier without stealing editing keys: ${platform}`, async () => {
+    const { page, errors } = await setup(1500, 900, false);
+    const mac = platform === 'MacIntel';
+    await page.addInitScript(platform => Object.defineProperty(navigator, 'platform', {value:platform}), platform);
+    try {
+      await page.goto(base + '#/agent/stoat');
+      const composer = page.locator('.thread textarea').first();
+      await composer.fill('text to edit');
+      // Record whether the page consumed these keys; Chromium on Linux cannot
+      // reproduce AppKit's actual Emacs editing bindings.
+      await page.evaluate(() => {
+        window.keyChecks = [];
+        document.addEventListener('keydown', e => window.keyChecks.push({code:e.code, prevented:e.defaultPrevented}));
+      });
+      const editingModifier = mac ? 'Control' : 'Meta';
+      for (const key of ['a', 'e', 'k']) await composer.press(`${editingModifier}+${key}`);
+      assert.equal(await page.locator('dialog[open]').count(), 0);
+      const keys = await page.evaluate(() => window.keyChecks.filter(e => ['KeyA','KeyE','KeyK'].includes(e.code)));
+      assert.equal(keys.length, 3);
+      assert.ok(keys.every(e => !e.prevented));
+      const shortcutModifier = mac ? 'Meta' : 'Control';
+      await composer.press(`${shortcutModifier}+k`);
+      await page.getByRole('dialog', {name:'Switch agent'}).waitFor();
+      await page.keyboard.press('Escape');
+      await composer.press(`${shortcutModifier}+Shift+k`);
+      await page.getByRole('dialog', {name:'Switch team'}).waitFor();
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}

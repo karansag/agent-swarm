@@ -48,7 +48,8 @@ export function QuickSwitcher({ state, navigate }) {
   const close = () => { dialog.current?.close(); setMode(null); };
   useLayoutEffect(() => {
     const onKey = e => {
-      if (e.isComposing || e.altKey || !(e.metaKey || e.ctrlKey) || e.code !== "KeyK") return;
+      const platformModifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      if (e.isComposing || e.altKey || !platformModifier || e.code !== "KeyK") return;
       e.preventDefault(); e.stopImmediatePropagation();
       if (!e.repeat) open(e.shiftKey ? "teams" : "agents");
     };

@@ -752,7 +752,8 @@ function QuickSwitcher({ state, navigate }) {
 	const [query, setQuery] = d("");
 	const [selected, setSelected] = d(null);
 	const dialog = A(null), input = A(null), previous = A(null);
-	const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+	const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+	const shortcut = mac ? "⌘" : "Ctrl+";
 	const open = (next) => {
 		if (!state) return;
 		if (!dialog.current?.open) previous.current = document.activeElement;
@@ -766,7 +767,8 @@ function QuickSwitcher({ state, navigate }) {
 	};
 	_(() => {
 		const onKey = (e) => {
-			if (e.isComposing || e.altKey || !(e.metaKey || e.ctrlKey) || e.code !== "KeyK") return;
+			const platformModifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+			if (e.isComposing || e.altKey || !platformModifier || e.code !== "KeyK") return;
 			e.preventDefault();
 			e.stopImmediatePropagation();
 			if (!e.repeat) open(e.shiftKey ? "teams" : "agents");
