@@ -722,3 +722,73 @@ test('failed detail history shows a retry message, never a false empty conversat
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('keyboard switchers search across teams and preserve focused chat on Escape', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  state.teams.push({ id:2, name:'Research lab', queen:'ferret', members:['ferret','hedgehog'] }, {id:3,name:'Empty team',members:[]});
+  state.recipients.find(a => a.user_id === 'ferret').team_id = 2;
+  state.recipients.find(a => a.user_id === 'hedgehog').team_id = 2;
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.locator('.thread-focus').first().click();
+    const composer = page.locator('.thread.focused textarea').first();
+    await composer.fill('keep this draft');
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', {name:'Switch agent'});
+    await dialog.waitFor();
+    await page.locator('dialog[open]').getByRole('combobox').fill('research ferret');
+    assert.equal(await dialog.getByRole('option').count(), 1);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({state:'hidden'});
+    assert.equal(await page.locator('.thread.focused').count(), 1);
+    assert.equal(await composer.inputValue(), 'keep this draft');
+    assert.equal(await composer.evaluate(e => e === document.activeElement), true);
+    await page.keyboard.press('Control+Shift+k');
+    await page.getByRole('dialog', {name:'Switch team'}).waitFor();
+    await page.locator('dialog[open]').getByRole('combobox').fill('research');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.hash === '#/agent/ferret');
+    // Cmd on macOS uses the same shortcut handler; offline agents are searchable too.
+    await page.keyboard.press('Meta+k');
+    await page.locator('dialog[open]').getByRole('combobox').fill('stopped-agent');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.hash === '#/agent/stopped-agent');
+    await page.keyboard.press('Control+k');
+    await page.locator('dialog[open]').getByRole('combobox').fill('no such agent');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/stopped-agent');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+Shift+k');
+    await page.locator('dialog[open]').getByRole('combobox').fill('empty team');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/stopped-agent');
+    assert.equal(await page.locator('dialog[open]').getByRole('option').getAttribute('aria-disabled'), 'true');
+    await page.keyboard.press('Escape');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('switchers support arrows, touch, team fallback, and small viewports', async () => {
+  const { page, state, errors } = await setup(390, 844);
+  state.recipients.find(a => a.user_id === 'stoat').pane_alive = false;
+  try {
+    await page.goto(base + '#/');
+    await page.getByRole('button', {name:/^teams .*K/}).click();
+    const dialog = page.getByRole('dialog', {name:'Switch team'});
+    await dialog.waitFor();
+    await dialog.getByRole('option').first().click();
+    await page.waitForFunction(() => location.hash.startsWith('#/agent/'));
+    assert.notEqual(await page.evaluate(() => location.hash), '#/agent/stoat');
+    await page.keyboard.press('Control+k');
+    const active = () => page.locator('dialog[open]').getByRole('combobox').getAttribute('aria-activedescendant');
+    const first = await active();
+    await page.keyboard.press('ArrowDown');
+    assert.notEqual(await active(), first);
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await active(), first);
+    const rect = await page.locator('dialog[open]').boundingBox();
+    assert.ok(rect.x >= 0 && rect.x+rect.width <= 390);
+    await page.keyboard.press('Escape');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

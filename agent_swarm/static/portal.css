@@ -909,3 +909,19 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   .bee-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .bee-tile { padding: 10px; }
 }
+
+/* Searchable navigation, in the top layer even above a focused conversation. */
+.quick-switch-launchers { display: flex; gap: 6px; }
+.quick-switch-launchers kbd { opacity: .65; font: inherit; margin-left: 6px; }
+dialog.quick-switch { margin: auto; width: min(680px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: 18px; background: var(--ink); color: var(--cream); border: 1px solid var(--honey-dim); border-radius: 12px; }
+.quick-switch::backdrop { background: rgba(8,6,3,.78); }
+.quick-switch-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+.quick-switch-head h2 { margin: 0; }
+.quick-switch input { width: 100%; min-height: 44px; padding: 10px; background: var(--panel); color: var(--cream); border: 1px solid var(--honey-dim); border-radius: 6px; font: inherit; }
+.quick-switch-results { max-height: min(55dvh, 460px); overflow: auto; margin-top: 10px; }
+.quick-switch-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.quick-switch-option > span { min-width: 0; }
+.quick-switch-option small { display: block; color: var(--cream-dim); }
+.quick-switch-option.selected, .quick-switch-option:hover { background: var(--panel); border-color: var(--honey-dim); }
+.quick-switch-option[aria-disabled=true] { opacity: .5; cursor: default; }
+.quick-switch-help { margin-top: 12px; color: var(--cream-dim); font-size: 11px; }

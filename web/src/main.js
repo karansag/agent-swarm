@@ -1,3 +1,4 @@
+import { QuickSwitcher } from "./quick-switch.js";
 import { useAgentHistory } from "./agent-history.js";
 import { TaskTrash } from "./task-trash.js";
 import { TaskStatusActions } from "./task-status.js";
@@ -1161,7 +1162,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
   }, [focused]);
   useLayoutEffect(() => {
     const onKey = (e) => {
-      if (e.isComposing) return;
+      if (e.isComposing || document.querySelector(".quick-switch[open]")) return;
       if (e.key === "Escape" && focused) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -1327,7 +1328,7 @@ function useTeammateKeys(members) {
   current.current = members;
   useEffect(() => {
     const onKey = (e) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!e.altKey || e.ctrlKey || e.metaKey || document.querySelector(".quick-switch[open]")) return;
       const members = current.current;
       const here = location.hash.startsWith("#/agent/")
         ? decodeURIComponent(location.hash.slice("#/agent/".length)) : null;
@@ -1662,6 +1663,12 @@ function App() {
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
     </nav>
+    <${QuickSwitcher} state=${state} navigate=${(user, previous) => {
+      if (location.hash === focusHash(user)) return;
+      switchCarry = { composer: !!previous?.closest?.(".thread .composer"), focus: !!document.querySelector(".thread.focused") };
+      setMachine(null);
+      location.hash = focusHash(user);
+    }} />
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>

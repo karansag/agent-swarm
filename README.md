@@ -227,6 +227,8 @@ views sit at the top of the overview.
   window, with A−/A+ for text size.
 - its tasks, and a form to give it a new one.
 
+Press **Cmd/Ctrl+K** to search all agents, or **Cmd/Ctrl+Shift+K** to search teams. Use arrow keys and Enter to choose, or Escape to close. Team selection opens its live queen or first live member (an offline member if none are live). The header also has clickable teams/agents search buttons.
+
 Teammates are listed at the top of the page; Alt+[ and Alt+] move between
 them.
 
