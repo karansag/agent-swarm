@@ -11,6 +11,13 @@ export function fixture() { return {
 }; }
 export async function mock(page,state=fixture()) {
  await page.route('**/api/state',r=>r.fulfill({json:state}));
+ await page.route('**/api/agents/*/messages?*', r => {
+   const url = new URL(r.request().url());
+   const user = decodeURIComponent(url.pathname.split('/')[3]);
+   const before = Number(url.searchParams.get('before') || Infinity);
+   const after = Number(url.searchParams.get('after') || 0);
+   return r.fulfill({json:{messages:state.messages.filter(m => (m.sender === user || m.recipient === user) && m.id < before && m.id > after),has_more:false}});
+ });
  await page.route('**/api/peek/**',r=>r.fulfill({json:{pane_label:'agent-swarm:0.1',text:'Reviewing mobile layouts\n'+('long_output_'.repeat(45))}}));
  await page.route('**/attachments/**',r => r.request().url().endsWith('.png')
    ? r.fulfill({body:'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#f2a93b"/></svg>',contentType:'image/svg+xml'})

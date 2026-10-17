@@ -307,35 +307,8 @@ n$1 = w$1.slice, l$1 = { __e: function(n, l, u, t) {
 	return n.__v.__b - l.__v.__b;
 }, H.__r = 0, f$1 = Math.random().toString(8), c$1 = "__d" + f$1, a$1 = "__a" + f$1, s$1 = /(PointerCapture)$|Capture$/i, h$1 = 0, p$1 = V(!1), v$1 = V(!0);
 //#endregion
-//#region node_modules/htm/dist/htm.module.js
-var n = function(t, s, r, e) {
-	var u;
-	s[0] = 0;
-	for (var h = 1; h < s.length; h++) {
-		var p = s[h++], a = s[h] ? (s[0] |= p ? 1 : 2, r[s[h++]]) : s[++h];
-		3 === p ? e[0] = a : 4 === p ? e[1] = Object.assign(e[1] || {}, a) : 5 === p ? (e[1] = e[1] || {})[s[++h]] = a : 6 === p ? e[1][s[++h]] += a + "" : p ? (u = t.apply(a, n(t, a, r, ["", null])), e.push(u), a[0] ? s[0] |= 2 : (s[h - 2] = 0, s[h] = u)) : e.push(a);
-	}
-	return e;
-};
-var t$1 = /* @__PURE__ */ new Map();
-function htm_module_default(s) {
-	var r = t$1.get(this);
-	return r || (r = /* @__PURE__ */ new Map(), t$1.set(this, r)), (r = n(this, r.get(s) || (r.set(s, r = function(n) {
-		for (var t, s, r = 1, e = "", u = "", h = [0], p = function(n) {
-			1 === r && (n || (e = e.replace(/^\s*\n\s*|\s*\n\s*$/g, ""))) ? h.push(0, n, e) : 3 === r && (n || e) ? (h.push(3, n, e), r = 2) : 2 === r && "..." === e && n ? h.push(4, n, 0) : 2 === r && e && !n ? h.push(5, 0, !0, e) : r >= 5 && ((e || !n && 5 === r) && (h.push(r, 0, e, s), r = 6), n && (h.push(r, n, 0, s), r = 6)), e = "";
-		}, a = 0; a < n.length; a++) {
-			a && (1 === r && p(), p(a));
-			for (var l = 0; l < n[a].length; l++) t = n[a][l], 1 === r ? "<" === t ? (p(), h = [h], r = 3) : e += t : 4 === r ? "--" === e && ">" === t ? (r = 1, e = "") : e = t + e[0] : u ? t === u ? u = "" : e += t : "\"" === t || "'" === t ? u = t : ">" === t ? (p(), r = 1) : r && ("=" === t ? (r = 5, s = e, e = "") : "/" === t && (r < 5 || ">" === n[a][l + 1]) ? (p(), 3 === r && (h = h[0]), r = h, (h = h[0]).push(2, 0, r), r = 0) : " " === t || "	" === t || "\n" === t || "\r" === t ? (p(), r = 2) : e += t), 3 === r && "!--" === e && (r = 4, h = h[0]);
-		}
-		return p(), h;
-	}(s)), r), arguments, [])).length > 1 ? r : r[0];
-}
-//#endregion
-//#region node_modules/htm/preact/index.module.js
-var m$1 = htm_module_default.bind(k$1);
-//#endregion
 //#region node_modules/preact/hooks/dist/hooks.module.js
-var t;
+var t$1;
 var r;
 var u;
 var i;
@@ -346,7 +319,7 @@ var e = c.__b;
 var a = c.__r;
 var v = c.diffed;
 var l = c.__c;
-var m = c.unmount;
+var m$1 = c.unmount;
 var p = c.__;
 function s(n, t) {
 	c.__h && c.__h(r, n, o || t), o = 0;
@@ -360,7 +333,7 @@ function d(n) {
 	return o = 1, y(D, n);
 }
 function y(n, u, i) {
-	var o = s(t++, 2);
+	var o = s(t$1++, 2);
 	if (o.t = n, !o.__c && (o.__ = [i ? i(u) : D(void 0, u), function(n) {
 		var t = o.__N ? o.__N[0] : o.__[0], r = o.t(t, n);
 		t !== r && (o.__N = [r, o.__[1]], o.__c.setState({}));
@@ -393,11 +366,11 @@ function y(n, u, i) {
 	return o.__N || o.__;
 }
 function h(n, u) {
-	var i = s(t++, 3);
+	var i = s(t$1++, 3);
 	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__H.__h.push(i));
 }
 function _(n, u) {
-	var i = s(t++, 4);
+	var i = s(t$1++, 4);
 	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__h.push(i));
 }
 function A(n) {
@@ -406,7 +379,7 @@ function A(n) {
 	}, []);
 }
 function T(n, r) {
-	var u = s(t++, 7);
+	var u = s(t$1++, 7);
 	return C(u.__H, r) && (u.__ = n(), u.__H = r, u.__h = n), u.__;
 }
 function j() {
@@ -424,11 +397,11 @@ c.__b = function(n) {
 }, c.__ = function(n, t) {
 	n && t.__k && t.__k.__m && (n.__m = t.__k.__m), p && p(n, t);
 }, c.__r = function(n) {
-	a && a(n), t = 0;
+	a && a(n), t$1 = 0;
 	var i = (r = n.__c).__H;
 	i && (u === r ? (i.__h = [], r.__h = [], i.__.some(function(n) {
 		n.__N && (n.__ = n.__N), n.u = n.__N = void 0;
-	})) : (i.__h.some(z), i.__h.some(B), i.__h = [], t = 0)), u = r;
+	})) : (i.__h.some(z), i.__h.some(B), i.__h = [], t$1 = 0)), u = r;
 }, c.diffed = function(n) {
 	v && v(n);
 	var t = n.__c;
@@ -448,7 +421,7 @@ c.__b = function(n) {
 		}
 	}), l && l(n, t);
 }, c.unmount = function(n) {
-	m && m(n);
+	m$1 && m$1(n);
 	var t, r = n.__c;
 	r && r.__H && (r.__H.__.some(function(n) {
 		try {
@@ -482,30 +455,32 @@ function D(n, t) {
 	return "function" == typeof t ? t(n) : t;
 }
 //#endregion
-//#region web/src/task-trash.js
-function TaskTrash({ task, refresh, onDeleted }) {
-	const [busy, setBusy] = d(false);
-	const [error, setError] = d("");
-	const remove = async () => {
-		if (!confirm(`Permanently trash task #${task.id}: ${task.title}? This cannot be undone. Agent conversations and working files will remain.`)) return;
-		setBusy(true);
-		setError("");
-		try {
-			const response = await fetch(`/tasks/${task.id}`, { method: "DELETE" });
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.detail?.error || "Could not trash task.");
-			onDeleted?.();
-			refresh();
-		} catch (err) {
-			setError(`${err.message} Refresh to check the task before retrying.`);
-		} finally {
-			setBusy(false);
+//#region node_modules/htm/dist/htm.module.js
+var n = function(t, s, r, e) {
+	var u;
+	s[0] = 0;
+	for (var h = 1; h < s.length; h++) {
+		var p = s[h++], a = s[h] ? (s[0] |= p ? 1 : 2, r[s[h++]]) : s[++h];
+		3 === p ? e[0] = a : 4 === p ? e[1] = Object.assign(e[1] || {}, a) : 5 === p ? (e[1] = e[1] || {})[s[++h]] = a : 6 === p ? e[1][s[++h]] += a + "" : p ? (u = t.apply(a, n(t, a, r, ["", null])), e.push(u), a[0] ? s[0] |= 2 : (s[h - 2] = 0, s[h] = u)) : e.push(a);
+	}
+	return e;
+};
+var t = /* @__PURE__ */ new Map();
+function htm_module_default(s) {
+	var r = t.get(this);
+	return r || (r = /* @__PURE__ */ new Map(), t.set(this, r)), (r = n(this, r.get(s) || (r.set(s, r = function(n) {
+		for (var t, s, r = 1, e = "", u = "", h = [0], p = function(n) {
+			1 === r && (n || (e = e.replace(/^\s*\n\s*|\s*\n\s*$/g, ""))) ? h.push(0, n, e) : 3 === r && (n || e) ? (h.push(3, n, e), r = 2) : 2 === r && "..." === e && n ? h.push(4, n, 0) : 2 === r && e && !n ? h.push(5, 0, !0, e) : r >= 5 && ((e || !n && 5 === r) && (h.push(r, 0, e, s), r = 6), n && (h.push(r, n, 0, s), r = 6)), e = "";
+		}, a = 0; a < n.length; a++) {
+			a && (1 === r && p(), p(a));
+			for (var l = 0; l < n[a].length; l++) t = n[a][l], 1 === r ? "<" === t ? (p(), h = [h], r = 3) : e += t : 4 === r ? "--" === e && ">" === t ? (r = 1, e = "") : e = t + e[0] : u ? t === u ? u = "" : e += t : "\"" === t || "'" === t ? u = t : ">" === t ? (p(), r = 1) : r && ("=" === t ? (r = 5, s = e, e = "") : "/" === t && (r < 5 || ">" === n[a][l + 1]) ? (p(), 3 === r && (h = h[0]), r = h, (h = h[0]).push(2, 0, r), r = 0) : " " === t || "	" === t || "\n" === t || "\r" === t ? (p(), r = 2) : e += t), 3 === r && "!--" === e && (r = 4, h = h[0]);
 		}
-	};
-	return m$1`<span class="task-trash"><button type="button" class="mini danger" disabled=${busy}
-    title=${`Permanently trash task #${task.id}`} onClick=${remove}>${busy ? "Trashing…" : "⌫ Trash"}</button>
-    ${error && m$1`<span role="alert" class="tnote-err">${error}</span>`}</span>`;
+		return p(), h;
+	}(s)), r), arguments, [])).length > 1 ? r : r[0];
 }
+//#endregion
+//#region node_modules/htm/preact/index.module.js
+var m = htm_module_default.bind(k$1);
 //#endregion
 //#region web/src/machines.js
 var COLORS = [
@@ -689,7 +664,7 @@ function currentTask(tasks, user) {
 function pairKey(a, b) {
 	return [a, b].sort().join(" ");
 }
-var disp = (u) => u === "owner" ? m$1`<span class="owner-name">owner</span>` : u;
+var disp = (u) => u === "owner" ? m`<span class="owner-name">owner</span>` : u;
 var focusHash = (u) => `#/agent/${encodeURIComponent(u)}`;
 async function patchTask(id, patch) {
 	try {
@@ -713,18 +688,18 @@ async function patchTask(id, patch) {
 function Avatar({ name, size }) {
 	const base = name.replace(/-\d+$/, "");
 	const emoji = ANIMAL_EMOJI[base];
-	return m$1`<div class=${`hex ${size || ""}`} style=${`--hue: hsl(${hue(name)} 42% 58%)`}>
-    ${emoji || m$1`<span class="mono2">${base.slice(0, 2)}</span>`}
+	return m`<div class=${`hex ${size || ""}`} style=${`--hue: hsl(${hue(name)} 42% 58%)`}>
+    ${emoji || m`<span class="mono2">${base.slice(0, 2)}</span>`}
   </div>`;
 }
 function MachineBadge({ node }) {
-	return m$1`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
+	return m`<span class="machine-badge" style=${`--machine:${machineColor(node)}`} title=${`Machine: ${machineName(node)}`}><span class="machine-mark" aria-hidden="true"></span>${machineName(node)}</span>`;
 }
 function Bee({ node, flavor, size = "", working = false }) {
 	const harness = harnessStyle(flavor);
-	return m$1`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness${working ? ", working" : ""}`}>
+	return m`<svg class=${`agent-bee ${size}`} style=${`--machine:${machineColor(node)}`} viewBox="0 0 56 42" role="img" aria-label=${`${machineName(node)} machine, ${harness.label} harness${working ? ", working" : ""}`}>
     <title>${harness.label} harness: ${harness.mark} and stripes · ${machineName(node)}: body and border</title>
-    ${working && m$1`<g class="bee-working-halo" style=${`--working:${WORKING_HALO.color}`}>
+    ${working && m`<g class="bee-working-halo" style=${`--working:${WORKING_HALO.color}`}>
       <circle cx="27" cy="21" r="28" fill=${WORKING_HALO.fill} stroke=${WORKING_HALO.color} stroke-width="2.5" />
     </g>`}
     <ellipse cx="23" cy="10" rx="11" ry="6" fill="#f0e6d2" opacity=".65" transform="rotate(-25 23 10)" />
@@ -734,6 +709,123 @@ function Bee({ node, flavor, size = "", working = false }) {
     <path d="M19 12v18M29 11v20" stroke=${harness.color} stroke-width="4" />
     <circle cx="44" cy="21" r="6" fill="#16120c" /><circle cx="46" cy="19" r="1.3" fill="#f0e6d2" />
   </svg>`;
+}
+//#endregion
+//#region web/src/agent-history.js
+function useAgentHistory(user) {
+	const [history, setHistory] = d({
+		messages: [],
+		loaded: false,
+		more: false,
+		busy: false,
+		error: ""
+	});
+	const older = A(() => {});
+	h(() => {
+		let active = true, polling = false, loadingOlder = false;
+		let newest = null, oldest = null;
+		const abort = new AbortController();
+		const read = async (query) => {
+			const response = await fetch(`/api/agents/${encodeURIComponent(user)}/messages?${query}`, { signal: abort.signal });
+			if (!response.ok) throw Error("History unavailable");
+			const page = await response.json();
+			if (!Array.isArray(page.messages) || typeof page.has_more !== "boolean") throw Error("Invalid history");
+			return page;
+		};
+		const merge = (page, initial = false, isOlder = false) => {
+			if (!active) return;
+			const ids = page.messages.map((m) => m.id);
+			if (ids.length) {
+				newest = Math.max(newest ?? 0, ...ids);
+				oldest = Math.min(oldest ?? Infinity, ...ids);
+			} else if (initial) newest = 0;
+			setHistory((prev) => ({
+				...prev,
+				loaded: true,
+				error: "",
+				more: initial || isOlder ? page.has_more : prev.more,
+				messages: [...new Map([...prev.messages, ...page.messages].map((m) => [m.id, m])).values()]
+			}));
+		};
+		const poll = async () => {
+			if (polling) return;
+			polling = true;
+			try {
+				const initial = newest === null;
+				let page = await read(initial ? "limit=300" : `after=${newest}&limit=300`);
+				merge(page, initial);
+				while (active && !initial && page.has_more) {
+					page = await read(`after=${newest}&limit=300`);
+					merge(page);
+				}
+			} catch {
+				if (active) setHistory((prev) => ({
+					...prev,
+					error: "Could not load conversation history. Retrying…"
+				}));
+			} finally {
+				polling = false;
+			}
+		};
+		older.current = async () => {
+			if (loadingOlder || oldest === null) return;
+			loadingOlder = true;
+			setHistory((prev) => ({
+				...prev,
+				busy: true
+			}));
+			try {
+				merge(await read(`before=${oldest}&limit=300`), false, true);
+			} catch {
+				if (active) setHistory((prev) => ({
+					...prev,
+					error: "Could not load older messages. Please try again."
+				}));
+			} finally {
+				loadingOlder = false;
+				if (active) setHistory((prev) => ({
+					...prev,
+					busy: false
+				}));
+			}
+		};
+		poll();
+		const timer = setInterval(poll, POLL_MS);
+		return () => {
+			active = false;
+			abort.abort();
+			clearInterval(timer);
+		};
+	}, [user]);
+	return {
+		...history,
+		loadOlder: () => older.current()
+	};
+}
+//#endregion
+//#region web/src/task-trash.js
+function TaskTrash({ task, refresh, onDeleted }) {
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d("");
+	const remove = async () => {
+		if (!confirm(`Permanently trash task #${task.id}: ${task.title}? This cannot be undone. Agent conversations and working files will remain.`)) return;
+		setBusy(true);
+		setError("");
+		try {
+			const response = await fetch(`/tasks/${task.id}`, { method: "DELETE" });
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.detail?.error || "Could not trash task.");
+			onDeleted?.();
+			refresh();
+		} catch (err) {
+			setError(`${err.message} Refresh to check the task before retrying.`);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return m`<span class="task-trash"><button type="button" class="mini danger" disabled=${busy}
+    title=${`Permanently trash task #${task.id}`} onClick=${remove}>${busy ? "Trashing…" : "⌫ Trash"}</button>
+    ${error && m`<span role="alert" class="tnote-err">${error}</span>`}</span>`;
 }
 //#endregion
 //#region web/src/task-status.js
@@ -770,15 +862,15 @@ function TaskStatusActions({ task, refresh }) {
 			note: verification
 		});
 	};
-	return m$1`<div class=${`task-status-actions ${editing ? "editing" : ""}`}>
-    ${task.status === "done" ? m$1`<button type="button" class="mini" disabled=${busy}
-          onClick=${() => change({ status: task.assignee || task.team_id ? "picked_up" : "open" })}>Reopen</button>` : m$1`${task.status === "open" && m$1`<button type="button" class="mini"
+	return m`<div class=${`task-status-actions ${editing ? "editing" : ""}`}>
+    ${task.status === "done" ? m`<button type="button" class="mini" disabled=${busy}
+          onClick=${() => change({ status: task.assignee || task.team_id ? "picked_up" : "open" })}>Reopen</button>` : m`${task.status === "open" && m`<button type="button" class="mini"
           disabled=${busy || !(task.assignee || task.team_id)}
           title=${task.assignee || task.team_id ? "Start work on this task" : "Assign this task first"}
           onClick=${() => change({ status: "picked_up" })}>Start work</button>`}
         <button type="button" class="mini" disabled=${busy || editing && !note.trim()}
           onClick=${complete}>${busy ? "Updating…" : "Complete task"}</button>`}
-    ${editing && task.status !== "done" && m$1`<div class="task-verification">
+    ${editing && task.status !== "done" && m`<div class="task-verification">
       <label>Verification note <span aria-hidden="true">*</span>
         <textarea rows="3" value=${note} autofocus
           placeholder="How to use or verify the result, and where to look."
@@ -790,7 +882,7 @@ function TaskStatusActions({ task, refresh }) {
 		setError("");
 	}}>Cancel</button>
     </div>`}
-    ${error && m$1`<span class="task-action-error" role="alert">${error}</span>`}
+    ${error && m`<span class="task-action-error" role="alert">${error}</span>`}
   </div>`;
 }
 //#endregion
@@ -1026,25 +1118,25 @@ function useAttachments(files, setFiles, setStatus, scope) {
 }
 function AttachmentLink({ name }) {
 	const [missing, setMissing] = d(false);
-	if (missing) return m$1`<span class="image-expired">Attachment unavailable</span>`;
-	return m$1`<a class=${isImage(name) ? "image-link" : "file-link"} href=${`/attachments/${name}`} target="_blank" rel="noopener" title=${isImage(name) ? "Open image" : `Download ${attachmentLabel(name)}`}>
-    ${isImage(name) ? m$1`<img src=${`/attachments/${name}`} alt="Attached image" loading="lazy" onError=${() => setMissing(true)} />` : m$1`<span aria-hidden="true">▤</span> ${attachmentLabel(name)} <span aria-hidden="true">↓</span>`}
+	if (missing) return m`<span class="image-expired">Attachment unavailable</span>`;
+	return m`<a class=${isImage(name) ? "image-link" : "file-link"} href=${`/attachments/${name}`} target="_blank" rel="noopener" title=${isImage(name) ? "Open image" : `Download ${attachmentLabel(name)}`}>
+    ${isImage(name) ? m`<img src=${`/attachments/${name}`} alt="Attached image" loading="lazy" onError=${() => setMissing(true)} />` : m`<span aria-hidden="true">▤</span> ${attachmentLabel(name)} <span aria-hidden="true">↓</span>`}
   </a>`;
 }
 function AttachmentList({ files = [] }) {
-	return files.length > 0 && m$1`<div class="attachment-list">${files.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}</div>`;
+	return files.length > 0 && m`<div class="attachment-list">${files.map((name) => m`<${AttachmentLink} key=${name} name=${name} />`)}</div>`;
 }
 function AttachmentPicker({ files, controls, disabled = false }) {
 	const input = A(null);
-	return m$1`<div class="attachment-picker">
+	return m`<div class="attachment-picker">
     <div class="attachment-tools"><button type="button" class="mini" disabled=${disabled} onClick=${() => input.current?.click()}>+ attach files</button><span>Paste or drop files · 10 MB each · up to 10</span></div>
     <input ref=${input} type="file" multiple hidden disabled=${disabled} onChange=${(e) => {
 		controls.addFiles(e.target.files);
 		e.target.value = "";
 	}} />
-    ${(files.length > 0 || controls.uploading > 0) && m$1`<div class="compose-images">${files.map((name) => m$1`<figure key=${name} class="compose-image">
+    ${(files.length > 0 || controls.uploading > 0) && m`<div class="compose-images">${files.map((name) => m`<figure key=${name} class="compose-image">
       <${AttachmentLink} name=${name} /><button type="button" class="remove" disabled=${disabled} onClick=${() => controls.remove(name)} aria-label=${`Remove ${attachmentLabel(name)}`}>×</button>
-    </figure>`)}${controls.uploading > 0 && m$1`<span role="status">Uploading ${controls.uploading}…</span>`}</div>`}
+    </figure>`)}${controls.uploading > 0 && m`<span role="status">Uploading ${controls.uploading}…</span>`}</div>`}
   </div>`;
 }
 //#endregion
@@ -1082,20 +1174,20 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 }
 function CompactBees({ state, machine }) {
 	const agents = (state.recipients || []).filter((r) => r.pane_alive && (machine === null || machineName(r.node) === machine));
-	return m$1`<nav class="compact-hive" aria-label="Live agents">
+	return m`<nav class="compact-hive" aria-label="Live agents">
     <div class="compact-hive-heading"><span>${agents.length} live agents</span><span>Tap a bee to open</span></div>
     <div class="bee-grid">${agents.map((r) => {
 		const status = agentStatus(r);
 		const st = STATE[status] || STATE.unknown;
 		const harness = harnessStyle(r.flavor);
-		return m$1`<a key=${r.user_id} class="bee-tile" href=${focusHash(r.user_id)} style=${`--machine:${machineColor(r.node)}`}>
+		return m`<a key=${r.user_id} class="bee-tile" href=${focusHash(r.user_id)} style=${`--machine:${machineColor(r.node)}`}>
         <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
         <span class="bee-name">${r.user_id}</span>
         <span class="bee-machine">${machineName(r.node)}</span>
         <span class="bee-state"><span class=${`status ${st.cls}`} aria-hidden="true"></span>${st.word} · ${harness.mark} ${harness.label}</span>
       </a>`;
 	})}</div>
-    ${!agents.length && m$1`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
+    ${!agents.length && m`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
   </nav>`;
 }
 function HiveTaskDetail({ task, state, refresh, onClose }) {
@@ -1119,23 +1211,23 @@ function HiveTaskDetail({ task, state, refresh, onClose }) {
 		}
 	};
 	const agents = [.../* @__PURE__ */ new Set([...(state.recipients || []).map((r) => r.user_id), ...task.assignee ? [task.assignee] : []])];
-	return m$1`<section class="hive-task-detail" aria-label=${`Task #${task.id} details`}>
+	return m`<section class="hive-task-detail" aria-label=${`Task #${task.id} details`}>
     <header><h3>#${task.id} · ${task.title}</h3>
       <button type="button" class="mini" onClick=${onClose}>Collapse</button></header>
     <p>${task.status.replaceAll("_", " ")} · ${task.assignee || "unassigned"}${task.team_id ? ` · team ${(state.teams || []).find((t) => t.id === task.team_id)?.name || task.team_id}` : ""}</p>
-    ${task.description && m$1`<p class="task-description">${task.description}</p>`}
-    ${task.depends_on?.length > 0 && m$1`<p>Depends on ${task.depends_on.map((id) => `#${id}`).join(", ")}</p>`}
-    ${task.worktree && m$1`<p>Worktree: ${task.worktree_node || ""} ${task.worktree}</p>`}
+    ${task.description && m`<p class="task-description">${task.description}</p>`}
+    ${task.depends_on?.length > 0 && m`<p>Depends on ${task.depends_on.map((id) => `#${id}`).join(", ")}</p>`}
+    ${task.worktree && m`<p>Worktree: ${task.worktree_node || ""} ${task.worktree}</p>`}
     <${AttachmentList} files=${task.attachments} />
-    ${task.note && m$1`<p class="task-description">${task.note}</p>`}
+    ${task.note && m`<p class="task-description">${task.note}</p>`}
     <label class="hive-task-assignment">Assign to
       <select aria-label=${`Assign task #${task.id}`} value=${task.team_id ? `t:${task.team_id}` : task.assignee || ""} disabled=${busy || task.status === "done"} onChange=${assign}>
         <option value="">unassigned</option>
-        <optgroup label="Teams">${(state.teams || []).map((t) => m$1`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>
-        <optgroup label="Agents">${agents.map((a) => m$1`<option value=${a}>${a}</option>`)}</optgroup>
+        <optgroup label="Teams">${(state.teams || []).map((t) => m`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>
+        <optgroup label="Agents">${agents.map((a) => m`<option value=${a}>${a}</option>`)}</optgroup>
       </select>
     </label>
-    ${error && m$1`<p role="alert">${error}</p>`}
+    ${error && m`<p role="alert">${error}</p>`}
     <${TaskStatusActions} task=${task} refresh=${refresh} />
     <${TaskTrash} task=${task} refresh=${refresh} onDeleted=${onClose} />
   </section>`;
@@ -2127,12 +2219,12 @@ function HiveView({ state, refresh, machine, compactBody = null }) {
 	h(() => {
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current) drawRef.current(performance.now(), true);
 	}, [state, machine]);
-	return m$1`<div class="hive-panel">${compact ? compactBody || m$1`<${CompactBees} state=${state} machine=${machine} />` : m$1`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+	return m`<div class="hive-panel">${compact ? compactBody || m`<${CompactBees} state=${state} machine=${machine} />` : m`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
     aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div>`}
     <div class="harness-legend" aria-label="Bee harness legend">
       <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       <span class="working-halo-key" style=${`--working:${WORKING_HALO.color}`}><span aria-hidden="true"></span>Green halo = working</span>
-      ${legendHarnesses.map((harness) => m$1`<span class="harness-key" key=${harness.key}>
+      ${legendHarnesses.map((harness) => m`<span class="harness-key" key=${harness.key}>
         <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
         ${harness.label}
       </span>`)}
@@ -2140,9 +2232,9 @@ function HiveView({ state, refresh, machine, compactBody = null }) {
     <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
       onChange=${(e) => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>
       <option value="">${compact ? "Choose a task…" : "Click a honeycomb or choose a task…"}</option>
-      ${(state.tasks || []).filter((t) => t.status !== "done" || t.id === selectedTask).map((t) => m$1`<option value=${t.id}>#${t.id} · ${t.title}</option>`)}
+      ${(state.tasks || []).filter((t) => t.status !== "done" || t.id === selectedTask).map((t) => m`<option value=${t.id}>#${t.id} · ${t.title}</option>`)}
     </select></label></div>
-    ${taskDetail && m$1`<${HiveTaskDetail} key=${taskDetail.id} task=${taskDetail} state=${state} refresh=${refresh} onClose=${() => setSelectedTask(null)} />`}
+    ${taskDetail && m`<${HiveTaskDetail} key=${taskDetail.id} task=${taskDetail} state=${state} refresh=${refresh} onClose=${() => setSelectedTask(null)} />`}
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
 }
 //#endregion
@@ -2234,7 +2326,7 @@ function markRe(tokens) {
 }
 function hl(text, re) {
 	if (!re || !text) return text;
-	return text.split(re).map((part, i) => i % 2 ? m$1`<mark>${part}</mark>` : part);
+	return text.split(re).map((part, i) => i % 2 ? m`<mark>${part}</mark>` : part);
 }
 var CLIP = 220;
 function excerpt(text, re) {
@@ -2259,22 +2351,22 @@ function Clipped({ label, text, re }) {
 	const [open, setOpen] = d(false);
 	if (!text) return null;
 	const long = text.length > CLIP;
-	return m$1`<div class="h-field">
-    ${label && m$1`<span class="h-label">${label}</span>`}
+	return m`<div class="h-field">
+    ${label && m`<span class="h-label">${label}</span>`}
     <span class="h-text">${hl(open || !long ? text : excerpt(text, re), re)}</span>
-    ${long && m$1` <button type="button" class="h-more" onClick=${() => setOpen(!open)}>${open ? "less" : "more"}</button>`}
+    ${long && m` <button type="button" class="h-more" onClick=${() => setOpen(!open)}>${open ? "less" : "more"}</button>`}
   </div>`;
 }
 function TaskTile({ rec, re, now, filterAgent }) {
 	const t = rec.src;
 	const f = rec.fields;
-	return m$1`<article class=${`htile ${t.status}`}>
+	return m`<article class=${`htile ${t.status}`}>
     <div class="h-who">
-      ${t.assignee ? m$1`<${Avatar} name=${t.assignee} size="tiny" />
+      ${t.assignee ? m`<${Avatar} name=${t.assignee} size="tiny" />
           <a class="agent-link h-agent" href=${focusHash(t.assignee)}
             title=${`Open ${t.assignee} and message it`}>${hl(t.assignee, re)}</a>
           <button type="button" class="h-only" onClick=${() => filterAgent(t.assignee)}
-            title=${`Show only ${t.assignee}'s tasks`} aria-label=${`Show only ${t.assignee}'s tasks`}>⌕</button>` : m$1`<span class="h-noagent">unassigned</span>`}
+            title=${`Show only ${t.assignee}'s tasks`} aria-label=${`Show only ${t.assignee}'s tasks`}>⌕</button>` : m`<span class="h-noagent">unassigned</span>`}
       <span class=${`pill ${t.status}`}>${t.status.replace("_", " ")}</span>
     </div>
     <div class="h-title"><span class="h-id">#${t.id}</span> ${hl(f.title, re)}</div>
@@ -2283,15 +2375,15 @@ function TaskTile({ rec, re, now, filterAgent }) {
     <${Clipped} label="how to verify" text=${f.note} re=${re} />
     <div class="h-meta">
       <span title=${fmtDate(t.created_at)}>created ${fmtDate(t.created_at)}</span>
-      ${t.status === "done" ? m$1`<span title=${`last updated ${fmtDate(t.updated_at)}`}>closed ${fmtDate(t.updated_at)} · ${rel(t.updated_at, now)}</span>` : m$1`<span>updated ${rel(t.updated_at, now)}</span>`}
-      ${f.team && m$1`<span>team ${hl(f.team, re)}</span>`}
-      ${f.worktree && m$1`<span class="h-wt" title=${f.worktree}>${hl(f.worktree, re)}</span>`}
+      ${t.status === "done" ? m`<span title=${`last updated ${fmtDate(t.updated_at)}`}>closed ${fmtDate(t.updated_at)} · ${rel(t.updated_at, now)}</span>` : m`<span>updated ${rel(t.updated_at, now)}</span>`}
+      ${f.team && m`<span>team ${hl(f.team, re)}</span>`}
+      ${f.worktree && m`<span class="h-wt" title=${f.worktree}>${hl(f.worktree, re)}</span>`}
     </div>
   </article>`;
 }
 function StatusTile({ rec, re, now, filterAgent }) {
 	const s = rec.src;
-	return m$1`<article class="htile status-line">
+	return m`<article class="htile status-line">
     <div class="h-who">
       <${Avatar} name=${s.user_id} size="tiny" />
       <a class="agent-link h-agent" href=${focusHash(s.user_id)}
@@ -2366,7 +2458,7 @@ function HistoryView({ state }) {
 	}
 	const agents = agentChips(agentCount, state.recipients, s.agent);
 	const shown = textHits.filter((r) => inStatus(r) && hasAgent(r)).sort((a, b) => s.sort === "oldest" ? a.ts - b.ts : b.ts - a.ts);
-	return m$1`<div class="history">
+	return m`<div class="history">
     <h2>task history <span class="count">· ${shown.length} of ${tasks.length} tasks${withLines ? ` + ${lines.length} status lines` : ""}</span></h2>
     <div class="h-controls">
       <input ref=${inputRef} type="text" class="h-search" value=${s.q} autofocus
@@ -2380,7 +2472,7 @@ function HistoryView({ state }) {
 		}
 	}} />
       <div class="h-chips" role="group" aria-label="Filter by status">
-        ${STATUSES.map(([v, label]) => m$1`<button type="button" key=${v}
+        ${STATUSES.map(([v, label]) => m`<button type="button" key=${v}
           class=${`h-chip ${s.status === v ? "on" : ""}`} aria-pressed=${s.status === v}
           onClick=${() => update({ status: v })}>${label} <span class="n">${statusCount[v] || 0}</span></button>`)}
       </div>
@@ -2389,20 +2481,20 @@ function HistoryView({ state }) {
     </div>
     <div class="h-agents">
       <span class="h-label">${tokens.length ? "who worked on this" : "by agent"}</span>
-      ${agents.length === 0 ? m$1`<span class="h-noagent">nobody</span>` : agents.map(([a, n]) => m$1`<button type="button" key=${a}
+      ${agents.length === 0 ? m`<span class="h-noagent">nobody</span>` : agents.map(([a, n]) => m`<button type="button" key=${a}
             class=${`h-agentchip ${s.agent === a ? "on" : ""}`} aria-pressed=${s.agent === a}
             style=${`--hue: hsl(${hue(a)} 42% 58%)`}
             title=${s.agent === a ? "Clear the agent filter" : `Show only ${a}'s tasks`}
             onClick=${() => filterAgent(a)}>${a} <span class="n">${n}</span></button>`)}
-      ${(s.q || s.status || s.agent) && m$1`<button type="button" class="mini" onClick=${() => update({
+      ${(s.q || s.status || s.agent) && m`<button type="button" class="mini" onClick=${() => update({
 		q: "",
 		status: "",
 		agent: ""
 	})}>clear filters</button>`}
     </div>
-    ${shown.length === 0 ? m$1`<div class="empty">No tasks match${s.q ? m$1` "<b>${s.q}</b>"` : ""}.</div>` : m$1`<div class="h-grid">
+    ${shown.length === 0 ? m`<div class="empty">No tasks match${s.q ? m` "<b>${s.q}</b>"` : ""}.</div>` : m`<div class="h-grid">
           ${shown.map((r) => {
-		return m$1`<${TILE[r.kind]} key=${r.key} rec=${r} re=${re} now=${state.now} filterAgent=${filterAgent} />`;
+		return m`<${TILE[r.kind]} key=${r.key} rec=${r} re=${re} now=${state.now} filterAgent=${filterAgent} />`;
 	})}
         </div>`}
   </div>`;
@@ -8020,7 +8112,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 	const detail = r.activity && r.activity.detail;
 	const attention = status === "needs_attention";
 	const doing = r.summaries && r.summaries[0];
-	const sub = attention ? m$1`<span class="attn" title=${detail || "needs attention"}>${detail || "needs attention"}</span>` : doing ? m$1`<span class="doing" title=${[`${doing.text} (${SUMMARY_SOURCE[doing.source] || doing.source}, ${rel(doing.ts, state.now)})`, task && `task #${task.id}: ${task.title}`].filter(Boolean).join("\n")}>${doing.text}</span> <span class="age">· ${rel(doing.ts, state.now)}</span>` : task ? m$1`<span class="on">#${task.id}</span> ${task.title}` : m$1`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
+	const sub = attention ? m`<span class="attn" title=${detail || "needs attention"}>${detail || "needs attention"}</span>` : doing ? m`<span class="doing" title=${[`${doing.text} (${SUMMARY_SOURCE[doing.source] || doing.source}, ${rel(doing.ts, state.now)})`, task && `task #${task.id}: ${task.title}`].filter(Boolean).join("\n")}>${doing.text}</span> <span class="age">· ${rel(doing.ts, state.now)}</span>` : task ? m`<span class="on">#${task.id}</span> ${task.title}` : m`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
 	const stop = async (e) => {
 		e.stopPropagation();
 		if (!confirm(`Stop ${r.user_id}? This will kill tmux pane ${r.pane_label}.`)) return;
@@ -8069,7 +8161,7 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 		e.dataTransfer.setData("application/x-agent-swarm-agent", r.user_id);
 		e.dataTransfer.setData("text/plain", r.user_id);
 	};
-	return m$1`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
+	return m`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
       style=${`--machine:${machineColor(r.node)}`}
       draggable="true" onDragStart=${dragStart}
       onClick=${() => {
@@ -8078,8 +8170,8 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
     <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
     <div class="who">
       <${MachineBadge} node=${r.node} />
-      ${team && m$1`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
-      <div class="nm">${r.user_id}${isQueen && m$1`<span class="crown" title="team queen">♛</span>`}${isSupervisor && m$1`<span class="crown supervisor" title=${`swarm supervisor: ${state.supervisor.objective}`}>✪</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
+      ${team && m`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
+      <div class="nm">${r.user_id}${isQueen && m`<span class="crown" title="team queen">♛</span>`}${isSupervisor && m`<span class="crown supervisor" title=${`swarm supervisor: ${state.supervisor.objective}`}>✪</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
       <div class="sub">${sub}</div>
       <div class="tech" title=${[
 		flavor,
@@ -8087,19 +8179,19 @@ function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
 		r.node,
 		r.pane_label,
 		r.tmux_pane
-	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m$1` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
+	].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && m` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
     </div>
     <div class="controls">
       <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
       <${JumpToPane} r=${r} compact=${true} />
-      ${team && r.pane_alive && m$1`<button type="button" class="queen-agent" disabled=${crowning}
+      ${team && r.pane_alive && m`<button type="button" class="queen-agent" disabled=${crowning}
         title=${isQueen ? `remove ${r.user_id} as queen` : `make ${r.user_id} queen of ${team.name}`}
         aria-label=${isQueen ? `Remove ${r.user_id} as queen` : `Make ${r.user_id} queen of ${team.name}`}
         onClick=${crown}>${crowning ? "…" : isQueen ? "♛ queen" : "♛"}</button>`}
-      ${r.pane_alive && m$1`<button type="button" class="stop-agent" disabled=${stopping}
+      ${r.pane_alive && m`<button type="button" class="stop-agent" disabled=${stopping}
         title=${`stop ${r.user_id}`} onClick=${stop}>${stopping ? "stopping…" : "stop"}</button>`}
     </div>
-    ${(unread || attention) && m$1`<span class="badge" title=${attention ? "needs attention" : "new messages"}></span>`}
+    ${(unread || attention) && m`<span class="badge" title=${attention ? "needs attention" : "new messages"}></span>`}
   </div>`;
 }
 function JumpToPane({ r, compact = false }) {
@@ -8117,9 +8209,9 @@ function JumpToPane({ r, compact = false }) {
 		}
 	};
 	const title = `Copy "${command}" — paste it at tmux's command prompt (prefix, then :) to jump to ${r.pane_label}`;
-	if (compact) return m$1`<button type="button" class="jump-agent" title=${title}
+	if (compact) return m`<button type="button" class="jump-agent" title=${title}
       aria-label=${`Copy tmux command to jump to ${r.user_id}`} onClick=${copy}>${copied ? "copied" : "⇥"}</button>`;
-	return m$1`<span class="jump-cmd" title=${title}>
+	return m`<span class="jump-cmd" title=${title}>
     <span class="sep">· </span><code>${command}</code>
     <button type="button" class="mini" onClick=${copy}>${copied ? "copied" : "copy"}</button>
   </span>`;
@@ -8134,7 +8226,7 @@ function CompactButton({ r }) {
 		setBusy(false);
 		if (!res.ok) alert(`Could not compact ${r.user_id}: ${await failure(res)}`);
 	};
-	return m$1`<button type="button" class="mini" disabled=${busy}
+	return m`<button type="button" class="mini" disabled=${busy}
     title=${`Type ${r.compact_command} into ${r.user_id}'s pane to compact its context`}
     onClick=${compact}>${busy ? "compacting…" : "compact"}</button>`;
 }
@@ -8158,10 +8250,10 @@ function StopAgentButton({ r, refresh }) {
 			refresh();
 		}
 	};
-	return m$1`<span class="agent-stop-control">
-    ${r.pane_alive && m$1`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
+	return m`<span class="agent-stop-control">
+    ${r.pane_alive && m`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
       ${busy ? "stopping…" : "stop agent"}</button>`}
-    ${message && m$1`<span role="status"> ${message}</span>`}
+    ${message && m`<span role="status"> ${message}</span>`}
   </span>`;
 }
 function shortModel(model, flavor) {
@@ -8204,11 +8296,11 @@ function ModelLabel({ r, refresh }) {
 		setEditing(false);
 		refresh();
 	};
-	if (!editing) return m$1`<button type="button" class="model-label" onClick=${start}
+	if (!editing) return m`<button type="button" class="model-label" onClick=${start}
       title="Edit the model label. Display only: switch the real model in the agent's pane, then update it here.">
-      ${r.model ? m$1`<b>${r.model}</b>` : m$1`<span class="unset">set model</span>`} <span class="pen">✎</span>
+      ${r.model ? m`<b>${r.model}</b>` : m`<span class="unset">set model</span>`} <span class="pen">✎</span>
     </button>`;
-	return m$1`<span class="model-edit">
+	return m`<span class="model-edit">
     <input type="text" value=${value} list=${listId} placeholder="e.g. claude-opus-4-7"
       aria-label=${`Model label for ${r.user_id}`} disabled=${busy} ref=${inputRef}
       onInput=${(e) => setValue(e.target.value)}
@@ -8219,7 +8311,7 @@ function ModelLabel({ r, refresh }) {
 		}
 		if (e.key === "Escape") setEditing(false);
 	}} />
-    <datalist id=${listId}>${known.map((m) => m$1`<option key=${m} value=${m} />`)}</datalist>
+    <datalist id=${listId}>${known.map((m$3) => m`<option key=${m$3} value=${m$3} />`)}</datalist>
     <button type="button" class="mini" disabled=${busy} onClick=${save}>${busy ? "saving…" : "save"}</button>
     <button type="button" class="mini" disabled=${busy} onClick=${() => setEditing(false)}>cancel</button>
   </span>`;
@@ -8296,22 +8388,22 @@ function SpawnControl({ refresh, nodes }) {
 		}
 	};
 	const flavors = offered.length ? offered.map((h) => h.flavor) : [];
-	return m$1`<form class="spawn" onSubmit=${spawn}>
+	return m`<form class="spawn" onSubmit=${spawn}>
     <div class="spawn-heading">Spawn agent · choose destination</div>
-    ${(enrolled.length > 1 || node) && m$1`<select title="machine" value=${node} onChange=${(e) => pickNode(e.target.value)}>
-      ${choices.map((n) => m$1`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
+    ${(enrolled.length > 1 || node) && m`<select title="machine" value=${node} onChange=${(e) => pickNode(e.target.value)}>
+      ${choices.map((n) => m`<option key=${n.name} value=${n.local ? "" : n.name} disabled=${!n.local && !n.connected}>${n.local ? `${n.name} (hub)` : n.gone ? `${n.name} (no longer enrolled)` : n.connected ? n.name : `${n.name} (not connected)`}</option>`)}
     </select>`}
-    ${!target.ok && m$1`<span class="spawn-note">${target.reason}. Pick a connected machine.</span>`}
+    ${!target.ok && m`<span class="spawn-note">${target.reason}. Pick a connected machine.</span>`}
     <select title="harness" value=${flavor} onChange=${(e) => pickFlavor(e.target.value)} disabled=${!target.ok}>
-      ${flavors.map((f) => m$1`<option key=${f} value=${f}>${f}</option>`)}
+      ${flavors.map((f) => m`<option key=${f} value=${f}>${f}</option>`)}
     </select>
     <select title="model" value=${model} onChange=${(e) => setModel(e.target.value)}
       disabled=${models.length === 0}>
       <option value=${DEFAULT_MODEL}>default model</option>
-      ${models.map((m) => m$1`<option key=${m} value=${m}>${m}</option>`)}
+      ${models.map((m$4) => m`<option key=${m$4} value=${m$4}>${m$4}</option>`)}
     </select>
     <button class="act" type="submit" disabled=${busy || !target.ok}>${busy ? "spawning…" : "spawn agent"}</button>
-    ${err && m$1`<span style="color:var(--alert); font-size:11px">${err}</span>`}
+    ${err && m`<span style="color:var(--alert); font-size:11px">${err}</span>`}
   </form>`;
 }
 var ACTIVITY_RANK = {
@@ -8359,14 +8451,14 @@ function TeamBox({ team, members, chip, refresh }) {
 		await fetch(`/teams/${team.id}`, { method: "DELETE" });
 		refresh();
 	};
-	return m$1`<div class=${`teambox ${over ? "over" : ""}`}
+	return m`<div class=${`teambox ${over ? "over" : ""}`}
       ...${agentDropProps(setOver, (user) => moveAgentToTeam(user, team.id, refresh))}>
     <div class="teamhead">
       <span class="teamname">${team.name}</span>
-      ${team.queen ? m$1`<span class="queen-tag" title=${`queen: ${team.queen}`}>♛ ${team.queen}</span>` : m$1`<span class="queen-tag" style="opacity:.55">no queen</span>`}
+      ${team.queen ? m`<span class="queen-tag" title=${`queen: ${team.queen}`}>♛ ${team.queen}</span>` : m`<span class="queen-tag" style="opacity:.55">no queen</span>`}
       <button type="button" class="mini" title="disband team" onClick=${disband}>disband</button>
     </div>
-    ${members.length === 0 ? m$1`<div class="teamempty">drag agents here</div>` : members.map(chip)}
+    ${members.length === 0 ? m`<div class="teamempty">drag agents here</div>` : members.map(chip)}
   </div>`;
 }
 function NewTeam({ refresh }) {
@@ -8382,13 +8474,13 @@ function NewTeam({ refresh }) {
 		setName("");
 		refresh();
 	};
-	return m$1`<form class="newteam" onSubmit=${create}>
+	return m`<form class="newteam" onSubmit=${create}>
     <input type="text" placeholder="team name" value=${name}
       onInput=${(e) => setName(e.target.value)} />
     <button class="act" type="submit">new team</button>
   </form>`;
 }
-function Resend({ m, refresh }) {
+function Resend({ m: m$5, refresh }) {
 	const [busy, setBusy] = d(false);
 	const [note, setNote] = d("");
 	const resend = async () => {
@@ -8400,10 +8492,10 @@ function Resend({ m, refresh }) {
 				method: "POST",
 				headers: JSONH,
 				body: JSON.stringify({
-					recipient: m.recipient,
-					content: m.content,
-					context: m.context,
-					attachments: m.attachments || []
+					recipient: m$5.recipient,
+					content: m$5.content,
+					context: m$5.context,
+					attachments: m$5.attachments || []
 				})
 			});
 			let body = null;
@@ -8421,24 +8513,24 @@ function Resend({ m, refresh }) {
 			refresh();
 		}
 	};
-	return m$1`<button type="button" class="resend" disabled=${busy} onClick=${resend}
-    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && m$1` <span class="ctx">${note}</span>`}`;
+	return m`<button type="button" class="resend" disabled=${busy} onClick=${resend}
+    title="Send this message again as a new message">${busy ? "sending…" : "send again"}</button>${note && m` <span class="ctx">${note}</span>`}`;
 }
 function MachineBar({ state, machine, selectMachine }) {
 	const machines = machineList(state.nodes, state.recipients);
-	return m$1`<section class="machine-bar" aria-label="Machine selector">
+	return m`<section class="machine-bar" aria-label="Machine selector">
     <div class="machine-heading"><span>Machines</span><small>Color identifies the machine</small></div>
     <div class="machine-choices">
       <button class=${`machine-choice all ${machine === null ? "active" : ""}`} aria-pressed=${machine === null}
         onClick=${() => selectMachine(null)}><strong>All machines</strong><span>${machines.length} machines · ${state.recipients.filter((r) => r.pane_alive).length} live agents</span></button>
-      ${machines.map((n) => m$1`<button key=${n.name} class=${`machine-choice ${machine === n.name ? "active" : ""} ${n.connected ? "" : "disconnected"}`}
+      ${machines.map((n) => m`<button key=${n.name} class=${`machine-choice ${machine === n.name ? "active" : ""} ${n.connected ? "" : "disconnected"}`}
           style=${`--machine:${machineColor(n.name)}`} aria-pressed=${machine === n.name}
           onClick=${() => selectMachine(machine === n.name ? null : n.name)}>
-        <strong><span class="machine-mark" aria-hidden="true"></span>${n.name}${n.local && m$1`<small>hub</small>`}</strong>
+        <strong><span class="machine-mark" aria-hidden="true"></span>${n.name}${n.local && m`<small>hub</small>`}</strong>
         <span>${n.connected ? "Connected" : n.missing ? "Not enrolled" : "Disconnected"} · ${n.live} live${n.total > n.live ? ` / ${n.total} registered` : " agents"}</span>
       </button>`)}
     </div>
-    ${machine !== null && m$1`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
+    ${machine !== null && m`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
   </section>`;
 }
 function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose, heading = true }) {
@@ -8450,31 +8542,31 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose,
 	const running = sortByActivity(visible.filter((r) => r.pane_alive));
 	const stopped = visible.filter((r) => !r.pane_alive);
 	const unteamed = running.filter((r) => !teamById.has(r.team_id));
-	const chip = (r) => m$1`<${RosterChip} key=${r.user_id} r=${r} state=${state}
+	const chip = (r) => m`<${RosterChip} key=${r.user_id} r=${r} state=${state}
     team=${teamById.get(r.team_id) || null}
     selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
     ping=${!!pings[r.user_id]} refresh=${refresh} />`;
-	return m$1`<aside class="roster">
-    ${heading && m$1`<div class="roster-heading"><h2>agents ${running.length > 0 && m$1`<span class="count">· ${running.length}</span>`}</h2>${onClose && m$1`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>`}
+	return m`<aside class="roster">
+    ${heading && m`<div class="roster-heading"><h2>agents ${running.length > 0 && m`<span class="count">· ${running.length}</span>`}</h2>${onClose && m`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>`}
     <div class="roster-grouping" aria-label="Group agents by">
-      <span>Group by</span>${["machine", "team"].map((g) => m$1`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
+      <span>Group by</span>${["machine", "team"].map((g) => m`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
     </div>
-    ${groupBy === "machine" ? machineList(state.nodes, state.recipients).filter((n) => machine === null || machine === n.name).map((n) => m$1`<section class="machine-group" key=${n.name} style=${`--machine:${machineColor(n.name)}`}>
+    ${groupBy === "machine" ? machineList(state.nodes, state.recipients).filter((n) => machine === null || machine === n.name).map((n) => m`<section class="machine-group" key=${n.name} style=${`--machine:${machineColor(n.name)}`}>
       <h3><${MachineBadge} node=${n.name} /><span>${running.filter((r) => machineName(r.node) === n.name).length} live</span></h3>
       ${running.filter((r) => machineName(r.node) === n.name).map(chip)}
-      ${!running.some((r) => machineName(r.node) === n.name) && m$1`<p class="machine-empty">${n.connected ? "No live agents" : n.missing ? "Machine no longer enrolled" : "Machine disconnected"}</p>`}
-      ${stopped.some((r) => machineName(r.node) === n.name) && m$1`<details class="stopped"><summary>Offline / stopped · ${stopped.filter((r) => machineName(r.node) === n.name).length}</summary>${stopped.filter((r) => machineName(r.node) === n.name).map(chip)}</details>`}
-    </section>`) : m$1`<div>
-    ${teams.map((t) => m$1`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
+      ${!running.some((r) => machineName(r.node) === n.name) && m`<p class="machine-empty">${n.connected ? "No live agents" : n.missing ? "Machine no longer enrolled" : "Machine disconnected"}</p>`}
+      ${stopped.some((r) => machineName(r.node) === n.name) && m`<details class="stopped"><summary>Offline / stopped · ${stopped.filter((r) => machineName(r.node) === n.name).length}</summary>${stopped.filter((r) => machineName(r.node) === n.name).map(chip)}</details>`}
+    </section>`) : m`<div>
+    ${teams.map((t) => m`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
       members=${running.filter((r) => r.team_id === t.id)} />`)}
     <${NewTeam} refresh=${refresh} />
     <div class=${`unteam-drop ${overUnteam ? "over" : ""}`}
         ...${agentDropProps(setOverUnteam, (user) => moveAgentToTeam(user, null, refresh))}>
-      ${teams.length > 0 && m$1`<div class="hint">no team · drop here to unteam</div>`}
-      ${running.length === 0 ? m$1`<div class="empty" style="padding:20px">No agents running.<br /><br />
+      ${teams.length > 0 && m`<div class="hint">no team · drop here to unteam</div>`}
+      ${running.length === 0 ? m`<div class="empty" style="padding:20px">No agents running.<br /><br />
             <code>agent-swarm register</code></div>` : unteamed.map(chip)}
     </div>
-    ${stopped.length > 0 && m$1`<details class="stopped">
+    ${stopped.length > 0 && m`<details class="stopped">
       <summary>stopped · ${stopped.length}</summary>
       ${stopped.map(chip)}
     </details>`}
@@ -8520,31 +8612,31 @@ function TaskCard({ t, agentIds, teams, blockers, refresh }) {
 			team_id: null
 		});
 	};
-	return m$1`<div class=${`tcard ${dragging ? "dragging" : ""} ${blocked ? "blocked" : ""}`} draggable=${draggable}
+	return m`<div class=${`tcard ${dragging ? "dragging" : ""} ${blocked ? "blocked" : ""}`} draggable=${draggable}
       onDragStart=${dragStart} onDragEnd=${() => setDragging(false)}
       title=${draggable ? "Drag this task onto a bee or team in the activity view to assign it" : "Reopen this task before assigning it by drag"}>
     <div class="t">${t.title}</div>
     <div class="meta">#${t.id} · created ${when}${deps.length > 0 ? ` · after ${deps.map((d) => `#${d}`).join(" ")}` : ""}${t.description ? ` · ${t.description}` : ""}${t.worktree ? ` · worktree ${t.worktree}` : ""}</div>
-    ${blocked && m$1`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map((d) => `#${d}`).join(" ")}</div>`}
+    ${blocked && m`<div class="meta blocked-tag" title="dependencies not yet done">blocked by ${blockers.map((d) => `#${d}`).join(" ")}</div>`}
     <${AttachmentList} files=${t.attachments} />
-    ${t.assignee && m$1`<div class="meta">${t.status === "open" ? "assigned to" : t.status === "done" ? "done by" : "picked up by"} <a class="agent-link" href=${focusHash(t.assignee)}
+    ${t.assignee && m`<div class="meta">${t.status === "open" ? "assigned to" : t.status === "done" ? "done by" : "picked up by"} <a class="agent-link" href=${focusHash(t.assignee)}
         title=${`Open ${t.assignee} and message it`}>${t.assignee}</a></div>`}
-    ${t.note && m$1`<div class="tnote">
+    ${t.note && m`<div class="tnote">
       <button type="button" class="tnote-toggle" onClick=${() => setShowNote(!showNote)}
         title="How to verify this work">${showNote ? "▾" : "▸"} how to verify</button>
-      ${showNote && m$1`<div class="tnote-body">${t.note}</div>`}
+      ${showNote && m`<div class="tnote-body">${t.note}</div>`}
     </div>`}
-    ${err && m$1`<div class="meta tnote-err">${err}</div>`}
+    ${err && m`<div class="meta tnote-err">${err}</div>`}
     <div class="foot">
       <${TaskTrash} task=${t} refresh=${refresh} />
       <select title="assignee" aria-label=${`Assign task #${t.id}`} disabled=${t.status === "done"}
         value=${t.team_id ? `t:${t.team_id}` : t.assignee || ""}
         onChange=${onAssign}>
         <option value="">unassigned</option>
-        ${teams.length > 0 && m$1`<optgroup label="teams">
-          ${teams.map((x) => m$1`<option key=${`t:${x.id}`} value=${`t:${x.id}`}>team ${x.name}</option>`)}
+        ${teams.length > 0 && m`<optgroup label="teams">
+          ${teams.map((x) => m`<option key=${`t:${x.id}`} value=${`t:${x.id}`}>team ${x.name}</option>`)}
         </optgroup>`}
-        ${ids.map((a) => m$1`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
+        ${ids.map((a) => m`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
       </select>
       <${TaskStatusActions} task=${t} refresh=${refresh} />
     </div>
@@ -8621,8 +8713,8 @@ function TaskComposer({ state, refresh, user = "", folded = false }) {
 			setBusy(false);
 		}
 	};
-	const form = m$1`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
-    ${!folded && m$1`<div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>`}
+	const form = m`<form class=${`task-composer ${attachments.dragging ? "dragging" : ""}`} onSubmit=${create} ...${busy ? {} : attachments.dropProps}>
+    ${!folded && m`<div class="task-compose-heading">${user ? `Create a task for ${user}` : "New task"}</div>`}
     <input class="task-title" aria-label="Task title" placeholder="What needs doing?" value=${title} disabled=${busy} onInput=${(e) => setTitle(e.target.value)} onPaste=${attachments.onPaste} required />
     <textarea aria-label="Task details" placeholder="Details, context, or steps to reproduce… (optional) · Enter to create · Shift + Enter for a new line" rows="2" value=${description} disabled=${busy} onInput=${(e) => setDescription(e.target.value)} onPaste=${attachments.onPaste}
       onKeyDown=${(e) => {
@@ -8631,15 +8723,15 @@ function TaskComposer({ state, refresh, user = "", folded = false }) {
     <${AttachmentPicker} files=${files} controls=${attachments} disabled=${busy} />
     <div class="task-compose-actions"><label>Assign to <select aria-label="Task assignee" value=${assignee} disabled=${busy} onChange=${(e) => setAssignee(e.target.value)}>
       <option value="">Unassigned</option>
-      ${!targetExists && m$1`<option value=${assignee} disabled>${assignee} (unavailable)</option>`}
-      ${teams.length > 0 && m$1`<optgroup label="Teams">${teams.map((t) => m$1`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>`}
-      <optgroup label="Agents">${agents.map((r) => m$1`<option value=${r.user_id}>${r.user_id} · ${machineName(r.node)}${r.pane_alive ? "" : " (offline)"}</option>`)}</optgroup>
+      ${!targetExists && m`<option value=${assignee} disabled>${assignee} (unavailable)</option>`}
+      ${teams.length > 0 && m`<optgroup label="Teams">${teams.map((t) => m`<option value=${`t:${t.id}`}>${t.name}</option>`)}</optgroup>`}
+      <optgroup label="Agents">${agents.map((r) => m`<option value=${r.user_id}>${r.user_id} · ${machineName(r.node)}${r.pane_alive ? "" : " (offline)"}</option>`)}</optgroup>
     </select></label><button class="act" disabled=${busy || attachments.uploading > 0 || !title.trim() || !targetExists}>${busy ? "Creating…" : "create task"}</button></div>
-    ${!targetExists && m$1`<p class="task-compose-status">The selected assignee is unavailable. Choose another destination.</p>`}
-    ${status && m$1`<p class="task-compose-status" role="status">${status}</p>`}
+    ${!targetExists && m`<p class="task-compose-status">The selected assignee is unavailable. Choose another destination.</p>`}
+    ${status && m`<p class="task-compose-status" role="status">${status}</p>`}
   </form>`;
 	if (!folded) return form;
-	return m$1`<details class="task-compose-fold" open=${!!(draft.title || draft.description || draft.files?.length)}>
+	return m`<details class="task-compose-fold" open=${!!(draft.title || draft.description || draft.files?.length)}>
     <summary>+ create a task${user ? ` for ${user}` : ""}</summary>
     ${form}
   </details>`;
@@ -8648,8 +8740,8 @@ function Kanban({ state, refresh }) {
 	const agentIds = state.recipients.filter((r) => r.pane_alive).map((r) => r.user_id);
 	const teams = state.teams || [];
 	const byId = new Map(state.tasks.map((t) => [t.id, t]));
-	return m$1`<div>
-    <h2>tasks ${state.tasks.length > 0 && m$1`<span class="count">· ${state.tasks.length}</span>`}</h2>
+	return m`<div>
+    <h2>tasks ${state.tasks.length > 0 && m`<span class="count">· ${state.tasks.length}</span>`}</h2>
     <${TaskComposer} key="board" state=${state} refresh=${refresh} />
     <div class="board">
       ${[
@@ -8659,15 +8751,15 @@ function Kanban({ state, refresh }) {
 	].map(([status, label]) => {
 		const all = state.tasks.filter((t) => t.status === status);
 		const items = status === "done" ? [...all].sort((a, b) => b.updated_at - a.updated_at).slice(0, DONE_ON_BOARD) : all;
-		return m$1`<div key=${status} class=${`col ${status}`}>
+		return m`<div key=${status} class=${`col ${status}`}>
           <div class="colhead">${label}<span class="n">${all.length}</span></div>
           <div class="cards">
-            ${items.length === 0 ? m$1`<div class="colempty">none</div>` : items.map((t) => m$1`<${TaskCard} key=${t.id} t=${t}
+            ${items.length === 0 ? m`<div class="colempty">none</div>` : items.map((t) => m`<${TaskCard} key=${t.id} t=${t}
                   agentIds=${agentIds} teams=${teams}
                   blockers=${(t.depends_on || []).filter((d) => (byId.get(d) || {}).status !== "done")}
                   refresh=${refresh} />`)}
           </div>
-          ${status === "done" && all.length > 0 && m$1`<a class="col-more" href=${historyHash({ status: "done" })}
+          ${status === "done" && all.length > 0 && m`<a class="col-more" href=${historyHash({ status: "done" })}
             title="Search every task in the history view">${all.length > items.length ? `all ${all.length} done tasks →` : "search done tasks →"}</a>`}
         </div>`;
 	})}
@@ -8721,8 +8813,8 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
 	});
 	groups.sort((a, b) => !a.members.length - !b.members.length);
 	if (!dragging) groups.splice(0, groups.length, ...groups.filter((g) => g.members.length));
-	if (!groups.length) return m$1`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}.</p>`;
-	return m$1`<div class="team-bees">${groups.map((g) => {
+	if (!groups.length) return m`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}.</p>`;
+	return m`<div class="team-bees">${groups.map((g) => {
 		const busy = g.members.filter((r) => agentStatus(r) === "working").length;
 		const attention = g.members.filter((r) => agentStatus(r) === "needs_attention").length;
 		const drop = agentDropProps((on) => setOver((cur) => on ? g.key : cur === g.key ? null : cur), (user) => {
@@ -8730,13 +8822,13 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
 			const from = live.find((r) => r.user_id === user);
 			if (from && (teams.some((t) => t.id === from.team_id) ? from.team_id : null) !== g.teamId) moveAgentToTeam(user, g.teamId, refresh);
 		});
-		return m$1`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""} ${over === g.key ? "over" : ""}`}
+		return m`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""} ${over === g.key ? "over" : ""}`}
         open=${!collapsed.has(g.key)} onToggle=${(e) => toggle(g.key, e.currentTarget.open)} ...${drop}>
       <summary><span class="team-bees-name">${g.name}</span>
-        <span class="team-bees-counts">${g.members.length}${busy ? m$1` · <span class="working">${busy} working</span>` : ""}${attention ? m$1` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
-      <div class="team-bees-chips">${!g.members.length && m$1`<span class="team-bees-empty">drop here</span>`}${g.members.map((r) => {
+        <span class="team-bees-counts">${g.members.length}${busy ? m` · <span class="working">${busy} working</span>` : ""}${attention ? m` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
+      <div class="team-bees-chips">${!g.members.length && m`<span class="team-bees-empty">drop here</span>`}${g.members.map((r) => {
 			const st = STATE[agentStatus(r)] || STATE.unknown;
-			return m$1`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
+			return m`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
           aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
           style=${`--machine:${machineColor(r.node)}`} title=${`${r.user_id} · ${machineName(r.node)} · ${st.word}`}
           draggable="true" onDragStart=${(e) => {
@@ -8750,10 +8842,10 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
 			}}>
           <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
           <span class="team-mate-name">${r.user_id}</span>
-          ${g.queen === r.user_id && m$1`<span class="crown" title="team queen">♛</span>`}
-          ${state.supervisor && state.supervisor.user_id === r.user_id && m$1`<span class="crown supervisor" title="swarm supervisor">✪</span>`}
+          ${g.queen === r.user_id && m`<span class="crown" title="team queen">♛</span>`}
+          ${state.supervisor && state.supervisor.user_id === r.user_id && m`<span class="crown supervisor" title="swarm supervisor">✪</span>`}
           <span class=${`status ${st.cls}`}></span>
-          ${unreadFor(r.user_id) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
+          ${unreadFor(r.user_id) && m`<span class="team-mate-unread" title="new reply">●</span>`}
         </a>`;
 		})}</div>
     </details>`;
@@ -8774,22 +8866,22 @@ function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = A
 		} catch {}
 	};
 	const live = state.recipients.filter((r) => r.pane_alive && (machine === null || machineName(r.node) === machine)).length;
-	return m$1`<div class="agents-panel">
-    ${onClose && m$1`<div class="roster-heading"><h2>agents ${live > 0 && m$1`<span class="count">· ${live}</span>`}</h2>
+	return m`<div class="agents-panel">
+    ${onClose && m`<div class="roster-heading"><h2>agents ${live > 0 && m`<span class="count">· ${live}</span>`}</h2>
       <button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>`}
     <div class="agents-view-switch" role="group" aria-label="Agents view">
       <span>view</span>
-      ${AGENTS_VIEWS.map(([v, label]) => m$1`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
+      ${AGENTS_VIEWS.map(([v, label]) => m`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
     </div>
-    ${view === "tiles" ? m$1`<${CompactBees} state=${state} machine=${machine} />` : view === "roster" ? m$1`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
-            refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />` : m$1`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
+    ${view === "tiles" ? m`<${CompactBees} state=${state} machine=${machine} />` : view === "roster" ? m`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
+            refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />` : m`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
 function Overview({ state, refresh, machine, unreadFor, pings }) {
-	return m$1`<div>
+	return m`<div>
     <h2>activity</h2>
     <${HiveView} state=${state} refresh=${refresh} machine=${machine}
-      compactBody=${m$1`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`} />
+      compactBody=${m`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -8824,13 +8916,13 @@ function Scope({ user, refresh }) {
 		const el = e.target;
 		pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
 	};
-	return m$1`<details class="scope" onToggle=${(e) => setOpen(e.currentTarget.open)}>
+	return m`<details class="scope" onToggle=${(e) => setOpen(e.currentTarget.open)}>
     <summary class="bar">
       <span class="t">terminal</span>
       <span>${data ? data.pane_label : ""}</span>
       <span style="margin-left:auto">${open ? "live capture · 2s" : "show terminal"}</span>
     </summary>
-    ${data && data.error ? m$1`<div class="err">could not capture pane: ${data.error}</div>` : m$1`<pre ref=${preRef} onScroll=${onScroll}>${data ? (data.text || "").replace(/\s+$/, "") || "(pane is blank)" : "capturing pane…"}</pre>`}
+    ${data && data.error ? m`<div class="err">could not capture pane: ${data.error}</div>` : m`<pre ref=${preRef} onScroll=${onScroll}>${data ? (data.text || "").replace(/\s+$/, "") || "(pane is blank)" : "capturing pane…"}</pre>`}
     <${TerminalInput} user=${user} />
   </details>`;
 }
@@ -8871,7 +8963,7 @@ function TerminalInput({ user }) {
 		if (!text.trim() || busy) return;
 		if (await send({ text })) setText("");
 	};
-	return m$1`<form class="composer terminal-input" onSubmit=${submit}>
+	return m`<form class="composer terminal-input" onSubmit=${submit}>
     <div class="compose-row">
       <span class="mark">$</span>
       <input type="text" value=${text} disabled=${busy} aria-label=${`Type into ${user}'s terminal`}
@@ -8881,9 +8973,9 @@ function TerminalInput({ user }) {
     </div>
     <div class="compose-meta">
       <span>keys</span>
-      ${TERMINAL_KEYS.map(([key, label]) => m$1`<button key=${key} type="button" class="mini"
+      ${TERMINAL_KEYS.map(([key, label]) => m`<button key=${key} type="button" class="mini"
         disabled=${busy} title=${`Press ${key} in ${user}'s pane`} onClick=${() => send({ key })}>${label}</button>`)}
-      ${status && m$1`<span class="err">${status}</span>`}
+      ${status && m`<span class="err">${status}</span>`}
     </div>
   </form>`;
 }
@@ -9076,7 +9168,7 @@ function MessageComposer({ recipient, refresh }) {
 		setStatus("");
 		composerRef.current?.focus();
 	};
-	return m$1`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send} ...${sending ? {} : attachments.dropProps}>
+	return m`<form class=${`composer ${dragging ? "dragging" : ""}`} onSubmit=${send} ...${sending ? {} : attachments.dropProps}>
     <div class="compose-row">
       <span class="mark">❯</span>
       <textarea ref=${composerRef} value=${text} rows="2"
@@ -9094,8 +9186,8 @@ function MessageComposer({ recipient, refresh }) {
       <span class="count">${text.length} character${text.length === 1 ? "" : "s"}${images.length > 0 ? ` · ${images.length} file${images.length === 1 ? "" : "s"}` : ""}</span>
       <span class="hint">Enter to send · Shift + Enter for a new line</span>
       <div class="actions">
-        ${status && m$1`<span class=${status.startsWith("delivery failed") || status.startsWith("image not added") ? "error" : "sent"} role="status">${status}</span>`}
-        ${(text || context || images.length > 0) && m$1`<button type="button" class="mini" onClick=${clearDraft}>clear</button>`}
+        ${status && m`<span class=${status.startsWith("delivery failed") || status.startsWith("image not added") ? "error" : "sent"} role="status">${status}</span>`}
+        ${(text || context || images.length > 0) && m`<button type="button" class="mini" onClick=${clearDraft}>clear</button>`}
         <button class="act" type="submit" disabled=${!canSend}>
           ${sending ? "sending…" : uploading ? "uploading…" : "send"}
         </button>
@@ -9120,6 +9212,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 	const follower = A(null);
 	if (!follower.current) follower.current = createBottomFollower();
 	const resizeRef = A(null);
+	const previousHistory = A(null);
 	const [historyHeight, setHistoryHeight] = d(null);
 	const recipient = a === "owner" ? b : b === "owner" ? a : null;
 	const other = recipient || a === b ? null : page === a ? b : page === b ? a : null;
@@ -9149,7 +9242,16 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 	_(() => {
 		const el = boxRef.current;
 		if (!el || !expanded) return;
-		const stick = () => follower.current.follow(el);
+		const previous = previousHistory.current;
+		if (previous && previous.first !== msgs[0]?.id && msgs.some((m) => m.id === previous.first)) el.scrollTop = previous.top + el.scrollHeight - previous.height;
+		const stick = () => {
+			follower.current.follow(el);
+			previousHistory.current = {
+				first: msgs[0]?.id,
+				height: el.scrollHeight,
+				top: el.scrollTop
+			};
+		};
 		const ro = new ResizeObserver(stick);
 		ro.observe(el);
 		for (const child of el.children) ro.observe(child);
@@ -9194,6 +9296,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 	const onScroll = (e) => {
 		if (!expanded) return;
 		savedScroll.current = e.currentTarget.scrollTop;
+		if (previousHistory.current) previousHistory.current.top = e.currentTarget.scrollTop;
 		follower.current.onScroll(e.currentTarget);
 	};
 	const resizeBounds = () => ({
@@ -9229,7 +9332,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 		e.preventDefault();
 		resizeTo(next);
 	};
-	return m$1`<div class=${`thread ${focused ? "focused" : ""}`} role=${focused ? "dialog" : null}
+	return m`<div class=${`thread ${focused ? "focused" : ""}`} role=${focused ? "dialog" : null}
       style=${focused ? { "--focus-font": `${focusFont}px` } : null}
       aria-label=${focused ? `Conversation ${a} and ${b}` : null}>
     <div class="thread-head">
@@ -9239,12 +9342,12 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
         ${disp(a)} <span class="swap">⇄</span> ${disp(b)}
         <span class="n">${msgs.length} msg${msgs.length === 1 ? "" : "s"}</span>
       </button>
-      ${focused && m$1`
+      ${focused && m`
         <button type="button" class="thread-focus" title="Smaller text" aria-label="Smaller text"
           disabled=${focusFont <= FOCUS_FONT.min} onClick=${() => stepFont(-FOCUS_FONT.step)}>A−</button>
         <button type="button" class="thread-focus" title="Larger text" aria-label="Larger text"
           disabled=${focusFont >= FOCUS_FONT.max} onClick=${() => stepFont(FOCUS_FONT.step)}>A+</button>`}
-      ${peer && !focused && m$1`<a class="thread-focus thread-goto" href=${`#/agent/${encodeURIComponent(peer)}`}
+      ${peer && !focused && m`<a class="thread-focus thread-goto" href=${`#/agent/${encodeURIComponent(peer)}`}
         title=${`Go to ${peer}'s page to message them`}>open ${peer} →</a>`}
       <button type="button" class="thread-focus" aria-pressed=${focused} onClick=${toggleFocus}
         title=${focused ? "Back to the page (Esc)" : `Expand this conversation to fill the window${recipient ? " (f)" : ""}`}>
@@ -9253,20 +9356,20 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
     <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}
       style=${historyHeight === null ? null : { height: `${historyHeight}px` }}>
-      ${msgs.slice(-40).map((m) => m$1`
-        <div key=${m.id} class=${[
+      ${msgs.map((m$6) => m`
+        <div key=${m$6.id} class=${[
 		"msg",
-		sentByViewer(m.sender, a, b, page) ? "right" : "",
-		freshIds.has(m.id) ? "fresh" : "",
-		m.status === "failed" ? "failed" : m.status === "unknown" ? "unknown" : "",
-		m.sender === "owner" ? "from-owner" : "",
-		m.pending ? "pending" : ""
+		sentByViewer(m$6.sender, a, b, page) ? "right" : "",
+		freshIds.has(m$6.id) ? "fresh" : "",
+		m$6.status === "failed" ? "failed" : m$6.status === "unknown" ? "unknown" : "",
+		m$6.sender === "owner" ? "from-owner" : "",
+		m$6.pending ? "pending" : ""
 	].join(" ")}>
-          <div class="bubble">${m.content && m$1`<div class="md"
-            dangerouslySetInnerHTML=${{ __html: renderMarkdown(shellNewlines(m.content)) }} />`}${m.attachments?.length > 0 && m$1`<div class=${`msg-images ${m.content ? "" : "only"}`}>
-            ${m.attachments.map((name) => m$1`<${AttachmentLink} key=${name} name=${name} />`)}
+          <div class="bubble">${m$6.content && m`<div class="md"
+            dangerouslySetInnerHTML=${{ __html: renderMarkdown(shellNewlines(m$6.content)) }} />`}${m$6.attachments?.length > 0 && m`<div class=${`msg-images ${m$6.content ? "" : "only"}`}>
+            ${m$6.attachments.map((name) => m`<${AttachmentLink} key=${name} name=${name} />`)}
           </div>`}</div>
-          <div class="tag">${disp(m.sender)}${m.context && m$1` · <span class="ctx">${m.context}</span>`} · ${m.pending ? "sending…" : rel(m.ts, now)}${m.status === "failed" && m$1` · <span class="ctx">undelivered${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>`}${m.status === "unknown" && m$1` · <span class="ctx">outcome unknown${m.delivery_error ? `: ${m.delivery_error}` : ""}</span>${m.sender === "owner" && m$1` <${Resend} m=${m} refresh=${refresh} />`}`}</div>
+          <div class="tag">${disp(m$6.sender)}${m$6.context && m` · <span class="ctx">${m$6.context}</span>`} · ${m$6.pending ? "sending…" : rel(m$6.ts, now)}${m$6.status === "failed" && m` · <span class="ctx">undelivered${m$6.delivery_error ? `: ${m$6.delivery_error}` : ""}</span>`}${m$6.status === "unknown" && m` · <span class="ctx">outcome unknown${m$6.delivery_error ? `: ${m$6.delivery_error}` : ""}</span>${m$6.sender === "owner" && m` <${Resend} m=${m$6} refresh=${refresh} />`}`}</div>
         </div>`)}
     </div>
     <button type="button" class="history-resizer" role="separator" aria-orientation="horizontal"
@@ -9277,21 +9380,21 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
       onPointerUp=${resizeEnd} onPointerCancel=${resizeEnd} onKeyDown=${resizeKey}>
       <span>drag to resize history</span>
     </button>
-    ${recipient && m$1`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
+    ${recipient && m`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
     </div>
   </div>`;
 }
 function Doing({ summaries, now }) {
 	const compact = useMedia(COMPACT_LAYOUT);
-	if (summaries.length === 0) return m$1`<div class="doing-box empty-doing">No status yet. Agents post one with
+	if (summaries.length === 0) return m`<div class="doing-box empty-doing">No status yet. Agents post one with
       <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
       show up here too.</div>`;
 	const [cur, ...past] = summaries.slice(0, 6);
-	const line = (s) => m$1`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
-	return m$1`<div class="doing-box">
+	const line = (s) => m`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
+	return m`<div class="doing-box">
     <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>
-    ${past.length > 0 && m$1`<details class="status-history" open=${!compact}><summary>Recent status history</summary><ol class="past">
-      ${past.map((s) => m$1`<li>${line(s)} ${s.text} <span class="age">· ${rel(s.ts, now)}</span></li>`)}
+    ${past.length > 0 && m`<details class="status-history" open=${!compact}><summary>Recent status history</summary><ol class="past">
+      ${past.map((s) => m`<li>${line(s)} ${s.text} <span class="age">· ${rel(s.ts, now)}</span></li>`)}
     </ol></details>`}
   </div>`;
 }
@@ -9306,19 +9409,19 @@ function AgentTaskRow({ t, taskIds, agentIds, refresh }) {
 		setError("");
 		refresh();
 	};
-	return m$1`<div class=${`trow ${t.status}`}>
+	return m`<div class=${`trow ${t.status}`}>
     <span class="tid">#${t.id}</span>
     <span class="t">${t.title}<${AttachmentList} files=${t.attachments} />
-      ${t.note && m$1`<details class="task-row-note"><summary>How to verify</summary><div>${t.note}</div></details>`}
+      ${t.note && m`<details class="task-row-note"><summary>How to verify</summary><div>${t.note}</div></details>`}
     </span>
     <span class=${`pill ${t.status}`}>${t.status.replace("_", " ")}</span>
     <select title="assignee" aria-label=${`Assign task #${t.id}`} value=${t.assignee || ""}
       disabled=${t.status === "done"} onChange=${assign}>
       <option value="">unassigned</option>
-      ${taskIds.map((a) => m$1`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
+      ${taskIds.map((a) => m`<option key=${a} value=${a}>${a}${agentIds.includes(a) ? "" : " (stopped)"}</option>`)}
     </select>
     <${TaskStatusActions} task=${t} refresh=${refresh} />
-    ${error && m$1`<span class="task-action-error" role="alert">${error}</span>`}
+    ${error && m`<span class="task-action-error" role="alert">${error}</span>`}
   </div>`;
 }
 var switchCarry = null;
@@ -9346,22 +9449,22 @@ function useTeammateKeys(members) {
 	}, []);
 }
 function TeamStrip({ crew, user, unreadFor }) {
-	return m$1`<nav class="team-strip" aria-label=${`Team ${crew.team.name}`}>
+	return m`<nav class="team-strip" aria-label=${`Team ${crew.team.name}`}>
     <span class="team-strip-name">${crew.team.name}</span>
-    ${crew.members.map((m) => {
-		const st = STATE[agentStatus(m)] || STATE.unknown;
-		const here = m.user_id === user;
-		return m$1`<a key=${m.user_id} href=${`#/agent/${encodeURIComponent(m.user_id)}`}
+    ${crew.members.map((m$7) => {
+		const st = STATE[agentStatus(m$7)] || STATE.unknown;
+		const here = m$7.user_id === user;
+		return m`<a key=${m$7.user_id} href=${`#/agent/${encodeURIComponent(m$7.user_id)}`}
         class=${`team-mate ${here ? "here" : ""}`} aria-current=${here ? "page" : null}
-        title=${`${m.user_id} · ${st.word}`}>
-        <${Bee} node=${m.node} flavor=${m.flavor} size="small" working=${st.cls === "working"} />
-        <span class="team-mate-name">${m.user_id}</span>
-        ${crew.team.queen === m.user_id && m$1`<span class="crown" title="team queen">♛</span>`}
+        title=${`${m$7.user_id} · ${st.word}`}>
+        <${Bee} node=${m$7.node} flavor=${m$7.flavor} size="small" working=${st.cls === "working"} />
+        <span class="team-mate-name">${m$7.user_id}</span>
+        ${crew.team.queen === m$7.user_id && m`<span class="crown" title="team queen">♛</span>`}
         <span class=${`status ${st.cls}`}></span>
-        ${unreadFor(m.user_id) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
+        ${unreadFor(m$7.user_id) && m`<span class="team-mate-unread" title="new reply">●</span>`}
       </a>`;
 	})}
-    ${crew.members.length > 1 && m$1`<span class="team-strip-hint">Alt+[ / Alt+]</span>`}
+    ${crew.members.length > 1 && m`<span class="team-strip-hint">Alt+[ / Alt+]</span>`}
   </nav>`;
 }
 var CHATS_ROUTE = "#/chats";
@@ -9376,7 +9479,7 @@ function snippet(text, words, width = 240) {
 function marked(text, words) {
 	if (!words.length) return text;
 	const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
-	return text.split(re).map((part, i) => i % 2 ? m$1`<mark>${part}</mark>` : part);
+	return text.split(re).map((part, i) => i % 2 ? m`<mark>${part}</mark>` : part);
 }
 function ChatsView({ state, unreadFor }) {
 	const [full, setFull] = d(null);
@@ -9403,7 +9506,7 @@ function ChatsView({ state, unreadFor }) {
 		query
 	]);
 	const byId = new Map(state.recipients.map((r) => [r.user_id, r]));
-	return m$1`<div class="chats">
+	return m`<div class="chats">
     <h2>chats <span class="count">· ${chats.length}${full === null ? " · loading full history…" : ""}</span></h2>
     <input type="text" class="h-search chats-search" value=${query} autofocus
       placeholder="search your conversations: who did I ask about…"
@@ -9414,23 +9517,25 @@ function ChatsView({ state, unreadFor }) {
 			update("");
 		}
 	}} />
-    ${chats.length === 0 ? m$1`<div class="empty">${query ? m$1`No conversation mentions "<b>${query}</b>".` : "No conversations yet."}</div>` : m$1`<div class="chat-list">${chats.map((c) => {
+    ${chats.length === 0 ? m`<div class="empty">${query ? m`No conversation mentions "<b>${query}</b>".` : "No conversations yet."}</div>` : m`<div class="chat-list">${chats.map((c) => {
 		const r = byId.get(c.agent);
 		const st = STATE[r ? agentStatus(r) : "unknown"] || STATE.unknown;
-		const m = c.match || c.last;
-		return m$1`<a key=${c.agent} class="chat-row" href=${`#/agent/${encodeURIComponent(c.agent)}`}>
-            ${r ? m$1`<${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />` : m$1`<span class="chat-gone" aria-hidden="true">◌</span>`}
+		const m$8 = c.match || c.last;
+		return m`<a key=${c.agent} class="chat-row" href=${`#/agent/${encodeURIComponent(c.agent)}`}>
+            ${r ? m`<${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />` : m`<span class="chat-gone" aria-hidden="true">◌</span>`}
             <span class="chat-main">
               <span class="chat-who">${c.agent}<span class=${`status ${st.cls}`} title=${r ? st.word : "no longer registered"}></span>
-                ${unreadFor(c.agent) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
-                <span class="chat-when">${rel(m.ts, state.now)}${c.match ? ` · ${c.matches} match${c.matches === 1 ? "" : "es"}` : ` · ${c.count} msg${c.count === 1 ? "" : "s"}`}</span></span>
-              <span class="chat-line"><b>${m.sender === "owner" ? "you" : m.sender}:</b> ${marked(snippet(m.content, words), words)}</span>
+                ${unreadFor(c.agent) && m`<span class="team-mate-unread" title="new reply">●</span>`}
+                <span class="chat-when">${rel(m$8.ts, state.now)}${c.match ? ` · ${c.matches} match${c.matches === 1 ? "" : "es"}` : ` · ${c.count} msg${c.count === 1 ? "" : "s"}`}</span></span>
+              <span class="chat-line"><b>${m$8.sender === "owner" ? "you" : m$8.sender}:</b> ${marked(snippet(m$8.content, words), words)}</span>
             </span>
           </a>`;
 	})}</div>`}
   </div>`;
 }
 function FocusView({ user, state, refresh, freshIds, unreadFor }) {
+	const history = useAgentHistory(user);
+	const messages = [...new Map([...history.messages, ...state.messages].filter((m) => m.sender === user || m.recipient === user).map((m) => [m.id, m])).values()].sort((a, b) => a.ts - b.ts || a.id - b.id);
 	const crew = T(() => teammates(state.recipients, state.teams, user), [
 		state.recipients,
 		state.teams,
@@ -9446,7 +9551,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 	const nextThreadOrder = A(0);
 	const registered = new Set(state.recipients.map((x) => x.user_id));
 	const r = state.recipients.find((x) => x.user_id === user);
-	if (!r) return m$1`<div class="empty">No agent named "${user}".
+	if (!r) return m`<div class="empty">No agent named "${user}".
     <br /><br /><button class="mini" onClick=${() => {
 		location.hash = "#/";
 	}}>back to overview</button></div>`;
@@ -9458,7 +9563,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 	const agentIds = state.recipients.filter((x) => x.pane_alive).map((x) => x.user_id);
 	const taskIds = agentIds.includes(user) ? agentIds : agentIds.concat(user);
 	const groups = /* @__PURE__ */ new Map();
-	for (const m of state.messages) {
+	for (const m of messages) {
 		if (m.sender !== user && m.recipient !== user) continue;
 		const k = pairKey(m.sender, m.recipient);
 		if (!groups.has(k)) groups.set(k, []);
@@ -9472,12 +9577,12 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
 		return threadOrder.current.get(a) - threadOrder.current.get(b);
 	}).map(([, msgs]) => msgs);
 	const hasOwnerThread = groups.has(ownerThread);
-	return m$1`<div>
+	return m`<div>
     <div class="focus-top">
       <button type="button" class="focus-back" onClick=${() => {
 		location.hash = "#/";
 	}}>← back to overview</button>
-      ${crew && m$1`<${TeamStrip} crew=${crew} user=${user} unreadFor=${unreadFor} />`}
+      ${crew && m`<${TeamStrip} crew=${crew} user=${user} unreadFor=${unreadFor} />`}
     </div>
     <div class="fhead">
       <${Bee} node=${r.node} flavor=${r.flavor} working=${status === "working"} />
@@ -9490,29 +9595,33 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
           <${CompactButton} r=${r} />
           <${StopAgentButton} key=${user} r=${r} refresh=${refresh} />
           · joined ${rel(r.registered_at, state.now)}
-          · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? m$1` <span class="attn">${detail}</span>` : ""}
+          · <span style=${`color:${st.color}`}>${st.word}</span>${status === "needs_attention" && detail ? m` <span class="attn">${detail}</span>` : ""}
         </div>
-        ${r.instructions && m$1`<div class="inst">"${r.instructions}"</div>`}
+        ${r.instructions && m`<div class="inst">"${r.instructions}"</div>`}
       </div>
     </div>
     <h2>status updates</h2>
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} key=${user} user=${user} refresh=${refresh} />
-    <h2>conversations ${threads.length > 0 && m$1`<span class="count">· ${threads.length}</span>`}</h2>
-    ${threads.length === 0 ? m$1`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
+    <h2>conversations ${threads.length > 0 && m`<span class="count">· ${threads.length}</span>`}</h2>
+    ${history.error && m`<p role="status">${history.error}</p>`}
+    ${!history.loaded && !history.error && m`<p role="status">Loading conversation history…</p>`}
+    ${history.more && m`<button type="button" class="mini" disabled=${history.busy} onClick=${history.loadOlder}>
+      ${history.busy ? "Loading older messages…" : "Load older messages"}</button>`}
+    ${threads.length === 0 ? m`<div class="thread">${history.loaded && m`<div class="empty">Nothing yet. Start a conversation with ${user} below.</div>`}
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>` : threads.map((msgs) => {
 		const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
-		return m$1`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user} agents=${registered}
+		return m`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user} agents=${registered}
             freshIds=${freshIds} now=${state.now} refresh=${refresh} />`;
 	})}
-    ${threads.length > 0 && !hasOwnerThread && m$1`<div class="thread" style="margin-top:14px">
+    ${threads.length > 0 && !hasOwnerThread && m`<div class="thread" style="margin-top:14px">
       <div class="bar">${disp("owner")} <span class="swap">⇄</span> ${user}</div>
       <${MessageComposer} recipient=${user} refresh=${refresh} />
     </div>`}
-    <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && m$1`<span class="count">· ${myTasks.length}</span>`}
-      ${myTasks.length > 0 && m$1`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>
+    <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && m`<span class="count">· ${myTasks.length}</span>`}
+      ${myTasks.length > 0 && m`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>
     <${TaskComposer} key=${user} user=${user} state=${state} refresh=${refresh} folded />
-    ${myTasks.length === 0 ? m$1`<div class="empty">No tasks assigned to ${user} yet.</div>` : myTasks.map((t) => m$1`<${AgentTaskRow} key=${t.id} t=${t} taskIds=${taskIds}
+    ${myTasks.length === 0 ? m`<div class="empty">No tasks assigned to ${user} yet.</div>` : myTasks.map((t) => m`<${AgentTaskRow} key=${t.id} t=${t} taskIds=${taskIds}
           agentIds=${agentIds} refresh=${refresh} />`)}
   </div>`;
 }
@@ -9635,7 +9744,7 @@ function App() {
 		const since = seen.current.byAgent[u] ?? seen.current.maxId;
 		return state.messages.some((m) => m.id > since && m.sender === u && m.recipient === "owner");
 	};
-	const header = m$1`<header class="top">
+	const header = m`<header class="top">
     <h1 style="cursor:pointer" onClick=${() => {
 		location.hash = "#/";
 	}}>Agent Swarm Dashboard</h1>
@@ -9647,28 +9756,28 @@ function App() {
     <div class="right">
       <span><span class=${`beacon ${connected ? "" : "down"}`}></span>${connected ? "watching" : "server unreachable"}</span>
       <span>${clock}</span>
-      ${STANDALONE && m$1`<button type="button" class="reload" title="Reload the dashboard"
+      ${STANDALONE && m`<button type="button" class="reload" title="Reload the dashboard"
         onClick=${() => location.reload()}>↻ reload</button>`}
     </div>
   </header>`;
-	if (!state) return m$1`${header}<main><div class="stage"><div class="empty">connecting…</div></div></main>`;
+	if (!state) return m`${header}<main><div class="stage"><div class="empty">connecting…</div></div></main>`;
 	const view = pending.length ? {
 		...state,
 		messages: [...state.messages, ...pending]
 	} : state;
-	return m$1`<main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
+	return m`<main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
     <div class="main-col">
     ${header}
     <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
-    ${!compact && m$1`<button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
+    ${!compact && m`<button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
       aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
       ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length}
     </button>`}
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
+      ${focusUser ? m`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m`<${HistoryView} state=${state} />` : onChats ? m`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
-    ${!compact && m$1`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
+    ${!compact && m`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <aside class="roster">
         <${AgentsPanel} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings}
           storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
@@ -9676,5 +9785,5 @@ function App() {
     </div>`}
   </main>`;
 }
-R(m$1`<${App} />`, document.getElementById("app"));
+R(m`<${App} />`, document.getElementById("app"));
 //#endregion

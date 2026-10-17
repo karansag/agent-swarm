@@ -1,3 +1,4 @@
+import { useAgentHistory } from "./agent-history.js";
 import { TaskTrash } from "./task-trash.js";
 import { TaskStatusActions } from "./task-status.js";
 import { html, render } from "htm/preact";
@@ -1101,6 +1102,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
   const follower = useRef(null);
   if (!follower.current) follower.current = createBottomFollower();
   const resizeRef = useRef(null);
+  const previousHistory = useRef(null);
   const [historyHeight, setHistoryHeight] = useState(null);
   const recipient = a === "owner" ? b : b === "owner" ? a : null;
   // In a thread between two agents, the one whose page this is not: a link
@@ -1135,7 +1137,14 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
   useLayoutEffect(() => {
     const el = boxRef.current;
     if (!el || !expanded) return;
-    const stick = () => follower.current.follow(el);
+    const previous = previousHistory.current;
+    if (previous && previous.first !== msgs[0]?.id && msgs.some(m => m.id === previous.first)) {
+      el.scrollTop = previous.top + el.scrollHeight - previous.height;
+    }
+    const stick = () => {
+      follower.current.follow(el);
+      previousHistory.current = { first: msgs[0]?.id, height: el.scrollHeight, top: el.scrollTop };
+    };
     const ro = new ResizeObserver(stick);
     ro.observe(el);
     for (const child of el.children) ro.observe(child);
@@ -1173,6 +1182,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
   const onScroll = (e) => {
     if (!expanded) return;
     savedScroll.current = e.currentTarget.scrollTop;
+    if (previousHistory.current) previousHistory.current.top = e.currentTarget.scrollTop;
     follower.current.onScroll(e.currentTarget);
   };
   const resizeBounds = () => ({ min: 120, max: Math.max(120, Math.floor(innerHeight * .85)) });
@@ -1229,7 +1239,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
     <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}
       style=${historyHeight === null ? null : { height: `${historyHeight}px` }}>
-      ${msgs.slice(-40).map(m => html`
+      ${msgs.map(m => html`
         <div key=${m.id} class=${[
             "msg",
             sentByViewer(m.sender, a, b, page) ? "right" : "",
@@ -1425,6 +1435,10 @@ function ChatsView({ state, unreadFor }) {
 }
 
 function FocusView({ user, state, refresh, freshIds, unreadFor }) {
+  const history = useAgentHistory(user);
+  const messages = [...new Map([...history.messages, ...state.messages]
+    .filter(m => m.sender === user || m.recipient === user).map(m => [m.id, m])).values()]
+    .sort((a, b) => a.ts - b.ts || a.id - b.id);
   const crew = useMemo(() => teammates(state.recipients, state.teams, user), [state.recipients, state.teams, user]);
   const members = useMemo(() => crew && crew.members, [crew && crew.members.map(m => m.user_id).join(" ")]);
   useTeammateKeys(members);
@@ -1450,7 +1464,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
   const agentIds = state.recipients.filter(x => x.pane_alive).map(x => x.user_id);
   const taskIds = agentIds.includes(user) ? agentIds : agentIds.concat(user);
   const groups = new Map();
-  for (const m of state.messages) {
+  for (const m of messages) {
     if (m.sender !== user && m.recipient !== user) continue;
     const k = pairKey(m.sender, m.recipient);
     if (!groups.has(k)) groups.set(k, []);
@@ -1495,8 +1509,12 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
     <${Doing} summaries=${r.summaries || []} now=${state.now} />
     <${Scope} key=${user} user=${user} refresh=${refresh} />
     <h2>conversations ${threads.length > 0 && html`<span class="count">· ${threads.length}</span>`}</h2>
+    ${history.error && html`<p role="status">${history.error}</p>`}
+    ${!history.loaded && !history.error && html`<p role="status">Loading conversation history…</p>`}
+    ${history.more && html`<button type="button" class="mini" disabled=${history.busy} onClick=${history.loadOlder}>
+      ${history.busy ? "Loading older messages…" : "Load older messages"}</button>`}
     ${threads.length === 0
-      ? html`<div class="thread"><div class="empty">Nothing yet. Start a conversation with ${user} below.</div>
+      ? html`<div class="thread">${history.loaded && html`<div class="empty">Nothing yet. Start a conversation with ${user} below.</div>`}
           <${MessageComposer} recipient=${user} refresh=${refresh} /></div>`
       : threads.map(msgs => {
           const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
@@ -1667,7 +1685,7 @@ function App() {
     </button>`}
     <div class="stage">
       ${focusUser
-        ? html`<${FocusView} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />`
+        ? html`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />`
         : onHistory
           ? html`<${HistoryView} state=${state} />`
           : onChats

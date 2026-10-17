@@ -673,3 +673,52 @@ test('detail stop confirms, handles failure, retries, and keeps history on the p
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test('detail history survives global feed eviction, pages older, and preserves scroll', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  const history = Array.from({ length: 340 }, (_, i) => ({ id: i + 10, sender: 'owner', recipient: 'stoat', ts: state.now - 1000 + i, content: `archived-message-${i + 10}`, status: 'delivered', attachments: [] }));
+  state.messages = [{ id: 999, sender: 'owner', recipient: 'ferret', ts: state.now, content: 'unrelated traffic', status: 'delivered', attachments: [] }];
+  await page.route('**/api/agents/stoat/messages?*', route => {
+    const q = new URL(route.request().url()).searchParams;
+    const before = Number(q.get('before') || Infinity), after = Number(q.get('after') || 0);
+    const rows = history.filter(m => m.id < before && m.id > after).sort((a,b) => q.has('after') ? a.id-b.id : b.id-a.id);
+    return route.fulfill({json:{messages:rows.slice(0,300),has_more:rows.length > 300}});
+  });
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.getByText('archived-message-349', { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Nothing yet/).count(), 0);
+    const box = page.locator('.thread .msgs').first();
+    await box.evaluate(el => { el.scrollTop = 250; });
+    await page.waitForTimeout(100);
+    const before = await box.evaluate(el => ({ top:el.scrollTop, height:el.scrollHeight }));
+    await page.getByRole('button', { name: 'Load older messages', exact: true }).click();
+    await page.getByText('archived-message-10', { exact: true }).waitFor({state:'attached'});
+    const after = await box.evaluate(el => ({ top:el.scrollTop, height:el.scrollHeight }));
+    assert.ok(Math.abs((after.top-before.top)-(after.height-before.height)) < 2);
+    assert.equal(await page.getByRole('button', { name: 'Load older messages', exact: true }).count(), 0);
+    history.push({ ...history[0], id: 350, ts: state.now, content: 'new scoped message' });
+    await page.getByText('new scoped message', { exact: true }).waitFor({state:'attached'});
+    await page.evaluate(() => { location.hash = '#/agent/ferret'; });
+    await page.getByText('unrelated traffic', { exact: true }).waitFor();
+    assert.equal(await page.getByText('archived-message-349', { exact: true }).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('failed detail history shows a retry message, never a false empty conversation', async () => {
+  const { page, state, errors } = await setup(390, 844);
+  state.messages = [];
+  let failed = true;
+  await page.route('**/api/agents/stoat/messages?*', route => failed
+    ? route.fulfill({ status: 503, json: { detail: 'temporarily unavailable' } })
+    : route.fulfill({ json: { messages: [{ id: 41, sender: 'owner', recipient: 'stoat', content: 'recovered history', ts:state.now, status:'delivered', attachments:[] }], has_more:false } }));
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.getByText('Could not load conversation history. Retrying…', {exact:true}).waitFor();
+    assert.equal(await page.getByText(/Nothing yet/).count(), 0);
+    failed = false;
+    await page.getByText('recovered history', {exact:true}).waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});

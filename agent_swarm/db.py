@@ -989,6 +989,26 @@ def fetch_messages(
 
 
 @_serialized
+def agent_messages_page(conn: sqlite3.Connection, user: str, limit: int = 300,
+                        before: int | None = None, after: int | None = None) -> dict:
+    """Page by immutable IDs so imports/timestamp ties cannot skip messages."""
+    clauses = ["(sender=? OR recipient=?)"]
+    args = [user, user]
+    if before is not None:
+        clauses.append("id < ?")
+        args.append(before)
+    if after is not None:
+        clauses.append("id > ?")
+        args.append(after)
+    order = "ASC" if after is not None else "DESC"
+    rows = conn.execute(
+        f"SELECT * FROM messages WHERE {' AND '.join(clauses)} ORDER BY id {order} LIMIT ?",
+        (*args, limit + 1),
+    ).fetchall()
+    return {"messages": [_message(r) for r in rows[:limit]], "has_more": len(rows) > limit}
+
+
+@_serialized
 def fetch_messages_after(
     conn: sqlite3.Connection, after_id: int = 0, since_ts: float = 0.0, limit: int = 500
 ) -> list[dict]:

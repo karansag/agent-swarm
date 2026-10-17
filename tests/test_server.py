@@ -1643,3 +1643,32 @@ def test_register_refuses_missing_pane_without_changing_identity(client, existin
     assert response.status_code == 404
     assert "does not resolve" in response.json()["detail"]["error"]
     assert client.get("/recipients").json() == before
+
+
+def test_agent_history_is_independent_and_pages_without_gaps(client, tmp_path):
+    from agent_swarm import db
+    conn = db.connect(tmp_path / "db.sqlite")
+    ids = [db.record_message(conn, "owner", "old-agent", None, str(i), "delivered") for i in range(7)]
+    # Equal and out-of-order timestamps must not affect cursor pagination.
+    conn.execute("UPDATE messages SET ts=1 WHERE recipient='old-agent'")
+    conn.commit()
+    for i in range(301):
+        db.record_message(conn, "busy", "owner", None, "noise", "delivered")
+    assert not any(m["recipient"] == "old-agent" for m in client.get("/api/state").json()["messages"])
+    url = "/api/agents/old-agent/messages"
+    first = client.get(url, params={"limit": 3}).json()
+    assert [m["id"] for m in first["messages"]] == ids[-3:][::-1]
+    assert first["has_more"]
+    second = client.get(url, params={"limit": 3, "before": ids[-3]}).json()
+    assert [m["id"] for m in second["messages"]] == ids[1:4][::-1]
+    last = client.get(url, params={"limit": 3, "before": ids[1]}).json()
+    assert [m["id"] for m in last["messages"]] == ids[:1]
+    assert not last["has_more"]
+    newer = client.get(url, params={"limit": 3, "after": ids[0]}).json()
+    assert [m["id"] for m in newer["messages"]] == ids[1:4]
+    assert newer["has_more"]
+    assert client.get(url, params={"before": 1, "after": 2}).status_code == 422
+    assert client.get(url, params={"limit": -1}).status_code == 422
+    assert client.get(url, params={"limit": 501}).status_code == 422
+    assert client.get(url, headers={"X-Forwarded-For": "100.1.2.3"}).status_code == 401
+    conn.close()

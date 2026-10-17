@@ -17,7 +17,7 @@ import secrets
 import threading
 from dataclasses import dataclass
 
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -1496,6 +1496,15 @@ def create_app(
     @app.get("/messages")
     def messages(user: str | None = None, limit: int = 50):
         return {"messages": db.fetch_messages(conn, user, limit)}
+
+    @app.get("/api/agents/{user_id}/messages")
+    def agent_messages(user_id: str, limit: int = Query(300, ge=1, le=500),
+                       before: int | None = Query(None, ge=1),
+                       after: int | None = Query(None, ge=0),
+                       _: None = Depends(_require_owner)):
+        if before is not None and after is not None:
+            raise HTTPException(status_code=422, detail="Use either before or after")
+        return db.agent_messages_page(conn, user_id, limit, before, after)
 
     @app.post("/owner/send")
     def owner_send(req: OwnerSendReq, _: None = Depends(_require_owner)):
