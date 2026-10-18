@@ -9810,6 +9810,7 @@ function App() {
 	const focusUser = route.startsWith("#/agent/") ? decodeURIComponent(route.slice(8)) : null;
 	const onHistory = route.startsWith(HISTORY_ROUTE);
 	const onChats = route.startsWith(CHATS_ROUTE);
+	const onOverview = !focusUser && !onHistory && !onChats;
 	const previousView = A({
 		focusUser,
 		onHistory
@@ -9910,7 +9911,7 @@ function App() {
 	return m$1`<main class=${`dashboard-layout ${rosterOpen ? "roster-open" : ""}`}>
     <div class="main-col">
     ${header}
-    <${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />
+    ${onOverview && m$1`<${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />`}
     ${!compact && m$1`<button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
       aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
       ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length}
@@ -9921,7 +9922,7 @@ function App() {
     </div>
     ${!compact && m$1`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <aside class="roster">
-        <${AgentsPanel} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings}
+        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} unreadFor=${unreadFor} pings=${pings}
           storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
       </aside>
     </div>`}
