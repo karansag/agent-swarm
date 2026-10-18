@@ -229,6 +229,8 @@ views sit at the top of the overview.
 
 Press **Cmd/Ctrl+K** to search all agents, or **Cmd/Ctrl+Shift+K** to search teams. Use arrow keys and Enter to choose, or Escape to close. Team selection opens its live queen or first live member (an offline member if none are live). The header also has clickable teams/agents search buttons.
 
+On desktop, **Cmd+B** on Mac or **Ctrl+B** elsewhere toggles the agent sidebar. The shortcut also works from the reply box without moving the cursor.
+
 Teammates are listed at the top of the page; Alt+[ and Alt+] move between
 them.
 

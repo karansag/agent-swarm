@@ -1556,13 +1556,32 @@ function App() {
   rosterOpenRef.current = rosterOpen;
   const toggleRef = useRef(null);
   const updateRoster = open => {
+    rosterOpenRef.current = open;
     setRosterOpen(open);
     try { localStorage.setItem("swarm-roster-open", String(open)); } catch {}
   };
   // Desktop only: the compact layout has no drawer (the overview's agents
   // panel holds the roster).
   const toggleRoster = () => updateRoster(!rosterOpen);
-  const closeRoster = () => { updateRoster(false); toggleRef.current?.focus(); };
+  const closeRoster = () => { updateRoster(false); requestAnimationFrame(() => toggleRef.current?.focus()); };
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+  const rosterShortcut = mac ? "⌘B" : "Ctrl+B";
+  useLayoutEffect(() => {
+    const onKey = e => {
+      const modifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      if (compact || !modifier || e.code !== "KeyB" || e.shiftKey || e.altKey
+          || e.isComposing || e.defaultPrevented || document.activeElement?.isContentEditable
+          || document.querySelector("dialog[open], .thread.focused")) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      // Move focus out of a drawer that is about to become inert; otherwise
+      // keep the cursor in the composer so a toggle does not interrupt typing.
+      if (rosterOpenRef.current && document.activeElement?.closest?.("#agent-sidebar")) closeRoster();
+      else updateRoster(!rosterOpenRef.current);
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [compact, mac]);
   const [connected, setConnected] = useState(true);
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [route, setRoute] = useState(location.hash);
@@ -1688,8 +1707,9 @@ function App() {
     ${header}
     ${onOverview && html`<${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />`}
     ${!compact && html`<button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
-      aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
-      ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter(r => r.pane_alive).length}
+      aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}
+      title=${`Toggle agent sidebar (${rosterShortcut})`} aria-keyshortcuts=${mac ? "Meta+b" : "Control+b"}>
+      ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter(r => r.pane_alive).length} · ${rosterShortcut}
     </button>`}
     <div class="stage">
       ${focusUser

@@ -824,3 +824,40 @@ for (const platform of ['MacIntel', 'Linux x86_64']) {
     } finally { await page.close(); }
   });
 }
+
+for (const platform of ['MacIntel', 'Linux x86_64']) {
+  test(`sidebar shortcut toggles and persists without stealing Mac editing keys: ${platform}`, async () => {
+    const { page, errors } = await setup(1500, 900, false);
+    const modifier = platform === 'MacIntel' ? 'Meta' : 'Control';
+    await page.addInitScript(platform => Object.defineProperty(navigator, 'platform', {value:platform}), platform);
+    try {
+      await page.goto(base + '#/agent/stoat');
+      const composer = page.locator('.thread textarea').first();
+      await composer.fill('keep typing here');
+      const toggle = page.locator('.roster-toggle');
+      await composer.press(`${modifier}+b`);
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+      assert.equal(await composer.evaluate(e => e === document.activeElement), true);
+      assert.equal(await composer.inputValue(), 'keep typing here');
+      if (platform === 'MacIntel') {
+        await composer.press('Control+b');
+        assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+      }
+      await composer.press(`${modifier}+b`);
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+      await page.getByRole('button', {name:'Hide agents'}).focus();
+      await page.keyboard.press(`${modifier}+b`);
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+      await page.waitForFunction(() => document.activeElement === document.querySelector('.roster-toggle'));
+      assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+      await page.reload();
+      await page.waitForSelector('.roster-toggle');
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+      await page.setViewportSize({width:390,height:844});
+      await page.waitForSelector('.roster-toggle', {state:'detached'});
+      await page.keyboard.press(`${modifier}+b`);
+      assert.equal(await page.evaluate(() => localStorage.getItem('swarm-roster-open')), 'false');
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}

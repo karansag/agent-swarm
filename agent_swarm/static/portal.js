@@ -9776,6 +9776,7 @@ function App() {
 	rosterOpenRef.current = rosterOpen;
 	const toggleRef = A(null);
 	const updateRoster = (open) => {
+		rosterOpenRef.current = open;
 		setRosterOpen(open);
 		try {
 			localStorage.setItem("swarm-roster-open", String(open));
@@ -9784,8 +9785,22 @@ function App() {
 	const toggleRoster = () => updateRoster(!rosterOpen);
 	const closeRoster = () => {
 		updateRoster(false);
-		toggleRef.current?.focus();
+		requestAnimationFrame(() => toggleRef.current?.focus());
 	};
+	const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+	const rosterShortcut = mac ? "⌘B" : "Ctrl+B";
+	_(() => {
+		const onKey = (e) => {
+			const modifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+			if (compact || !modifier || e.code !== "KeyB" || e.shiftKey || e.altKey || e.isComposing || e.defaultPrevented || document.activeElement?.isContentEditable || document.querySelector("dialog[open], .thread.focused")) return;
+			e.preventDefault();
+			if (e.repeat) return;
+			if (rosterOpenRef.current && document.activeElement?.closest?.("#agent-sidebar")) closeRoster();
+			else updateRoster(!rosterOpenRef.current);
+		};
+		addEventListener("keydown", onKey);
+		return () => removeEventListener("keydown", onKey);
+	}, [compact, mac]);
 	const [connected, setConnected] = d(true);
 	const [clock, setClock] = d((/* @__PURE__ */ new Date()).toLocaleTimeString());
 	const [route, setRoute] = d(location.hash);
@@ -9913,8 +9928,9 @@ function App() {
     ${header}
     ${onOverview && m$1`<${MachineBar} state=${state} machine=${machine} selectMachine=${setMachine} />`}
     ${!compact && m$1`<button type="button" ref=${toggleRef} class=${`roster-toggle ${rosterOpen ? "is-open" : ""}`}
-      aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}>
-      ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length}
+      aria-expanded=${rosterOpen} aria-controls="agent-sidebar" onClick=${toggleRoster}
+      title=${`Toggle agent sidebar (${rosterShortcut})`} aria-keyshortcuts=${mac ? "Meta+b" : "Control+b"}>
+      ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length} · ${rosterShortcut}
     </button>`}
     <div class="stage">
       ${focusUser ? m$1`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
