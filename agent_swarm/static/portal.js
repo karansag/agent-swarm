@@ -9352,6 +9352,8 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 	const peer = other && agents?.has(other) ? other : null;
 	const [expanded, setExpanded] = d(!!recipient);
 	const [focused, setFocused] = d(() => !!(recipient && switchCarry?.focus));
+	const focusMac = /Mac|iPhone|iPad/.test(navigator.platform);
+	const focusShortcut = focusMac ? "⌘⇧Enter" : "Ctrl+Shift+Enter";
 	const [focusFont, setFocusFont] = d(() => {
 		try {
 			return Number(localStorage.getItem(FOCUS_FONT_KEY)) || FOCUS_FONT.start;
@@ -9413,14 +9415,11 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 				setFocused(false);
 				return;
 			}
-			const typing = [
-				"INPUT",
-				"SELECT",
-				"TEXTAREA"
-			].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
-			if (e.key === "f" && recipient && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+			const modifier = focusMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+			if (page && (recipient || focused) && (!document.querySelector(".thread.focused") || focused) && e.key === "Enter" && e.shiftKey && modifier && !e.altKey) {
 				e.preventDefault();
-				toggleFocus();
+				e.stopImmediatePropagation();
+				if (!e.repeat) toggleFocus();
 			}
 		};
 		addEventListener("keydown", onKey, true);
@@ -9483,8 +9482,8 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
       ${peer && !focused && m$1`<a class="thread-focus thread-goto" href=${`#/agent/${encodeURIComponent(peer)}`}
         title=${`Go to ${peer}'s page to message them`}>open ${peer} →</a>`}
       <button type="button" class="thread-focus" aria-pressed=${focused} onClick=${toggleFocus}
-        title=${focused ? "Back to the page (Esc)" : `Expand this conversation to fill the window${recipient ? " (f)" : ""}`}>
-        ${focused ? "✕ close" : "⤢ focus"}</button>
+        title=${focused ? `Back to the page (Esc or ${focusShortcut})` : `Expand this conversation to fill the window${recipient ? ` (${focusShortcut})` : ""}`}>
+        ${focused ? "✕ close" : "⤢ focus"}${recipient && m$1` <span class="focus-key-hint">${focusShortcut}</span>`}</button>
     </div>
     <div id=${bodyId} class="thread-body" hidden=${!expanded}>
     <div class="msgs" ref=${boxRef} onScroll=${onScroll}

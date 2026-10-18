@@ -276,7 +276,7 @@ test('a send whose answer is lost is retried under the same id, not duplicated',
   } finally { await page.close(); }
 });
 
-test('a conversation expands to fill the window and back (button, f, Esc)', async () => {
+test('a conversation expands to fill the window and back (button, shortcut, Esc)', async () => {
   const { page, errors } = await setup(1500, 900, false);
   try {
     await page.goto(base + '#/agent/stoat');
@@ -298,7 +298,7 @@ test('a conversation expands to fill the window and back (button, f, Esc)', asyn
     await page.getByRole('button', { name: 'Smaller text' }).click();
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.thread.focused').count(), 0);
-    await page.keyboard.press('f');
+    await page.keyboard.press('Control+Shift+Enter');
     assert.equal(await page.locator('.thread.focused').count(), 1);
     // Typing "f" into the composer is text, not the shortcut.
     const box = page.locator('.thread.focused textarea').first();
@@ -858,6 +858,34 @@ for (const platform of ['MacIntel', 'Linux x86_64']) {
       await page.keyboard.press(`${modifier}+b`);
       assert.equal(await page.evaluate(() => localStorage.getItem('swarm-roster-open')), 'false');
       assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+for (const platform of ['MacIntel', 'Linux x86_64']) {
+  test(`focus modifier shortcut preserves drafts and leaves Vimium f alone: ${platform}`, async () => {
+    const {page, errors} = await setup(1500,900,false);
+    await page.addInitScript(platform => Object.defineProperty(navigator,'platform',{value:platform}),platform);
+    try {
+      await page.goto(base+'#/agent/stoat');
+      const box = page.locator('.thread textarea').first();
+      await box.fill('unsent draft');
+      const chord = platform === 'MacIntel' ? 'Meta+Shift+Enter' : 'Control+Shift+Enter';
+      await box.press(chord);
+      assert.equal(await page.locator('.thread.focused').count(),1);
+      await box.press(chord);
+      assert.equal(await page.locator('.thread.focused').count(),0);
+      assert.equal(await box.inputValue(),'unsent draft');
+      await page.evaluate(() => {
+        document.activeElement.blur();
+        window.fConsumed = null;
+        document.addEventListener('keydown', e => { if(e.key === 'f') window.fConsumed=e.defaultPrevented; });
+      });
+      await page.keyboard.press('f');
+      assert.equal(await page.evaluate(() => window.fConsumed),false);
+      assert.equal(await page.locator('.thread.focused').count(),0);
+      assert.equal(await page.evaluate(() => location.hash),'#/agent/stoat');
+      assert.deepEqual(errors,[]);
     } finally { await page.close(); }
   });
 }
