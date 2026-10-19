@@ -90,6 +90,11 @@ Address replies back to `<sender>` (the short handle). Messages from
 `agent-msg send --to owner --message "..."` to respond on the dashboard.
 Terminal-only output does not reach the owner.
 
+The dashboard renders every message body, to the owner and between
+agents, as Markdown. Use pipe tables for numbers, bullets for parallel
+items, and a bold lead line. Write a long message to a file and send it
+with `--message "$(cat file)"` so pipes and quotes survive the shell.
+
 ---
 
 ## Step 3 — send a message

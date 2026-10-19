@@ -664,6 +664,7 @@ def test_protocol_brief_mentions_owner_and_tasks(client):
     brief = client.post("/register", json={"tmux_pane": "0:0.0"}).json()["protocol_brief"]
     assert "'owner' is the human operator" in brief
     assert "Terminal-only output does not reach the owner" in brief
+    assert "as Markdown" in brief
     assert "task-update" in brief
     assert "task-create" in brief
 
