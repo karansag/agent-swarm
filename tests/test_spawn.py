@@ -7,17 +7,20 @@ CODEX_STARTUP = "codex -c check_for_update_on_startup=false"
 
 
 def test_each_harness_has_one_launch_and_no_permission_choice():
-    # Task #170: claude is plain, codex gets --yolo (its sandbox would block
+    # claude runs in auto mode, codex gets --yolo (its sandbox would block
     # the tmux socket and the agent-swarm API), and the default model passes
     # no model flag at all.
-    assert tmux.spawn_launch_command("claude") == "claude"
+    assert tmux.spawn_launch_command("claude") == "claude --permission-mode auto"
     assert tmux.spawn_launch_command("codex") == f"{CODEX_STARTUP} --yolo"
     assert tmux.spawn_launch_command("pi") == "pi"
     assert tmux.spawn_launch_command("hermes") == "hermes --yolo --accept-hooks"
 
 
 def test_known_model_appends_harness_flag():
-    assert tmux.spawn_launch_command("claude", "opus") == "claude --model opus"
+    assert (
+        tmux.spawn_launch_command("claude", "opus")
+        == "claude --model opus --permission-mode auto"
+    )
     assert (
         tmux.spawn_launch_command("codex", "gpt-5.6-terra")
         == f"{CODEX_STARTUP} --model gpt-5.6-terra --yolo"
@@ -40,8 +43,8 @@ def test_pi_pattern_is_shell_quoted():
 
 
 def test_unknown_model_falls_back_to_bare_binary():
-    assert tmux.spawn_launch_command("claude", "not-a-real-model") == "claude"
-    assert tmux.spawn_launch_command("claude", "") == "claude"
+    assert tmux.spawn_launch_command("claude", "not-a-real-model") == "claude --permission-mode auto"
+    assert tmux.spawn_launch_command("claude", "") == "claude --permission-mode auto"
 
 
 def test_unspawnable_flavor_returns_none():

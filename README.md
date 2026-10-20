@@ -249,14 +249,14 @@ comes from the agent (`agent-swarm status "working on #12: pane ids"`) or,
 if newer, from the topic Claude Code and Codex write into the pane title.
 
 **Spawning.** Pick a harness and, optionally, a model. The command is
-`claude [--model M]`, `codex [--model M] --yolo`, `pi [--model M]`, or
+`claude [--model M] --permission-mode auto`, `codex [--model M] --yolo`, `pi [--model M]`, or
 `hermes --yolo --accept-hooks`. "default model" passes no model
 flag. Codex also gets `-c check_for_update_on_startup=false`, so an update
 prompt cannot stall a new pane, and `--no-daemon` when the installed Codex
 supports it, so its commands run in the agent's own pane. Codex needs
-`--yolo` because its sandbox blocks the tmux socket and the local hub. A
-spawned Claude asks before running commands, which the dashboard shows as
-needs attention.
+`--yolo` because its sandbox blocks the tmux socket and the local hub.
+Claude runs in auto mode: it approves routine commands itself and still
+asks about risky ones, which the dashboard shows as needs attention.
 
 **From another device.** Publish the dashboard on your tailnet with
 Tailscale Serve:

@@ -714,8 +714,8 @@ def test_spawn_creates_window_and_registers_agent(client):
     body = r.json()
     assert body["ok"] is True
     assert body["tmux_pane"] == "agents:1.0"
-    assert body["command"] == "claude"
-    assert client._spawns[-1] == (tmux.AGENTS_SESSION, "claude")
+    assert body["command"] == "claude --permission-mode auto"
+    assert client._spawns[-1] == (tmux.AGENTS_SESSION, "claude --permission-mode auto")
 
     recipients = client.get("/recipients").json()["recipients"]
     spawned = next(x for x in recipients if x["user_id"] == body["user_id"])
@@ -749,7 +749,7 @@ def test_spawn_with_model_passes_cli_flag_and_records_model(client):
     assert r.status_code == 200
     assert client._spawns[-1] == (
         tmux.AGENTS_SESSION,
-        "claude --model opus",
+        "claude --model opus --permission-mode auto",
     )
     body = r.json()
     assert body["model"] == "opus"
@@ -765,7 +765,7 @@ def test_spawn_ignores_unknown_model(client):
     assert r.status_code == 200
     # Falls back to the default command; nothing bogus is recorded or launched.
     assert client._spawns[-1] == (
-        tmux.AGENTS_SESSION, "claude"
+        tmux.AGENTS_SESSION, "claude --permission-mode auto"
     )
     assert r.json()["model"] is None
 

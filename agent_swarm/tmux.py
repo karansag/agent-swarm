@@ -379,6 +379,9 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
         "claude",
         "--model",
         ["opus", "sonnet", "haiku"],
+        # Auto mode lets a classifier approve routine commands, so a spawned
+        # agent can work without bypassing permission checks entirely.
+        launch_args="--permission-mode auto",
     ),
     "codex": HarnessSpec(
         "codex",
