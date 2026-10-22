@@ -1667,6 +1667,15 @@ function App() {
           && !document.activeElement.isContentEditable) {
         if (rosterOpenRef.current) closeRoster();
       }
+      // Alt+H goes home to the overview from any page, even while typing:
+      // drafts are saved as they are typed. Matched by physical key, since
+      // Option+H types a character on a Mac.
+      if (e.code === "KeyH" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey
+          && !e.isComposing && !document.querySelector(".quick-switch[open]")
+          && location.hash !== "#/" && location.hash !== "") {
+        e.preventDefault();
+        location.hash = "#/";
+      }
     };
     addEventListener("hashchange", onHash);
     addEventListener("keydown", onKey);
@@ -1691,7 +1700,7 @@ function App() {
   const header = html`<header class="top">
     <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>Agent Swarm Dashboard</h1>
     <nav class="views" aria-label="views">
-      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""}>overview</a>
+      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
     </nav>

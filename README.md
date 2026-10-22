@@ -234,7 +234,8 @@ On an agent page, **Cmd+Shift+Enter** on Mac or **Ctrl+Shift+Enter** elsewhere t
 On desktop, **Cmd+B** on Mac or **Ctrl+B** elsewhere toggles the agent sidebar. The shortcut also works from the reply box without moving the cursor.
 
 Teammates are listed at the top of the page; Alt+[ and Alt+] move between
-them.
+them. **Alt+H** (Option+H on Mac) goes back to the overview from any page,
+including from the reply box; unsent drafts are kept.
 
 **Activity.** A monitor reads each pane every few seconds and labels the
 agent working, idle, needs attention, unknown, or stopped. "Needs

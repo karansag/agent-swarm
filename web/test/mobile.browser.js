@@ -381,6 +381,34 @@ test('team strip and Alt+] / Alt+[ switch teammates, keeping the draft and the c
   } finally { await page.close(); }
 });
 
+test('Alt+H goes back to the overview from any page, keeping the draft', async () => {
+  const { page, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/agent/stoat');
+    const box = page.locator('.thread .composer textarea').first();
+    await box.fill('draft for stoat');
+    await box.focus();
+    await page.keyboard.press('Alt+KeyH');
+    await page.waitForFunction(() => location.hash === '#/');
+    await page.waitForSelector('.harness-legend');
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForFunction(() => document.querySelector('.thread .composer textarea')?.value === 'draft for stoat');
+    await page.goto(base + '#/chats');
+    await page.waitForSelector('nav.views a.on');
+    await page.keyboard.press('Alt+KeyH');
+    await page.waitForFunction(() => location.hash === '#/');
+    // An open agent switcher keeps its keys.
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('.thread .composer textarea');
+    await page.keyboard.press('Control+KeyK');
+    await page.waitForSelector('.quick-switch[open]');
+    await page.keyboard.press('Alt+KeyH');
+    assert.equal(await page.evaluate(() => location.hash), '#/agent/stoat');
+    assert.equal(await page.locator('nav.views a[href="#/"]').getAttribute('title'), 'Overview (Alt+H)');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('the first message to an agent clears the composer', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
   await page.route('**/owner/send', async route => {

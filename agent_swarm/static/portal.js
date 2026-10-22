@@ -9901,6 +9901,10 @@ function App() {
 			].includes(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
 				if (rosterOpenRef.current) closeRoster();
 			}
+			if (e.code === "KeyH" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.isComposing && !document.querySelector(".quick-switch[open]") && location.hash !== "#/" && location.hash !== "") {
+				e.preventDefault();
+				location.hash = "#/";
+			}
 		};
 		addEventListener("hashchange", onHash);
 		addEventListener("keydown", onKey);
@@ -9922,7 +9926,7 @@ function App() {
 		location.hash = "#/";
 	}}>Agent Swarm Dashboard</h1>
     <nav class="views" aria-label="views">
-      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""}>overview</a>
+      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
     </nav>
