@@ -568,6 +568,21 @@ var HARNESSES = Object.freeze({
 function harnessStyle(flavor) {
 	return HARNESSES[String(flavor || "generic").toLowerCase()] || HARNESSES.generic;
 }
+function harnessChoices(recipients = []) {
+	const generic = recipients.some((r) => r.pane_alive && harnessStyle(r.flavor).key === "generic");
+	return Object.values(HARNESSES).filter((h) => h.key !== "generic" || generic);
+}
+function agentShown(r, machine, harness) {
+	return (machine === null || machineName(r.node) === machine) && (harness === null || harnessStyle(r.flavor).key === harness);
+}
+function HarnessFilter({ recipients, harness, setHarness }) {
+	return m$1`<span class="harness-filter" role="group" aria-label="Filter agents by harness">
+    ${harnessChoices(recipients).map((h) => m$1`<button key=${h.key} type="button" class="harness-swatch"
+      style=${`--harness:${h.color}`} aria-pressed=${harness === h.key} aria-label=${`Only ${h.label} agents`}
+      title=${harness === h.key ? `Showing only ${h.label} agents. Click to show all.` : `Show only ${h.label} agents`}
+      onClick=${() => setHarness(harness === h.key ? null : h.key)}>${h.mark}</button>`)}
+  </span>`;
+}
 var WORKING_HALO = {
 	color: "#9be879",
 	fill: "rgba(155,232,121,.14)"
@@ -1305,8 +1320,8 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 	}
 	return start;
 }
-function CompactBees({ state, machine }) {
-	const agents = (state.recipients || []).filter((r) => r.pane_alive && (machine === null || machineName(r.node) === machine));
+function CompactBees({ state, machine, harness = null }) {
+	const agents = (state.recipients || []).filter((r) => r.pane_alive && agentShown(r, machine, harness));
 	return m$1`<nav class="compact-hive" aria-label="Live agents">
     <div class="compact-hive-heading"><span>${agents.length} live agents</span><span>Tap a bee to open</span></div>
     <div class="bee-grid">${agents.map((r) => {
@@ -1320,7 +1335,7 @@ function CompactBees({ state, machine }) {
         <span class="bee-state"><span class=${`status ${st.cls}`} aria-hidden="true"></span>${st.word} · ${harness.mark} ${harness.label}</span>
       </a>`;
 	})}</div>
-    ${!agents.length && m$1`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
+    ${!agents.length && m$1`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
   </nav>`;
 }
 function HiveTaskDetail({ task, state, refresh, onClose }) {
@@ -1365,12 +1380,14 @@ function HiveTaskDetail({ task, state, refresh, onClose }) {
     <${TaskTrash} task=${task} refresh=${refresh} onDeleted=${onClose} />
   </section>`;
 }
-function HiveView({ state, refresh, machine, compactBody = null }) {
+function HiveView({ state, refresh, machine, harness = null, setHarness = () => {}, compactBody = null }) {
 	const compact = useMedia(COMPACT_LAYOUT);
 	const [selectedTask, setSelectedTask] = d(null);
 	const taskDetail = (state.tasks || []).find((t) => t.id === selectedTask);
 	const machineRef = A(machine);
 	machineRef.current = machine;
+	const harnessRef = A(harness);
+	harnessRef.current = harness;
 	const canvasRef = A(null);
 	const stateRef = A(state);
 	const beesRef = A(/* @__PURE__ */ new Map());
@@ -1393,8 +1410,7 @@ function HiveView({ state, refresh, machine, compactBody = null }) {
 	const drawRef = A(null);
 	const [dropStatus, setDropStatus] = d("");
 	stateRef.current = state;
-	const liveHarnessKeys = new Set((state.recipients || []).filter((r) => r.pane_alive).map((r) => harnessStyle(r.flavor).key));
-	const legendHarnesses = Object.values(HARNESSES).filter((harness) => harness.key !== "generic" || liveHarnessKeys.has("generic"));
+	const legendHarnesses = harnessChoices(state.recipients);
 	const messages = state.messages || [];
 	const maxId = Math.max(0, ...messages.map((m) => m.id));
 	if (lastSeenRef.current === null) lastSeenRef.current = maxId;
@@ -1779,7 +1795,7 @@ function HiveView({ state, refresh, machine, compactBody = null }) {
 					doing: doing && doing.text
 				});
 				ctx.save();
-				if (machineRef.current !== null && machineName(r.node) !== machineRef.current) ctx.globalAlpha = .18;
+				if (!agentShown(r, machineRef.current, harnessRef.current)) ctx.globalAlpha = .18;
 				if (assigned) token(assigned, x + 22, y + Math.sin(q * .8) * 3);
 				const bearing = Math.atan2(dy, dx);
 				ctx.save();
@@ -1995,7 +2011,7 @@ function HiveView({ state, refresh, machine, compactBody = null }) {
 			if (hovered) {
 				const said = hovered.doing || hovered.task && hovered.task.title;
 				const title = said ? ` · ${said.length > 70 ? `${said.slice(0, 69)}…` : said}` : "";
-				const harnessLabel = (HARNESSES[hovered.harness] || HARNESSES.generic).label;
+				const harnessLabel = harnessStyle(hovered.harness).label;
 				const label = `${hoverRef.current} · ${hovered.node} · ${harnessLabel}${title}`;
 				ctx.font = "10px ui-monospace, monospace";
 				const w = ctx.measureText(label).width + 12;
@@ -2351,16 +2367,21 @@ function HiveView({ state, refresh, machine, compactBody = null }) {
 	}, [compact]);
 	h(() => {
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current) drawRef.current(performance.now(), true);
-	}, [state, machine]);
-	return m$1`<div class="hive-panel">${compact ? compactBody || m$1`<${CompactBees} state=${state} machine=${machine} />` : m$1`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+	}, [
+		state,
+		machine,
+		harness
+	]);
+	return m$1`<div class="hive-panel">${compact ? compactBody || m$1`<${CompactBees} state=${state} machine=${machine} harness=${harness} />` : m$1`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
     aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div>`}
     <div class="harness-legend" aria-label="Bee harness legend">
       <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       <span class="working-halo-key" style=${`--working:${WORKING_HALO.color}`}><span aria-hidden="true"></span>Green halo = working</span>
-      ${legendHarnesses.map((harness) => m$1`<span class="harness-key" key=${harness.key}>
-        <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
-        ${harness.label}
-      </span>`)}
+      ${legendHarnesses.map((h) => compact ? m$1`<span class="harness-key" key=${h.key}>
+            <span class="harness-swatch" style=${`--harness:${h.color}`}>${h.mark}</span>${h.label}</span>` : m$1`<button type="button" class="harness-key" key=${h.key} aria-pressed=${harness === h.key}
+            title=${harness === h.key ? "Click to show all harnesses" : `Highlight only ${h.label} agents`}
+            onClick=${() => setHarness(harness === h.key ? null : h.key)}>
+            <span class="harness-swatch" style=${`--harness:${h.color}`}>${h.mark}</span>${h.label}</button>`)}
     </div>
     <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
       onChange=${(e) => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>
@@ -8666,12 +8687,12 @@ function MachineBar({ state, machine, selectMachine }) {
     ${machine !== null && m$1`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
   </section>`;
 }
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose, heading = true }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, harness = null, onClose, heading = true }) {
 	const [groupBy, setGroupBy] = d("team");
 	const [overUnteam, setOverUnteam] = d(false);
 	const teams = state.teams || [];
 	const teamById = new Map(teams.map((t) => [t.id, t]));
-	const visible = state.recipients.filter((r) => machine === null || machineName(r.node) === machine);
+	const visible = state.recipients.filter((r) => agentShown(r, machine, harness));
 	const running = sortByActivity(visible.filter((r) => r.pane_alive));
 	const stopped = visible.filter((r) => !r.pane_alive);
 	const unteamed = running.filter((r) => !teamById.has(r.team_id));
@@ -8914,7 +8935,7 @@ function readJSON(key, fallback) {
 		return fallback;
 	}
 }
-function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
+function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUser = null }) {
 	const [dragging, setDragging] = d(null);
 	const [over, setOver] = d(null);
 	const [collapsed, setCollapsed] = d(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
@@ -8927,7 +8948,7 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
 		} catch {}
 		return next;
 	});
-	const live = state.recipients.filter((r) => r.pane_alive && (machine === null || machineName(r.node) === machine));
+	const live = state.recipients.filter((r) => r.pane_alive && agentShown(r, machine, harness));
 	const teams = state.teams || [];
 	const groups = teams.map((t) => ({
 		key: `t:${t.id}`,
@@ -8946,7 +8967,7 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
 	});
 	groups.sort((a, b) => !a.members.length - !b.members.length);
 	if (!dragging) groups.splice(0, groups.length, ...groups.filter((g) => g.members.length));
-	if (!groups.length) return m$1`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}.</p>`;
+	if (!groups.length) return m$1`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}.</p>`;
 	return m$1`<div class="team-bees">${groups.map((g) => {
 		const busy = g.members.filter((r) => agentStatus(r) === "working").length;
 		const attention = g.members.filter((r) => agentStatus(r) === "needs_attention").length;
@@ -8984,7 +9005,7 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
     </details>`;
 	})}</div>`;
 }
-function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
+function AgentsPanel({ state, refresh, machine, harness, setHarness, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
 	const [view, setView] = d(() => {
 		try {
 			return localStorage.getItem(storageKey) || "teams";
@@ -8998,23 +9019,26 @@ function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = A
 			localStorage.setItem(storageKey, v);
 		} catch {}
 	};
-	const live = state.recipients.filter((r) => r.pane_alive && (machine === null || machineName(r.node) === machine)).length;
+	const live = state.recipients.filter((r) => r.pane_alive && agentShown(r, machine, harness)).length;
+	const filter = m$1`<${HarnessFilter} recipients=${state.recipients} harness=${harness} setHarness=${setHarness} />`;
 	return m$1`<div class="agents-panel">
     ${onClose && m$1`<div class="roster-heading"><h2>agents ${live > 0 && m$1`<span class="count">· ${live}</span>`}</h2>
+      ${filter}
       <button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>`}
     <div class="agents-view-switch" role="group" aria-label="Agents view">
       <span>view</span>
       ${AGENTS_VIEWS.map(([v, label]) => m$1`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
+      ${!onClose && filter}
     </div>
-    ${view === "tiles" ? m$1`<${CompactBees} state=${state} machine=${machine} />` : view === "roster" ? m$1`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
-            refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />` : m$1`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
+    ${view === "tiles" ? m$1`<${CompactBees} state=${state} machine=${machine} harness=${harness} />` : view === "roster" ? m$1`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
+            refresh=${refresh} machine=${machine} harness=${harness} onClose=${null} heading=${!onClose} />` : m$1`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} harness=${harness} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
-function Overview({ state, refresh, machine, unreadFor, pings }) {
+function Overview({ state, refresh, machine, harness, setHarness, unreadFor, pings }) {
 	return m$1`<div>
     <h2>activity</h2>
-    <${HiveView} state=${state} refresh=${refresh} machine=${machine}
-      compactBody=${m$1`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`} />
+    <${HiveView} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness}
+      compactBody=${m$1`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -9763,6 +9787,7 @@ function App() {
 	const compact = useMedia(COMPACT_LAYOUT);
 	const [state, setState] = d(null);
 	const [machine, setMachine] = d(null);
+	const [harness, setHarness] = d(null);
 	const [rosterOpen, setRosterOpen] = d(() => {
 		try {
 			const saved = localStorage.getItem("swarm-roster-open");
@@ -9932,12 +9957,12 @@ function App() {
       ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length} · ${rosterShortcut}
     </button>`}
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
+      ${focusUser ? m$1`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
     ${!compact && m$1`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <aside class="roster">
-        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} unreadFor=${unreadFor} pings=${pings}
+        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings}
           storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
       </aside>
     </div>`}

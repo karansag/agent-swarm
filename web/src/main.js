@@ -22,6 +22,9 @@ import {
   disp,
   focusHash,
   patchTask,
+  agentShown,
+  harnessStyle,
+  HarnessFilter,
 } from "./shared.js";
 import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOutcome } from "./outcome.js";
 import { machineColor, machineList, machineName } from "./machines.js";
@@ -479,12 +482,12 @@ function MachineBar({ state, machine, selectMachine }) {
   </section>`;
 }
 
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine, onClose, heading = true }) {
+function Roster({ state, focusUser, unreadFor, pings, refresh, machine, harness = null, onClose, heading = true }) {
   const [groupBy, setGroupBy] = useState("team");
   const [overUnteam, setOverUnteam] = useState(false);
   const teams = state.teams || [];
   const teamById = new Map(teams.map(t => [t.id, t]));
-  const visible = state.recipients.filter(r => machine === null || machineName(r.node) === machine);
+  const visible = state.recipients.filter(r => agentShown(r, machine, harness));
   const running = sortByActivity(visible.filter(r => r.pane_alive));
   const stopped = visible.filter(r => !r.pane_alive);
   const unteamed = running.filter(r => !teamById.has(r.team_id));
@@ -709,7 +712,7 @@ function readJSON(key, fallback) {
 // no team come last. Each agent is one small chip that opens its page.
 // Chips drag between groups to change team, as in the roster. While one is
 // dragged, empty teams and "no team" show too (at the end), so any team is a target.
-function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
+function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUser = null }) {
   const [dragging, setDragging] = useState(null);
   const [over, setOver] = useState(null);
   const [collapsed, setCollapsed] = useState(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
@@ -719,7 +722,7 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
     try { localStorage.setItem(COLLAPSED_TEAMS_KEY, JSON.stringify([...next])); } catch { /* not kept */ }
     return next;
   });
-  const live = state.recipients.filter(r => r.pane_alive && (machine === null || machineName(r.node) === machine));
+  const live = state.recipients.filter(r => r.pane_alive && agentShown(r, machine, harness));
   const teams = state.teams || [];
   const groups = teams.map(t => ({
     key: `t:${t.id}`, name: t.name, queen: t.queen,
@@ -732,7 +735,7 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
   // Groups that only appear during a drag go last, so nothing moves under the pointer.
   groups.sort((a, b) => !a.members.length - !b.members.length);
   if (!dragging) groups.splice(0, groups.length, ...groups.filter(g => g.members.length));
-  if (!groups.length) return html`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}.</p>`;
+  if (!groups.length) return html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}.</p>`;
   return html`<div class="team-bees">${groups.map(g => {
     const busy = g.members.filter(r => agentStatus(r) === "working").length;
     const attention = g.members.filter(r => agentStatus(r) === "needs_attention").length;
@@ -772,7 +775,7 @@ function TeamBees({ state, refresh, machine, unreadFor, focusUser = null }) {
 }
 
 // `onClose` (the desktop sidebar) adds a heading with "Hide →" above every view.
-function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
+function AgentsPanel({ state, refresh, machine, harness, setHarness, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
   const [view, setView] = useState(() => {
     try { return localStorage.getItem(storageKey) || "teams"; } catch { return "teams"; }
   });
@@ -780,28 +783,33 @@ function AgentsPanel({ state, refresh, machine, unreadFor, pings, storageKey = A
     setView(v);
     try { localStorage.setItem(storageKey, v); } catch { /* not kept */ }
   };
-  const live = state.recipients.filter(r => r.pane_alive && (machine === null || machineName(r.node) === machine)).length;
+  const live = state.recipients.filter(r => r.pane_alive && agentShown(r, machine, harness)).length;
+  // The desktop sidebar has room in its heading row; elsewhere the filter
+  // ends the view row.
+  const filter = html`<${HarnessFilter} recipients=${state.recipients} harness=${harness} setHarness=${setHarness} />`;
   return html`<div class="agents-panel">
     ${onClose && html`<div class="roster-heading"><h2>agents ${live > 0 && html`<span class="count">· ${live}</span>`}</h2>
+      ${filter}
       <button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button></div>`}
     <div class="agents-view-switch" role="group" aria-label="Agents view">
       <span>view</span>
       ${AGENTS_VIEWS.map(([v, label]) => html`<button key=${v} type="button" aria-pressed=${view === v} onClick=${() => pick(v)}>${label}</button>`)}
+      ${!onClose && filter}
     </div>
     ${view === "tiles"
-      ? html`<${CompactBees} state=${state} machine=${machine} />`
+      ? html`<${CompactBees} state=${state} machine=${machine} harness=${harness} />`
       : view === "roster"
         ? html`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
-            refresh=${refresh} machine=${machine} onClose=${null} heading=${!onClose} />`
-        : html`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} focusUser=${focusUser} />`}
+            refresh=${refresh} machine=${machine} harness=${harness} onClose=${null} heading=${!onClose} />`
+        : html`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} harness=${harness} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
 
-function Overview({ state, refresh, machine, unreadFor, pings }) {
+function Overview({ state, refresh, machine, harness, setHarness, unreadFor, pings }) {
   return html`<div>
     <h2>activity</h2>
-    <${HiveView} state=${state} refresh=${refresh} machine=${machine}
-      compactBody=${html`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`} />
+    <${HiveView} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness}
+      compactBody=${html`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -1551,6 +1559,7 @@ function App() {
   const compact = useMedia(COMPACT_LAYOUT);
   const [state, setState] = useState(null);
   const [machine, setMachine] = useState(null);
+  const [harness, setHarness] = useState(null);
   const [rosterOpen, setRosterOpen] = useState(() => {
     try { const saved = localStorage.getItem("swarm-roster-open"); return saved === null ? true : saved === "true"; }
     catch { return true; }
@@ -1721,12 +1730,12 @@ function App() {
           ? html`<${HistoryView} state=${state} />`
           : onChats
             ? html`<${ChatsView} state=${state} unreadFor=${unreadFor} />`
-            : html`<${Overview} state=${state} refresh=${poll} machine=${machine} unreadFor=${unreadFor} pings=${pings} />`}
+            : html`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
     ${!compact && html`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <aside class="roster">
-        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} unreadFor=${unreadFor} pings=${pings}
+        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings}
           storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
       </aside>
     </div>`}

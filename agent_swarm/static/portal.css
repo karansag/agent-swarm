@@ -774,6 +774,18 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
 .agents-view-switch { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--cream-dim); font-size: 11px; }
 .agents-view-switch button { min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; background: none; color: var(--cream-dim); font: inherit; cursor: pointer; }
 .agents-view-switch button[aria-pressed=true] { color: var(--honey); border-color: var(--honey-dim); background: rgba(242,169,59,.08); }
+.agents-view-switch { flex-wrap: wrap; }
+/* Harness filter: icon-only, so it shares the view row instead of adding one. */
+.harness-filter { display: inline-flex; gap: 3px; margin-left: auto; }
+.roster-heading .harness-filter { margin: 0 8px 0 auto; }
+.harness-filter button.harness-swatch { width: 20px; height: 20px; min-height: 0; padding: 0; border: 1px solid var(--harness); border-radius: 4px; background: color-mix(in srgb, var(--harness) 22%, var(--ink)); color: var(--cream); font-size: 11px; opacity: .55; }
+.harness-filter button.harness-swatch:hover { opacity: .85; }
+.harness-filter button.harness-swatch[aria-pressed=true] { opacity: 1; background: color-mix(in srgb, var(--harness) 45%, var(--ink)); box-shadow: 0 0 0 1px var(--harness); }
+/* Desktop legend keys filter the hive and the sidebar by harness. */
+.harness-legend { pointer-events: auto; }
+button.harness-key { padding: 2px 5px; border: 1px solid transparent; border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; }
+button.harness-key:hover { border-color: var(--line); color: var(--cream); }
+button.harness-key[aria-pressed=true] { border-color: var(--honey-dim); color: var(--honey); background: rgba(242,169,59,.08); }
 .agents-panel .compact-hive { padding: 0; }
 .agents-panel aside.roster { padding: 0; border: 0; position: static; max-height: none; }
 .roster-drawer .agents-panel { padding: 0; }
@@ -830,6 +842,7 @@ main.dashboard-layout.roster-open { grid-template-columns: minmax(0,1fr) 340px; 
   .thread .composer textarea { font-size: max(16px, var(--thread-font)); }
   .team-mate { min-height: 44px; box-sizing: border-box; }
   .agents-view-switch button { min-height: 44px; }
+  .harness-filter button.harness-swatch { width: 44px; height: 44px; font-size: 15px; }
   .tcard, .trow, .htile, .doing-box, .fhead, .chip-card, .h-agentchip { overflow-wrap: anywhere; }
   .tcard .meta, .tnote-body, .h-field { font-size: 12px; }
   .tcard .t { font-size: 14px; }

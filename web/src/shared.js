@@ -20,6 +20,29 @@ export function harnessStyle(flavor) {
   return HARNESSES[String(flavor || "generic").toLowerCase()] || HARNESSES.generic;
 }
 
+// The harnesses a filter or legend offers: every spawnable one, plus
+// generic only while a generic agent is live.
+export function harnessChoices(recipients = []) {
+  const generic = recipients.some(r => r.pane_alive && harnessStyle(r.flavor).key === "generic");
+  return Object.values(HARNESSES).filter(h => h.key !== "generic" || generic);
+}
+
+// The machine and harness filters together; null means "all".
+export function agentShown(r, machine, harness) {
+  return (machine === null || machineName(r.node) === machine)
+    && (harness === null || harnessStyle(r.flavor).key === harness);
+}
+
+// One small icon button per harness. Clicking the active one clears it.
+export function HarnessFilter({ recipients, harness, setHarness }) {
+  return html`<span class="harness-filter" role="group" aria-label="Filter agents by harness">
+    ${harnessChoices(recipients).map(h => html`<button key=${h.key} type="button" class="harness-swatch"
+      style=${`--harness:${h.color}`} aria-pressed=${harness === h.key} aria-label=${`Only ${h.label} agents`}
+      title=${harness === h.key ? `Showing only ${h.label} agents. Click to show all.` : `Show only ${h.label} agents`}
+      onClick=${() => setHarness(harness === h.key ? null : h.key)}>${h.mark}</button>`)}
+  </span>`;
+}
+
 // Activity state -> dot class, display word, and color. One color per
 // state, matching the --state-* CSS custom properties.
 export const WORKING_HALO = { color: "#9be879", fill: "rgba(155,232,121,.14)" };

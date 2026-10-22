@@ -4,7 +4,7 @@ import { AttachmentList } from "./attachments.js";
 import { html } from "htm/preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { Bee, HARNESSES, JSONH, STATE, WORKING_HALO, agentStatus, focusHash, harnessStyle, hue, patchTask } from "./shared.js";
+import { Bee, JSONH, STATE, WORKING_HALO, agentShown, agentStatus, focusHash, harnessChoices, harnessStyle, hue, patchTask } from "./shared.js";
 
 import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 
@@ -57,9 +57,8 @@ function placeTaskCell(ideal, boxes, occupied, width) {
 }
 
 // Native links keep every agent reachable by touch and keyboard without a map.
-export function CompactBees({ state, machine }) {
-  const agents = (state.recipients || []).filter(r => r.pane_alive &&
-    (machine === null || machineName(r.node) === machine));
+export function CompactBees({ state, machine, harness = null }) {
+  const agents = (state.recipients || []).filter(r => r.pane_alive && agentShown(r, machine, harness));
   return html`<nav class="compact-hive" aria-label="Live agents">
     <div class="compact-hive-heading"><span>${agents.length} live agents</span><span>Tap a bee to open</span></div>
     <div class="bee-grid">${agents.map(r => {
@@ -73,7 +72,7 @@ export function CompactBees({ state, machine }) {
         <span class="bee-state"><span class=${`status ${st.cls}`} aria-hidden="true"></span>${st.word} · ${harness.mark} ${harness.label}</span>
       </a>`;
     })}</div>
-    ${!agents.length && html`<p class="compact-hive-empty">No live agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
+    ${!agents.length && html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
   </nav>`;
 }
 
@@ -117,12 +116,14 @@ function HiveTaskDetail({ task, state, refresh, onClose }) {
 
 // `compactBody`, when given, replaces the tile grid in the compact layout
 // (the overview's phone agents panel with its view switcher).
-export function HiveView({ state, refresh, machine, compactBody = null }) {
+export function HiveView({ state, refresh, machine, harness = null, setHarness = () => {}, compactBody = null }) {
   const compact = useMedia(COMPACT_LAYOUT);
   const [selectedTask, setSelectedTask] = useState(null);
   const taskDetail = (state.tasks || []).find(t => t.id === selectedTask);
   const machineRef = useRef(machine);
   machineRef.current = machine;
+  const harnessRef = useRef(harness);
+  harnessRef.current = harness;
   const canvasRef = useRef(null);
   const stateRef = useRef(state);
   const beesRef = useRef(new Map());
@@ -146,12 +147,8 @@ export function HiveView({ state, refresh, machine, compactBody = null }) {
   const [dropStatus, setDropStatus] = useState("");
   stateRef.current = state;
   // The legend always teaches every spawnable harness, whether or not one
-  // is running; generic only appears when a generic agent is actually live.
-  const liveHarnessKeys = new Set((state.recipients || [])
-    .filter(r => r.pane_alive)
-    .map(r => harnessStyle(r.flavor).key));
-  const legendHarnesses = Object.values(HARNESSES)
-    .filter(harness => harness.key !== "generic" || liveHarnessKeys.has("generic"));
+  // is running. On desktop each key also filters by that harness.
+  const legendHarnesses = harnessChoices(state.recipients);
 
   const messages = state.messages || [];
   const maxId = Math.max(0, ...messages.map(m => m.id));
@@ -455,7 +452,7 @@ export function HiveView({ state, refresh, machine, compactBody = null }) {
         const doing = r.summaries && r.summaries[0];
         bees.set(name, { x, y, task: primary, node: machineName(r.node), harness: harness.key, doing: doing && doing.text });
         ctx.save();
-        if (machineRef.current !== null && machineName(r.node) !== machineRef.current) ctx.globalAlpha = .18;
+        if (!agentShown(r, machineRef.current, harnessRef.current)) ctx.globalAlpha = .18;
         if (assigned) token(assigned, x + 22, y + Math.sin(q * .8) * 3);
 
         const bearing = Math.atan2(dy, dx);
@@ -628,7 +625,7 @@ export function HiveView({ state, refresh, machine, compactBody = null }) {
       if (hovered) {
         const said = hovered.doing || (hovered.task && hovered.task.title);
         const title = said ? ` · ${said.length > 70 ? `${said.slice(0, 69)}…` : said}` : "";
-        const harnessLabel = (HARNESSES[hovered.harness] || HARNESSES.generic).label;
+        const harnessLabel = harnessStyle(hovered.harness).label;
         const label = `${hoverRef.current} · ${hovered.node} · ${harnessLabel}${title}`;
         ctx.font = "10px ui-monospace, monospace";
         const w = ctx.measureText(label).width + 12;
@@ -926,17 +923,20 @@ export function HiveView({ state, refresh, machine, compactBody = null }) {
   useEffect(() => {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches && drawRef.current)
       drawRef.current(performance.now(), true);
-  }, [state, machine]);
+  }, [state, machine, harness]);
 
-  return html`<div class="hive-panel">${compact ? (compactBody || html`<${CompactBees} state=${state} machine=${machine} />`) : html`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
+  return html`<div class="hive-panel">${compact ? (compactBody || html`<${CompactBees} state=${state} machine=${machine} harness=${harness} />`) : html`<div class="hive-scroll"><canvas ref=${canvasRef} tabindex="0"
     aria-label="Live activity. Bee body color and the machine name below each bee identify its machine, matching the machine selector. Stripe color and the symbol beside the agent name identify its harness. Drag a comb cell or a task card onto a bee or a team outline to assign the task; drag a bee into or out of a team outline to change its team; drag a team outline by its empty space to move the whole team somewhere else. Bees outside a team are kept out of team outlines. The task assignee select and the sidebar team boxes are the keyboard and touch alternatives."></canvas></div>`}
     <div class="harness-legend" aria-label="Bee harness legend">
       <span class="legend-title">Body = machine · stripes + symbol = harness</span>
       <span class="working-halo-key" style=${`--working:${WORKING_HALO.color}`}><span aria-hidden="true"></span>Green halo = working</span>
-      ${legendHarnesses.map(harness => html`<span class="harness-key" key=${harness.key}>
-        <span class="harness-swatch" style=${`--harness:${harness.color}`}>${harness.mark}</span>
-        ${harness.label}
-      </span>`)}
+      ${legendHarnesses.map(h => compact
+        ? html`<span class="harness-key" key=${h.key}>
+            <span class="harness-swatch" style=${`--harness:${h.color}`}>${h.mark}</span>${h.label}</span>`
+        : html`<button type="button" class="harness-key" key=${h.key} aria-pressed=${harness === h.key}
+            title=${harness === h.key ? "Click to show all harnesses" : `Highlight only ${h.label} agents`}
+            onClick=${() => setHarness(harness === h.key ? null : h.key)}>
+            <span class="harness-swatch" style=${`--harness:${h.color}`}>${h.mark}</span>${h.label}</button>`)}
     </div>
     <div class="hive-task-picker"><label>Expand task <select value=${selectedTask ?? ""}
       onChange=${e => setSelectedTask(e.target.value ? Number(e.target.value) : null)}>

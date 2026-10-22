@@ -518,6 +518,36 @@ test('desktop sidebar opens on the team view, with roster a switch away', async 
   } finally { await page.close(); }
 });
 
+test('harness filter: legend keys and sidebar icons filter agents by harness', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  try {
+    await page.goto(base + '#/');
+    await page.waitForSelector('#agent-sidebar .team-bees');
+    const live = h => state.recipients.filter(r => r.pane_alive && r.flavor === h).map(r => r.user_id).sort();
+    const shown = () => page.locator('#agent-sidebar .team-mate-name').allInnerTexts().then(n => n.sort());
+    assert.equal((await shown()).length, live('claude').length + live('codex').length);
+    // The legend key filters the sidebar (team view) and dims other bees.
+    await page.locator('.harness-legend button.harness-key', { hasText: 'Claude' }).click();
+    assert.deepEqual(await shown(), live('claude'));
+    assert.equal(await page.locator('#agent-sidebar .roster-heading .harness-filter button[aria-pressed=true]').getAttribute('aria-label'), 'Only Claude agents');
+    // Sidebar icons switch the filter; the active one clears it.
+    const codex = page.locator('#agent-sidebar .roster-heading .harness-filter button', { hasText: '◇' });
+    await codex.click();
+    assert.deepEqual(await shown(), live('codex'));
+    assert.equal(await page.locator('.harness-legend button[aria-pressed=true]').textContent().then(t => t.replace(/\s/g, '')), '◇Codex');
+    // The filter stays on an agent page, where the legend is gone.
+    await page.goto(base + '#/agent/stoat');
+    await page.locator('#agent-sidebar .agents-view-switch button', { hasText: 'roster' }).click();
+    assert.ok(await page.locator('#agent-sidebar .chip-card').count() > 0);
+    await codex.click();
+    assert.equal(await page.locator('#agent-sidebar .roster-heading .harness-filter button[aria-pressed=true]').count(), 0);
+    // Icon-only: the filter shares the heading row, so it adds no height.
+    const rows = await page.locator('#agent-sidebar .roster-heading').evaluate(e => e.getBoundingClientRect().height);
+    assert.ok(rows < 40, `heading row is ${rows}px tall`);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('team view: drag an agent chip to another team or to no team', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
   // A second, empty team: it only shows while a chip is being dragged.
