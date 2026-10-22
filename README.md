@@ -235,7 +235,11 @@ On desktop, **Cmd+B** on Mac or **Ctrl+B** elsewhere toggles the agent sidebar. 
 
 Teammates are listed at the top of the page; Alt+[ and Alt+] move between
 them. **Alt+H** (Option+H on Mac) goes back to the overview from any page,
-including from the reply box; unsent drafts are kept.
+including from the reply box; unsent drafts are kept. **Cmd+Shift+[** and **Cmd+Shift+]**
+(Ctrl+Shift elsewhere) step through overview, chats, any extra tabs, and
+task history. Browsers keep these keys for their own tabs, so they work in
+the Mac app and in an installed app window (Chrome's install, Safari's Add
+to Dock), not in a normal browser tab.
 
 **Activity.** A monitor reads each pane every few seconds and labels the
 agent working, idle, needs attention, unknown, or stopped. "Needs

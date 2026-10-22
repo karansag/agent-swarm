@@ -30,7 +30,7 @@ import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOu
 import { machineColor, machineList, machineName } from "./machines.js";
 import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 import { CompactBees, HiveView } from "./hive.js";
-import { TAB_ROUTE, TabView, tabHash } from "./tabs.js";
+import { TAB_ROUTE, TabView, stepView, tabHash } from "./tabs.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
 import { createBottomFollower } from "./scroll-follow.js";
@@ -1560,6 +1560,8 @@ function App() {
   const [state, setState] = useState(null);
   const [machine, setMachine] = useState(null);
   const [harness, setHarness] = useState(null);
+  const tabsRef = useRef([]);
+  tabsRef.current = state?.tabs || [];
   const [rosterOpen, setRosterOpen] = useState(() => {
     try { const saved = localStorage.getItem("swarm-roster-open"); return saved === null ? true : saved === "true"; }
     catch { return true; }
@@ -1677,6 +1679,16 @@ function App() {
         e.preventDefault();
         location.hash = "#/";
       }
+      // Cmd+Shift+[ / ] (Ctrl+Shift elsewhere) step through the header's
+      // views. Browsers keep these keys for their own tabs; the Mac app and
+      // an installed app window pass them to the page.
+      const modifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      const by = e.code === "BracketRight" ? 1 : e.code === "BracketLeft" ? -1 : 0;
+      if (by && modifier && e.shiftKey && !e.altKey && !e.isComposing
+          && !document.querySelector(".quick-switch[open]")) {
+        e.preventDefault();
+        location.hash = stepView(location.hash, ["#/", CHATS_ROUTE, ...tabsRef.current.map(tabHash), HISTORY_ROUTE], by);
+      }
     };
     addEventListener("hashchange", onHash);
     addEventListener("keydown", onKey);
@@ -1700,7 +1712,7 @@ function App() {
 
   const header = html`<header class="top">
     <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>Agent Swarm Dashboard</h1>
-    <nav class="views" aria-label="views">
+    <nav class="views" aria-label="views" title=${`Switch views: ${mac ? "⌘⇧[ / ⌘⇧]" : "Ctrl+Shift+[ / ]"}`}>
       <a href="#/" class=${onOverview ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
       ${(state?.tabs || []).map(t => html`<a key=${t} href=${tabHash(t)} class=${onTab === t ? "on" : ""}>${t}</a>`)}

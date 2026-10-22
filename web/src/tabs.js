@@ -31,3 +31,11 @@ export function TabView({ name, tabs }) {
     <iframe key=${name} class="tab-frame" src=${src} title=${name} onLoad=${e => forwardShortcuts(e.currentTarget)}></iframe>
   </section>`;
 }
+
+// Cmd/Ctrl+Shift+[ and ] step through the header's views in order, wrapping.
+// `views` is that order, overview ("#/") first; any page not in it (an
+// agent's page) counts as the overview.
+export function stepView(hash, views, by) {
+  const at = Math.max(0, views.findIndex(v => v !== "#/" && (hash === v || hash.startsWith(`${v}?`))));
+  return views[(at + by + views.length) % views.length];
+}

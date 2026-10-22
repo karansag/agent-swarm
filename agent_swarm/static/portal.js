@@ -2427,6 +2427,9 @@ function TabView({ name, tabs }) {
     <iframe key=${name} class="tab-frame" src=${src} title=${name} onLoad=${(e) => forwardShortcuts(e.currentTarget)}></iframe>
   </section>`;
 }
+function stepView(hash, views, by) {
+	return views[(Math.max(0, views.findIndex((v) => v !== "#/" && (hash === v || hash.startsWith(`${v}?`)))) + by + views.length) % views.length];
+}
 //#endregion
 //#region web/src/agent-chips.js
 function agentChips(agentCount, recipients, selected) {
@@ -9823,6 +9826,8 @@ function App() {
 	const [state, setState] = d(null);
 	const [machine, setMachine] = d(null);
 	const [harness, setHarness] = d(null);
+	const tabsRef = A([]);
+	tabsRef.current = state?.tabs || [];
 	const [rosterOpen, setRosterOpen] = d(() => {
 		try {
 			const saved = localStorage.getItem("swarm-roster-open");
@@ -9941,6 +9946,17 @@ function App() {
 				e.preventDefault();
 				location.hash = "#/";
 			}
+			const modifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+			const by = e.code === "BracketRight" ? 1 : e.code === "BracketLeft" ? -1 : 0;
+			if (by && modifier && e.shiftKey && !e.altKey && !e.isComposing && !document.querySelector(".quick-switch[open]")) {
+				e.preventDefault();
+				location.hash = stepView(location.hash, [
+					"#/",
+					CHATS_ROUTE,
+					...tabsRef.current.map(tabHash),
+					HISTORY_ROUTE
+				], by);
+			}
 		};
 		addEventListener("hashchange", onHash);
 		addEventListener("keydown", onKey);
@@ -9961,7 +9977,7 @@ function App() {
     <h1 style="cursor:pointer" onClick=${() => {
 		location.hash = "#/";
 	}}>Agent Swarm Dashboard</h1>
-    <nav class="views" aria-label="views">
+    <nav class="views" aria-label="views" title=${`Switch views: ${mac ? "⌘⇧[ / ⌘⇧]" : "Ctrl+Shift+[ / ]"}`}>
       <a href="#/" class=${onOverview ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
       ${(state?.tabs || []).map((t) => m$1`<a key=${t} href=${tabHash(t)} class=${onTab === t ? "on" : ""}>${t}</a>`)}

@@ -439,6 +439,29 @@ test('a tab from AGENT_SWARM_TABS shows its page and passes shortcuts up', async
   } finally { await page.close(); }
 });
 
+test('Ctrl+Shift+[ / ] step through the header views, including extra tabs', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  state.tabs = ['usage'];
+  await page.route('**/tabs/usage/', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><input id=q>' }));
+  try {
+    await page.goto(base + '#/agent/stoat');
+    const box = page.locator('.thread .composer textarea').first();
+    await box.focus();
+    const go = async (key, hash) => {
+      await page.keyboard.press(key);
+      await page.waitForFunction(h => location.hash === h, hash);
+    };
+    await go('Control+Shift+BracketRight', '#/chats');
+    await go('Control+Shift+BracketRight', '#/tab/usage');
+    // From inside the tab's page too.
+    await page.frameLocator('iframe.tab-frame').locator('#q').click();
+    await go('Control+Shift+BracketRight', '#/tasks');
+    await go('Control+Shift+BracketRight', '#/');
+    await go('Control+Shift+BracketLeft', '#/tasks');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('the first message to an agent clears the composer', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
   await page.route('**/owner/send', async route => {
