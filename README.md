@@ -271,6 +271,20 @@ Tailscale user as the owner; on a shared tailnet, limit that with
 `AGENT_SWARM_OWNER_LOGINS` (see [Security model](#security-model)). Turn
 it off with `tailscale serve --https=8445 off`.
 
+**Other pages as tabs.** `AGENT_SWARM_TABS` adds your own pages to the
+dashboard as tabs next to chats, for example an AI usage page:
+
+```bash
+AGENT_SWARM_TABS="usage=http://127.0.0.1:8531"
+```
+
+Each `name=url` pair becomes a tab. The hub fetches the page and serves it
+at `/tabs/<name>/`, for the owner only. So a page on the hub's machine
+works from any device that can open the dashboard, and the hub's name
+and port are all you publish. The hub forwards only GET requests, and the
+page must use relative links (`api/x`, not `/api/x`). The page runs with
+the dashboard's access, so add only pages you trust.
+
 **As an app.** In Safari, File > Add to Dock gives the dashboard its own
 window and Dock icon; Chrome's install button does the same. For a Dock
 badge and notifications when an agent needs you, build the Mac app in
@@ -478,6 +492,7 @@ AGENT_SWARM_ATTENTION_GRACE=60
 AGENT_SWARM_SUPERVISOR_INTERVAL=300
 AGENT_SWARM_SUBMIT_VERIFY_DELAY=1.5
 AGENT_SWARM_AUTOREGISTER=1               # 0: startup hooks never register
+AGENT_SWARM_TABS=                        # extra dashboard tabs: name=url,name=url
 ```
 
 The CLI and node daemon read the hub URL, node name, and token from

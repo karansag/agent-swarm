@@ -8,6 +8,7 @@ import contextlib
 import hashlib
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,8 +18,9 @@ import secrets
 import threading
 from dataclasses import dataclass
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -89,6 +91,25 @@ def owner_logins() -> frozenset[str]:
     the one person; name logins here on a shared tailnet."""
     raw = os.environ.get("AGENT_SWARM_OWNER_LOGINS", "")
     return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
+
+
+TAB_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,23}")
+
+
+def extra_tabs() -> list[dict[str, str]]:
+    """Other pages to show as dashboard tabs, from AGENT_SWARM_TABS:
+    comma-separated name=url pairs, e.g. "usage=http://127.0.0.1:8531".
+    The hub serves each page under /tabs/<name>/, so the dashboard shows it
+    from its own origin (the Mac app blocks frames from other origins).
+    Entries with a bad name or a non-http(s) url are skipped."""
+    tabs = []
+    for entry in os.environ.get("AGENT_SWARM_TABS", "").split(","):
+        name, _, url = entry.strip().partition("=")
+        name, url = name.strip().lower(), url.strip()
+        if (TAB_NAME.fullmatch(name) and url.startswith(("http://", "https://"))
+                and name not in {t["name"] for t in tabs}):
+            tabs.append({"name": name, "url": url})
+    return tabs
 
 
 class RegisterReq(BaseModel):
@@ -2205,7 +2226,36 @@ def create_app(
             "tasks": db.list_tasks(conn),
             "teams": db.list_teams(conn),
             "supervisor": db.get_supervisor(conn),
+            "tabs": [t["name"] for t in extra_tabs()],
         }
+
+    # Response headers worth passing back from a tab's page. The body arrives
+    # decoded, so length and encoding are the hub's to set.
+    tab_headers = ("content-type", "cache-control", "etag", "last-modified", "location")
+
+    @app.get("/tabs/{name}")
+    def tab_root(name: str, _: None = Depends(_require_owner)):
+        # The page's relative links need the trailing slash.
+        return RedirectResponse(f"/tabs/{name}/", status_code=307)
+
+    @app.api_route("/tabs/{name}/{path:path}", methods=["GET", "HEAD"])
+    async def tab_page(name: str, path: str, request: Request, _: None = Depends(_require_owner)):
+        tab = next((t for t in extra_tabs() if t["name"] == name), None)
+        if tab is None:
+            raise HTTPException(status_code=404, detail={"error": "no such tab"})
+        base = tab["url"].rstrip("/") + "/"
+        url = base + path + (f"?{request.url.query}" if request.url.query else "")
+        # Only content negotiation goes along: never the caller's identity.
+        sent = {k: v for k, v in request.headers.items() if k in ("accept", "accept-language")}
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                r = await http.request(request.method, url, headers=sent)
+        except httpx.HTTPError as e:
+            return Response(f"{name} is unreachable at {base}: {e}", status_code=502, media_type="text/plain")
+        headers = {k: v for k, v in r.headers.items() if k in tab_headers}
+        if "location" in headers and headers["location"].startswith(base):
+            headers["location"] = f"/tabs/{name}/" + headers["location"][len(base):]
+        return Response(r.content, status_code=r.status_code, headers=headers)
 
     @app.get("/api/peek/{user_id}")
     def peek(user_id: str, _: None = Depends(_require_owner)):

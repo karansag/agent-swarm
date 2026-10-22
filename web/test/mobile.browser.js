@@ -416,6 +416,29 @@ test('Alt+H goes back to the overview from any page, keeping the draft', async (
   } finally { await page.close(); }
 });
 
+test('a tab from AGENT_SWARM_TABS shows its page and passes shortcuts up', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  state.tabs = ['usage'];
+  await page.route('**/tabs/usage/', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>AI Usage</title><h1>AI usage</h1><input id=q>' }));
+  try {
+    await page.goto(base + '#/');
+    await page.locator('nav.views a', { hasText: 'usage' }).click();
+    await page.waitForFunction(() => location.hash === '#/tab/usage');
+    assert.equal(await page.locator('nav.views a.on').textContent(), 'usage');
+    const frame = page.frameLocator('iframe.tab-frame');
+    assert.equal(await frame.locator('h1').innerText(), 'AI usage');
+    assert.ok(await page.locator('iframe.tab-frame').evaluate(e => e.getBoundingClientRect().height >= 480));
+    // Alt+H typed inside the page still goes home.
+    await frame.locator('#q').click();
+    await page.keyboard.press('Alt+KeyH');
+    await page.waitForFunction(() => location.hash === '#/');
+    // A tab the hub no longer lists explains where tabs come from.
+    await page.goto(base + '#/tab/gone');
+    await page.waitForSelector('text=AGENT_SWARM_TABS');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('the first message to an agent clears the composer', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
   await page.route('**/owner/send', async route => {

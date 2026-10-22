@@ -941,3 +941,10 @@ dialog.quick-switch { margin: auto; width: min(680px, calc(100vw - 24px)); max-h
 .quick-switch-option.selected, .quick-switch-option:hover { background: var(--panel); border-color: var(--honey-dim); }
 .quick-switch-option[aria-disabled=true] { opacity: .5; cursor: default; }
 .quick-switch-help { margin-top: 12px; color: var(--cream-dim); font-size: 11px; }
+
+/* Extra tabs (AGENT_SWARM_TABS): the page fills the rest of the window. */
+.tab-bar { display: flex; align-items: baseline; gap: 12px; }
+.tab-bar h2 { flex: 1; }
+.tab-bar a.mini { color: var(--honey-dim); text-decoration: none; font-size: 11px; }
+.tab-bar a.mini:hover { color: var(--honey); }
+.tab-frame { display: block; width: 100%; height: max(480px, calc(100dvh - 190px)); border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }

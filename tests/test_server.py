@@ -503,7 +503,7 @@ def test_portal_bees_identify_their_harness_by_color_and_glyph(client):
     # the legend teaches every spawnable harness even with no live agent;
     # generic appears only when a generic agent is running
     assert "legendHarnesses" in portal
-    assert 'harness.key !== "generic" || liveHarnessKeys.has("generic")' in portal
+    assert 'h.key !== "generic" || generic' in portal
 
 
 def test_portal_spawn_has_no_permission_choice(client):
@@ -1673,3 +1673,4 @@ def test_agent_history_is_independent_and_pages_without_gaps(client, tmp_path):
     assert client.get(url, params={"limit": 501}).status_code == 422
     assert client.get(url, headers={"X-Forwarded-For": "100.1.2.3"}).status_code == 401
     conn.close()
+

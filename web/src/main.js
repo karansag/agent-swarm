@@ -30,6 +30,7 @@ import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOu
 import { machineColor, machineList, machineName } from "./machines.js";
 import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 import { CompactBees, HiveView } from "./hive.js";
+import { TAB_ROUTE, TabView, tabHash } from "./tabs.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
 import { createBottomFollower } from "./scroll-follow.js";
@@ -1615,7 +1616,8 @@ function App() {
     ? decodeURIComponent(route.slice("#/agent/".length)) : null;
   const onHistory = route.startsWith(HISTORY_ROUTE);
   const onChats = route.startsWith(CHATS_ROUTE);
-  const onOverview = !focusUser && !onHistory && !onChats;
+  const onTab = route.startsWith(TAB_ROUTE) ? decodeURIComponent(route.slice(TAB_ROUTE.length)) : null;
+  const onOverview = !focusUser && !onHistory && !onChats && !onTab;
   // A roster link may be several screens down on a phone. Bring the new
   // view into sight; polling and task-history filters must not move it.
   const previousView = useRef({ focusUser, onHistory });
@@ -1699,8 +1701,9 @@ function App() {
   const header = html`<header class="top">
     <h1 style="cursor:pointer" onClick=${() => { location.hash = "#/"; }}>Agent Swarm Dashboard</h1>
     <nav class="views" aria-label="views">
-      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
+      <a href="#/" class=${onOverview ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
+      ${(state?.tabs || []).map(t => html`<a key=${t} href=${tabHash(t)} class=${onTab === t ? "on" : ""}>${t}</a>`)}
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
     </nav>
     <${QuickSwitcher} state=${state} navigate=${(user, previous) => {
@@ -1738,7 +1741,9 @@ function App() {
           ? html`<${HistoryView} state=${state} />`
           : onChats
             ? html`<${ChatsView} state=${state} unreadFor=${unreadFor} />`
-            : html`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
+            : onTab !== null
+              ? html`<${TabView} name=${onTab} tabs=${state.tabs || []} />`
+              : html`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
     ${!compact && html`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>

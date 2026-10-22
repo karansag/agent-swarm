@@ -68,6 +68,7 @@ def test_a_node_cannot_do_what_the_owner_does(hub):
         ("post", "/recipients/prune", {}),
         ("get", "/api/state", None),
         ("get", "/api/peek/x", None),
+        ("get", "/tabs/usage/", None),
         ("get", "/", None),
         ("get", "/nodes", None),
         ("post", "/nodes/other/token", None),

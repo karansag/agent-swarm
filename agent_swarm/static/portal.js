@@ -2392,6 +2392,42 @@ function HiveView({ state, refresh, machine, harness = null, setHarness = () => 
     <span class="sr-only" aria-live="polite">${dropStatus}</span></div>`;
 }
 //#endregion
+//#region web/src/tabs.js
+var TAB_ROUTE = "#/tab/";
+var tabHash = (name) => `${TAB_ROUTE}${encodeURIComponent(name)}`;
+function forwardShortcuts(frame) {
+	let win;
+	try {
+		win = frame.contentWindow;
+		win.document;
+	} catch {
+		return;
+	}
+	win.addEventListener("keydown", (e) => {
+		if (!(e.altKey || e.ctrlKey || e.metaKey)) return;
+		const copy = new KeyboardEvent("keydown", {
+			key: e.key,
+			code: e.code,
+			altKey: e.altKey,
+			ctrlKey: e.ctrlKey,
+			metaKey: e.metaKey,
+			shiftKey: e.shiftKey,
+			repeat: e.repeat,
+			cancelable: true
+		});
+		if (!window.dispatchEvent(copy)) e.preventDefault();
+	});
+}
+function TabView({ name, tabs }) {
+	if (!tabs.includes(name)) return m$1`<div class="empty">No tab named <b>${name}</b>. Tabs come from the hub's
+      <code>AGENT_SWARM_TABS</code> setting, e.g. <code>usage=http://127.0.0.1:8531</code>.</div>`;
+	const src = `/tabs/${encodeURIComponent(name)}/`;
+	return m$1`<section class="tab-view">
+    <div class="tab-bar"><h2>${name}</h2><a class="mini" href=${src} target="_blank" rel="noopener">open alone ↗</a></div>
+    <iframe key=${name} class="tab-frame" src=${src} title=${name} onLoad=${(e) => forwardShortcuts(e.currentTarget)}></iframe>
+  </section>`;
+}
+//#endregion
 //#region web/src/agent-chips.js
 function agentChips(agentCount, recipients, selected) {
 	const live = new Set(recipients.filter((r) => r.pane_alive).map((r) => r.user_id));
@@ -9848,7 +9884,8 @@ function App() {
 	const focusUser = route.startsWith("#/agent/") ? decodeURIComponent(route.slice(8)) : null;
 	const onHistory = route.startsWith(HISTORY_ROUTE);
 	const onChats = route.startsWith(CHATS_ROUTE);
-	const onOverview = !focusUser && !onHistory && !onChats;
+	const onTab = route.startsWith("#/tab/") ? decodeURIComponent(route.slice(TAB_ROUTE.length)) : null;
+	const onOverview = !focusUser && !onHistory && !onChats && !onTab;
 	const previousView = A({
 		focusUser,
 		onHistory
@@ -9925,8 +9962,9 @@ function App() {
 		location.hash = "#/";
 	}}>Agent Swarm Dashboard</h1>
     <nav class="views" aria-label="views">
-      <a href="#/" class=${!onHistory && !onChats && !focusUser ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
+      <a href="#/" class=${onOverview ? "on" : ""} title=${`Overview (${mac ? "⌥H" : "Alt+H"})`} aria-keyshortcuts="Alt+h">overview</a>
       <a href=${CHATS_ROUTE} class=${onChats ? "on" : ""}>chats</a>
+      ${(state?.tabs || []).map((t) => m$1`<a key=${t} href=${tabHash(t)} class=${onTab === t ? "on" : ""}>${t}</a>`)}
       <a href=${HISTORY_ROUTE} class=${onHistory ? "on" : ""}>task history</a>
     </nav>
     <${QuickSwitcher} state=${state} navigate=${(user, previous) => {
@@ -9960,7 +9998,7 @@ function App() {
       ${rosterOpen ? "Agents ›" : "‹ Agents"} · ${state.recipients.filter((r) => r.pane_alive).length} · ${rosterShortcut}
     </button>`}
     <div class="stage">
-      ${focusUser ? m$1`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
+      ${focusUser ? m$1`<${FocusView} key=${focusUser} user=${focusUser} state=${view} refresh=${poll} freshIds=${freshIds} unreadFor=${unreadFor} />` : onHistory ? m$1`<${HistoryView} state=${state} />` : onChats ? m$1`<${ChatsView} state=${state} unreadFor=${unreadFor} />` : onTab !== null ? m$1`<${TabView} name=${onTab} tabs=${state.tabs || []} />` : m$1`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
     </div>
     </div>
     ${!compact && m$1`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
