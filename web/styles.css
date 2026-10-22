@@ -809,7 +809,12 @@ button.harness-key[aria-pressed=true] { border-color: var(--honey-dim); color: v
 .hive-task-assignment select { min-width: 0; max-width: 100%; }
 .hive-task-detail h3 { overflow-wrap: anywhere; min-width: 0; }
 .hive-task-detail header button { flex: none; }
-.status-history > summary { display: none; }
+/* Older status updates stay folded under the newest one. */
+.status-history > summary { display: inline-flex; align-items: center; margin-top: 4px; list-style: none; cursor: pointer; color: var(--honey-dim); font-size: 11px; }
+.status-history > summary::-webkit-details-marker { display: none; }
+.status-history > summary:hover { color: var(--honey); }
+.status-history > summary::before { content: "▸"; margin-right: 6px; }
+.status-history[open] > summary::before { content: "▾"; }
 
 @media (max-width: 1000px), (max-width: 1200px) and (pointer: coarse) {
   header.top { padding: 18px; gap: 10px 16px; }
@@ -884,9 +889,7 @@ button.harness-key[aria-pressed=true] { border-color: var(--honey-dim); color: v
   .fhead .model-edit { flex-wrap: wrap; max-width: 100%; }
   .fhead .jump-cmd { display: block; margin: 6px 0; }
   .fhead .jump-cmd code { overflow-wrap: anywhere; }
-  .status-history > summary { display: flex; align-items: center; cursor: pointer; color: var(--honey); font-size: 12px; }
-  .status-history > summary::before { content: "▸"; margin-right: 6px; }
-  .status-history[open] > summary::before { content: "▾"; }
+  .status-history > summary { display: flex; color: var(--honey); font-size: 12px; }
   .scope .bar { flex-wrap: wrap; overflow-wrap: anywhere; gap: 6px 12px; }
   .scope pre { height: min(380px, 45dvh); }
   .composer { padding: 12px; }

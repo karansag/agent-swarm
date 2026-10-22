@@ -341,13 +341,20 @@ test('owner messages sit on the right of a 1:1 thread, the agent on the left', a
   } finally { await page.close(); }
 });
 
-test('agent page: sections have headings and the task form starts folded', async () => {
+test('agent page: sections have headings; status history and the task form start folded', async () => {
   const { page, errors } = await setup(1500, 900, false);
   try {
     await page.goto(base + '#/agent/stoat');
     await page.waitForSelector('.thread');
     const headings = await page.locator('.stage h2').evaluateAll(hs => hs.map(h => h.textContent.trim().split(/\s/)[0].toLowerCase()));
     assert.deepEqual(headings.slice(0, 3), ['status', 'conversations', 'tasks']);
+    // Only the newest status shows until the history is opened.
+    assert.ok(await page.locator('.doing-box .now').isVisible());
+    const past = page.locator('.status-history .past');
+    assert.equal(await past.isVisible(), false);
+    assert.equal(await page.locator('.status-history > summary').innerText(), '1 earlier update');
+    await page.locator('.status-history > summary').click();
+    assert.equal(await past.isVisible(), true);
     const form = page.locator('.task-compose-fold .task-composer');
     assert.equal(await form.isVisible(), false);
     await page.locator('.task-compose-fold > summary').click();

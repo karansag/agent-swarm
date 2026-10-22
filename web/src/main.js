@@ -1282,7 +1282,6 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 
 // What the agent is doing now, then what it did before, newest first.
 function Doing({ summaries, now }) {
-  const compact = useMedia(COMPACT_LAYOUT);
   if (summaries.length === 0) {
     return html`<div class="doing-box empty-doing">No status yet. Agents post one with
       <code>agent-swarm status "working on …"</code>; Claude Code and Codex pane titles
@@ -1292,7 +1291,7 @@ function Doing({ summaries, now }) {
   const line = (s) => html`<span class="src" title=${SUMMARY_SOURCE[s.source] || s.source}>${s.source === "agent" ? "✎" : "▭"}</span>`;
   return html`<div class="doing-box">
     <div class="now">${line(cur)} ${cur.text} <span class="age">· ${rel(cur.ts, now)}</span></div>
-    ${past.length > 0 && html`<details class="status-history" open=${!compact}><summary>Recent status history</summary><ol class="past">
+    ${past.length > 0 && html`<details class="status-history"><summary>${past.length} earlier ${past.length === 1 ? "update" : "updates"}</summary><ol class="past">
       ${past.map(s => html`<li>${line(s)} ${s.text} <span class="age">· ${rel(s.ts, now)}</span></li>`)}
     </ol></details>`}
   </div>`;
