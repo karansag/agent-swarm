@@ -72,7 +72,7 @@ export function CompactBees({ state, machine, harness = null }) {
         <span class="bee-state"><span class=${`status ${st.cls}`} aria-hidden="true"></span>${st.word} · ${harness.mark} ${harness.label}</span>
       </a>`;
     })}</div>
-    ${!agents.length && html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}. Stopped agents are in the roster below.</p>`}
+    ${!agents.length && html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}. Offline agents are listed under their team.</p>`}
   </nav>`;
 }
 

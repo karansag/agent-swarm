@@ -42,108 +42,12 @@ import { stepTeammate, teammates } from "./teammates.js";
 import { shellNewlines } from "./newlines.js";
 import { ownerChats } from "./chats.js";
 
-/* ---------- roster (right sidebar) ---------- */
-
-function RosterChip({ r, state, team, selected, unread, ping, refresh }) {
-  const [stopping, setStopping] = useState(false);
-  const [crowning, setCrowning] = useState(false);
-  const isQueen = !!team && team.queen === r.user_id;
-  const isSupervisor = !!state.supervisor && state.supervisor.user_id === r.user_id;
-  const task = currentTask(state.tasks, r.user_id);
-  const flavor = (r.flavor || "generic").toLowerCase();
-  const status = agentStatus(r);
-  const st = STATE[status] || STATE.unknown;
-  const detail = r.activity && r.activity.detail;
-  const attention = status === "needs_attention";
-  const doing = r.summaries && r.summaries[0];
-  const sub = attention
-    ? html`<span class="attn" title=${detail || "needs attention"}>${detail || "needs attention"}</span>`
-    : doing
-      ? html`<span class="doing" title=${[
-          `${doing.text} (${SUMMARY_SOURCE[doing.source] || doing.source}, ${rel(doing.ts, state.now)})`,
-          task && `task #${task.id}: ${task.title}`,
-        ].filter(Boolean).join("\n")}>${doing.text}</span> <span class="age">· ${rel(doing.ts, state.now)}</span>`
-      : task
-        ? html`<span class="on">#${task.id}</span> ${task.title}`
-        : html`<span class="stateword" style=${`color:${st.color}`}>${st.word}</span>`;
-  const stop = async (e) => {
-    e.stopPropagation();
-    if (!confirm(`Stop ${r.user_id}? This will kill tmux pane ${r.pane_label}.`)) return;
-    setStopping(true);
-    const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/stop`, { method: "POST" });
-    setStopping(false);
-    if (res.ok) {
-      // If we're viewing the agent we just stopped, leave its detail page
-      // (its terminal can no longer be captured) for another running agent,
-      // or the overview if none are left.
-      if (selected) {
-        const next = state.recipients.find(x => x.pane_alive && x.user_id !== r.user_id);
-        location.hash = next ? focusHash(next.user_id) : "#/";
-      }
-      refresh();
-    } else alert(`Could not stop ${r.user_id}.`);
-  };
-  const crown = async (e) => {
-    e.stopPropagation();
-    if (isQueen) {
-      if (!confirm(`Remove ${r.user_id} as queen of ${team.name}?`)) return;
-      setCrowning(true);
-      await fetch(`/teams/${team.id}`, {
-        method: "PATCH", headers: JSONH, body: JSON.stringify({ queen: null }),
-      });
-      setCrowning(false);
-      refresh();
-      return;
-    }
-    const raw = prompt(
-      `Objective for ${r.user_id} as queen of ${team.name}?`,
-      "Coordinate your team to execute the shared task board.",
-    );
-    if (raw === null) return;
-    setCrowning(true);
-    const res = await fetch(`/teams/${team.id}`, {
-      method: "PATCH", headers: JSONH,
-      body: JSON.stringify({ queen: r.user_id, objective: raw.trim() }),
-    });
-    setCrowning(false);
-    if (!res.ok) alert(`Could not make ${r.user_id} queen.`);
-    refresh();
-  };
-  const dragStart = (e) => {
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("application/x-agent-swarm-agent", r.user_id);
-    e.dataTransfer.setData("text/plain", r.user_id);
-  };
-  return html`<div class=${`chip-card state-${st.cls} ${selected ? "sel" : ""} ${ping ? "ping" : ""}`}
-      style=${`--machine:${machineColor(r.node)}`}
-      draggable="true" onDragStart=${dragStart}
-      onClick=${() => { location.hash = focusHash(r.user_id); }}>
-    <${Bee} node=${r.node} flavor=${r.flavor} size="small" working=${st.cls === "working"} />
-    <div class="who">
-      <${MachineBadge} node=${r.node} />
-      ${team && html`<span class="agent-team" title=${`Team: ${team.name}`}>${team.name}</span>`}
-      <div class="nm">${r.user_id}${isQueen && html`<span class="crown" title="team queen">♛</span>`}${isSupervisor && html`<span class="crown supervisor" title=${`swarm supervisor: ${state.supervisor.objective}`}>✪</span>`}<span class=${`status ${st.cls}`} title=${st.word}></span></div>
-      <div class="sub">${sub}</div>
-      <div class="tech" title=${[flavor, r.model, r.node, r.pane_label, r.tmux_pane].filter(Boolean).join(" · ")}><span class="flavor">${flavor}</span>${r.model && html` · <span class="model">${shortModel(r.model, flavor)}</span>`} · ${r.pane_label}</div>
-    </div>
-    <div class="controls">
-      <span class="flav" title=${flavor}>${FLAVOR_ICON[flavor] || FLAVOR_ICON.generic}</span>
-      <${JumpToPane} r=${r} compact=${true} />
-      ${team && r.pane_alive && html`<button type="button" class="queen-agent" disabled=${crowning}
-        title=${isQueen ? `remove ${r.user_id} as queen` : `make ${r.user_id} queen of ${team.name}`}
-        aria-label=${isQueen ? `Remove ${r.user_id} as queen` : `Make ${r.user_id} queen of ${team.name}`}
-        onClick=${crown}>${crowning ? "…" : isQueen ? "♛ queen" : "♛"}</button>`}
-      ${r.pane_alive && html`<button type="button" class="stop-agent" disabled=${stopping}
-        title=${`stop ${r.user_id}`} onClick=${stop}>${stopping ? "stopping…" : "stop"}</button>`}
-    </div>
-    ${(unread || attention) && html`<span class="badge" title=${attention ? "needs attention" : "new messages"}></span>`}
-  </div>`;
-}
+/* ---------- agent controls ---------- */
 
 // The tmux command that takes you to an agent's pane, typed at tmux's command
 // prompt (prefix, then ":"). It uses the pane id, which stays valid however
 // windows and panes are renumbered.
-function JumpToPane({ r, compact = false }) {
+function JumpToPane({ r }) {
   const [copied, setCopied] = useState(false);
   const paneExists = r.pane_alive || (r.offline_reason || "").includes("bare shell");
   if (!paneExists || !String(r.tmux_pane).startsWith("%")) return null;
@@ -159,10 +63,6 @@ function JumpToPane({ r, compact = false }) {
     }
   };
   const title = `Copy "${command}" — paste it at tmux's command prompt (prefix, then :) to jump to ${r.pane_label}`;
-  if (compact) {
-    return html`<button type="button" class="jump-agent" title=${title}
-      aria-label=${`Copy tmux command to jump to ${r.user_id}`} onClick=${copy}>${copied ? "copied" : "⇥"}</button>`;
-  }
   return html`<span class="jump-cmd" title=${title}>
     <span class="sep">· </span><code>${command}</code>
     <button type="button" class="mini" onClick=${copy}>${copied ? "copied" : "copy"}</button>
@@ -186,12 +86,26 @@ function CompactButton({ r }) {
     onClick=${compact}>${busy ? "compacting…" : "compact"}</button>`;
 }
 
+// Stopping kills the agent's tmux pane. If its page is open, go to another
+// running agent's page, or the overview if none are left.
+async function stopAgent(r, state, focusUser, refresh) {
+  if (!confirm(`Stop ${r.user_id} on ${machineName(r.node)}? This kills its tmux pane and ends the running session. Messages and tasks are kept.`)) return;
+  const res = await fetch(`/agents/${encodeURIComponent(r.user_id)}/stop`, { method: "POST" }).catch(() => null);
+  if (res?.ok) {
+    if (focusUser === r.user_id) {
+      const next = state.recipients.find(x => x.pane_alive && x.user_id !== r.user_id);
+      location.hash = next ? focusHash(next.user_id) : "#/";
+    }
+  } else alert(`Could not stop ${r.user_id}. Check its status before trying again.`);
+  refresh();
+}
+
 // Retiring forgets agents that are not running: their registration, team
 // membership, and status lines. Messages and tasks stay. The hub refuses
 // any that are running. Returns the hub's answer, or null if not confirmed.
 async function retireAgents(ids, refresh) {
   const names = ids.length > 6 ? `${ids.slice(0, 6).join(", ")} and ${ids.length - 6} more` : ids.join(", ");
-  if (!ids.length || !confirm(`Retire ${names}? ${ids.length > 1 ? "They leave" : "It leaves"} the roster and ${ids.length > 1 ? "their teams" : "its team"}. Messages and tasks are kept.`)) return null;
+  if (!ids.length || !confirm(`Retire ${names}? ${ids.length > 1 ? "They leave" : "It leaves"} the dashboard and ${ids.length > 1 ? "their teams" : "its team"}. Messages and tasks are kept.`)) return null;
   try {
     const response = await fetch("/recipients/retire", { method: "POST", headers: JSONH, body: JSON.stringify({ user_ids: ids }) });
     const body = await response.json().catch(() => null);
@@ -355,7 +269,7 @@ function SpawnControl({ refresh, nodes }) {
       const outcome = spawnOutcome(r.ok, payload);
       if (outcome.status === "failed") setErr(`spawn failed: ${outcome.reason}`);
       else if (outcome.status === "unknown") setErr(`spawn outcome unknown: ${outcome.reason}${outcome.user ? ` (registered as ${outcome.user})` : ""}`);
-      else if (outcome.status === "uncertain") setErr(`spawn not confirmed: ${outcome.reason}; check the roster`);
+      else if (outcome.status === "uncertain") setErr(`spawn not confirmed: ${outcome.reason}; check the agents list`);
     } catch (err) {
       setErr(`not confirmed: ${unansweredOutcome(err).reason}`);
     } finally {
@@ -418,29 +332,6 @@ function agentDropProps(setOver, onDropUser) {
       if (user) onDropUser(user);
     },
   };
-}
-
-function TeamBox({ team, members, chip, refresh }) {
-  const [over, setOver] = useState(false);
-  const disband = async (e) => {
-    e.stopPropagation();
-    if (!confirm(`Disband team ${team.name}? Its agents keep running.`)) return;
-    await fetch(`/teams/${team.id}`, { method: "DELETE" });
-    refresh();
-  };
-  return html`<div class=${`teambox ${over ? "over" : ""}`}
-      ...${agentDropProps(setOver, user => moveAgentToTeam(user, team.id, refresh))}>
-    <div class="teamhead">
-      <span class="teamname">${team.name}</span>
-      ${team.queen
-        ? html`<span class="queen-tag" title=${`queen: ${team.queen}`}>♛ ${team.queen}</span>`
-        : html`<span class="queen-tag" style="opacity:.55">no queen</span>`}
-      <button type="button" class="mini" title="disband team" onClick=${disband}>disband</button>
-    </div>
-    ${members.length === 0
-      ? html`<div class="teamempty">drag agents here</div>`
-      : members.map(chip)}
-  </div>`;
 }
 
 function NewTeam({ refresh }) {
@@ -511,51 +402,6 @@ function MachineBar({ state, machine, selectMachine }) {
     </div>
     ${machine !== null && html`<div class="machine-filter-note">Highlighting bees and showing agents on <b>${machine}</b>. Task board shows all machines. <button onClick=${() => selectMachine(null)}>Clear filter ×</button></div>`}
   </section>`;
-}
-
-function Roster({ state, focusUser, unreadFor, pings, refresh, machine, harness = null, onClose, heading = true }) {
-  const [groupBy, setGroupBy] = useState("team");
-  const [overUnteam, setOverUnteam] = useState(false);
-  const teams = state.teams || [];
-  const teamById = new Map(teams.map(t => [t.id, t]));
-  const visible = state.recipients.filter(r => agentShown(r, machine, harness));
-  const running = sortByActivity(visible.filter(r => r.pane_alive));
-  const stopped = visible.filter(r => !r.pane_alive);
-  const unteamed = running.filter(r => !teamById.has(r.team_id));
-  const chip = (r) => html`<${RosterChip} key=${r.user_id} r=${r} state=${state}
-    team=${teamById.get(r.team_id) || null}
-    selected=${focusUser === r.user_id} unread=${unreadFor(r.user_id)}
-    ping=${!!pings[r.user_id]} refresh=${refresh} />`;
-  return html`<aside class="roster">
-    ${heading && html`<div class="roster-heading"><h2>agents ${running.length > 0 && html`<span class="count">· ${running.length}</span>`}</h2>${onClose && html`<button type="button" class="mini" aria-label="Hide agents" onClick=${onClose}>Hide →</button>`}</div>`}
-    <div class="roster-grouping" aria-label="Group agents by">
-      <span>Group by</span>${["machine", "team"].map(g => html`<button aria-pressed=${groupBy === g} onClick=${() => setGroupBy(g)}>${g}</button>`)}
-    </div>
-    ${groupBy === "machine" ? machineList(state.nodes, state.recipients).filter(n => machine === null || machine === n.name).map(n => html`<section class="machine-group" key=${n.name} style=${`--machine:${machineColor(n.name)}`}>
-      <h3><${MachineBadge} node=${n.name} /><span>${running.filter(r => machineName(r.node) === n.name).length} live</span></h3>
-      ${running.filter(r => machineName(r.node) === n.name).map(chip)}
-      ${!running.some(r => machineName(r.node) === n.name) && html`<p class="machine-empty">${n.connected ? "No live agents" : n.missing ? "Machine no longer enrolled" : "Machine disconnected"}</p>`}
-      ${stopped.some(r => machineName(r.node) === n.name) && html`<details class="stopped"><summary>Offline / stopped · ${stopped.filter(r => machineName(r.node) === n.name).length}</summary>${stopped.filter(r => machineName(r.node) === n.name).map(chip)}</details>`}
-    </section>`) : html`<div>
-    ${teams.map(t => html`<${TeamBox} key=${t.id} team=${t} chip=${chip} refresh=${refresh}
-      members=${running.filter(r => r.team_id === t.id)} />`)}
-    <${NewTeam} refresh=${refresh} />
-    <div class=${`unteam-drop ${overUnteam ? "over" : ""}`}
-        ...${agentDropProps(setOverUnteam, user => moveAgentToTeam(user, null, refresh))}>
-      ${teams.length > 0 && html`<div class="hint">no team · drop here to unteam</div>`}
-      ${running.length === 0
-        ? html`<div class="empty" style="padding:20px">No agents running.<br /><br />
-            <code>agent-swarm register</code></div>`
-        : unteamed.map(chip)}
-    </div>
-    ${stopped.length > 0 && html`<details class="stopped">
-      <summary>stopped · ${stopped.length}</summary>
-      <${RetireButton} ids=${stopped.filter(r => !r.reserved).map(r => r.user_id)} refresh=${refresh} label=${`retire all ${stopped.filter(r => !r.reserved).length} stopped`} />
-      ${stopped.map(chip)}
-    </details>`}
-    </div>`}
-    <${SpawnControl} refresh=${refresh} nodes=${state.nodes || []} />
-  </aside>`;
 }
 
 /* ---------- overview mode ---------- */
@@ -727,26 +573,71 @@ function Kanban({ state, refresh }) {
   </div>`;
 }
 
-// Agents panel: a switcher between a compact view grouped by team, the
-// original tile grid, and the full roster with its controls. It sits at the
+// Agents panel: a switcher between the team view, which holds every agent
+// control, and the original tile grid. It sits at the
 // top of the phone overview and is the desktop sidebar; each place keeps its
 // own choice per browser, and both start on the team view.
 const AGENTS_VIEW_KEY = "agent-swarm:mobile-agents-view";
 const SIDEBAR_VIEW_KEY = "agent-swarm:sidebar-agents-view";
-const AGENTS_VIEWS = [["teams", "teams"], ["tiles", "tiles"], ["roster", "roster"]];
+const AGENTS_VIEWS = [["teams", "teams"], ["tiles", "tiles"]];
 const COLLAPSED_TEAMS_KEY = "agent-swarm:collapsed-teams";
 
 function readJSON(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
 }
 
-// Live agents in outlined, collapsible team boxes, queen first; agents with
-// no team come last. Each agent is one small chip that opens its page.
-// Chips drag between groups to change team, as in the roster. While one is
-// dragged, empty teams and "no team" show too (at the end), so any team is a target.
+// A team's ♛ button opens this: pick the queen from its running members
+// (with an optional objective for her), or disband the team.
+function TeamManage({ team, members, refresh, onDone }) {
+  const [queen, setQueen] = useState(team.queen || "");
+  const [objective, setObjective] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    if (queen === (team.queen || "")) { onDone(); return; }
+    setBusy(true);
+    const body = queen ? { queen, objective: objective.trim() || null } : { queen: null };
+    const res = await fetch(`/teams/${team.id}`, { method: "PATCH", headers: JSONH, body: JSON.stringify(body) }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) { alert(`Could not change the queen of ${team.name}.`); return; }
+    onDone();
+    refresh();
+  };
+  const disband = async () => {
+    if (!confirm(`Disband team ${team.name}? Its agents keep running.`)) return;
+    const res = await fetch(`/teams/${team.id}`, { method: "DELETE" }).catch(() => null);
+    if (!res?.ok) { alert(`Could not disband ${team.name}.`); return; }
+    onDone();
+    refresh();
+  };
+  const offlineQueen = team.queen && !members.some(r => r.user_id === team.queen);
+  return html`<form class="team-manage" onSubmit=${save}>
+    <label>queen <select aria-label=${`Queen of ${team.name}`} value=${queen} disabled=${busy} onChange=${e => setQueen(e.target.value)}>
+      <option value="">no queen</option>
+      ${members.map(r => html`<option key=${r.user_id} value=${r.user_id}>${r.user_id}</option>`)}
+      ${offlineQueen && html`<option value=${team.queen}>${team.queen} (offline)</option>`}
+    </select></label>
+    ${queen && queen !== team.queen && html`<input type="text" aria-label="Objective for the queen" placeholder="objective (optional)"
+      value=${objective} disabled=${busy} onInput=${e => setObjective(e.target.value)} />`}
+    <div class="team-manage-actions">
+      <button class="act" disabled=${busy}>${busy ? "saving…" : "save"}</button>
+      <button type="button" class="mini" onClick=${onDone}>cancel</button>
+      <button type="button" class="mini disband" onClick=${disband}>disband team</button>
+    </div>
+  </form>`;
+}
+
+// Every agent control lives here. Running agents sit in outlined,
+// collapsible team boxes, queen first; agents with no team come last. Each
+// agent is one small chip that opens its page (which has "stop agent", the
+// way to stop one on a touch screen). Chips drag between groups to change
+// team, or onto the stop zone that shows during a drag. Each team's ♛
+// button picks its queen or disbands it. Offline agents can be retired.
+// New teams and spawning sit at the bottom.
 function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUser = null }) {
   const [dragging, setDragging] = useState(null);
   const [over, setOver] = useState(null);
+  const [managing, setManaging] = useState(null);
   const [collapsed, setCollapsed] = useState(() => new Set(readJSON(COLLAPSED_TEAMS_KEY, [])));
   const toggle = (key, open) => setCollapsed(prev => {
     const next = new Set(prev);
@@ -768,12 +659,22 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
   const lonersGone = offline.filter(r => !teams.some(t => t.id === r.team_id)).map(r => r.user_id).sort();
   groups.push({ key: "none", name: "no team", queen: null, members: loners, gone: lonersGone, teamId: null });
   // Groups with no one running go last, so nothing moves under the pointer
-  // when empty ones appear for a drag; a team of only offline agents still
-  // shows, so they can be retired.
+  // during a drag. Empty teams still show (as one line), so they can be
+  // managed and dropped onto; "no team" only shows when it has someone or
+  // during a drag.
   groups.sort((a, b) => !a.members.length - !b.members.length);
-  if (!dragging) groups.splice(0, groups.length, ...groups.filter(g => g.members.length || g.gone.length));
-  if (!groups.length) return html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}.</p>`;
-  return html`<div class="team-bees">${groups.map(g => {
+  if (!dragging) groups.splice(0, groups.length, ...groups.filter(g => g.teamId !== null || g.members.length || g.gone.length));
+  const stopOver = over === "stop";
+  const stopDrop = agentDropProps(
+    on => setOver(cur => on ? "stop" : cur === "stop" ? null : cur),
+    user => {
+      setDragging(null);
+      const r = live.find(x => x.user_id === user);
+      if (r) stopAgent(r, state, focusUser, refresh);
+    });
+  return html`<div class="team-bees">
+    ${!live.length && html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}.</p>`}
+    ${groups.map(g => {
     const busy = g.members.filter(r => agentStatus(r) === "working").length;
     const attention = g.members.filter(r => agentStatus(r) === "needs_attention").length;
     const drop = agentDropProps(
@@ -784,11 +685,17 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
         if (from && (teams.some(t => t.id === from.team_id) ? from.team_id : null) !== g.teamId)
           moveAgentToTeam(user, g.teamId, refresh);
       });
-    return html`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""} ${over === g.key ? "over" : ""}`}
-        open=${!collapsed.has(g.key)} onToggle=${e => toggle(g.key, e.currentTarget.open)} ...${drop}>
+    const team = g.teamId === null ? null : teams.find(t => t.id === g.teamId);
+    const empty = !g.members.length && !g.gone.length;
+    return html`<details key=${g.key} class=${`team-bees-group ${g.key === "none" ? "loose" : ""} ${empty && !dragging ? "empty" : ""} ${over === g.key ? "over" : ""}`}
+        open=${!collapsed.has(g.key) || managing === g.key} onToggle=${e => toggle(g.key, e.currentTarget.open)} ...${drop}>
       <summary><span class="team-bees-name">${g.name}</span>
-        <span class="team-bees-counts">${g.members.length}${busy ? html` · <span class="working">${busy} working</span>` : ""}${attention ? html` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
-      <div class="team-bees-chips">${!g.members.length && !g.gone.length && html`<span class="team-bees-empty">drop here</span>`}${g.members.map(r => {
+        <span class="team-bees-counts">${g.members.length}${busy ? html` · <span class="working">${busy} working</span>` : ""}${attention ? html` · <span class="attn">${attention} need you</span>` : ""}</span>
+        ${team && html`<button type="button" class="team-bees-manage" aria-pressed=${managing === g.key}
+          aria-label=${`Queen and settings for ${g.name}`} title=${team.queen ? `queen: ${team.queen} · change queen or disband` : "pick a queen or disband"}
+          onClick=${e => { e.preventDefault(); e.stopPropagation(); setManaging(m => m === g.key ? null : g.key); }}>♛</button>`}</summary>
+      ${managing === g.key && team && html`<${TeamManage} key=${`${g.key}:${team.queen}`} team=${team} members=${g.members} refresh=${refresh} onDone=${() => setManaging(null)} />`}
+      <div class="team-bees-chips">${empty && dragging && html`<span class="team-bees-empty">drop here</span>`}${g.members.map(r => {
         const st = STATE[agentStatus(r)] || STATE.unknown;
         return html`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
           aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
@@ -810,13 +717,17 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
       ${g.gone.length > 0 && html`<div class="team-bees-offline"><span title=${g.gone.join(", ")}>${g.gone.length} offline: ${g.gone.join(", ")}</span>
         <${RetireButton} ids=${g.gone} refresh=${refresh} label=${g.gone.length > 1 ? `retire all ${g.gone.length}` : "retire"} /></div>`}
     </details>`;
-  })}</div>`;
+  })}
+    ${dragging && html`<div class=${`team-bees-stop ${stopOver ? "over" : ""}`} ...${stopDrop}>drop here to stop ${dragging}</div>`}
+    <${NewTeam} refresh=${refresh} />
+    <${SpawnControl} refresh=${refresh} nodes=${state.nodes || []} />
+  </div>`;
 }
 
 // `onClose` (the desktop sidebar) adds a heading with "Hide →" above every view.
-function AgentsPanel({ state, refresh, machine, harness, setHarness, unreadFor, pings, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
+function AgentsPanel({ state, refresh, machine, harness, setHarness, unreadFor, storageKey = AGENTS_VIEW_KEY, focusUser = null, onClose = null }) {
   const [view, setView] = useState(() => {
-    try { return localStorage.getItem(storageKey) || "teams"; } catch { return "teams"; }
+    try { return localStorage.getItem(storageKey) === "tiles" ? "tiles" : "teams"; } catch { return "teams"; }
   });
   const pick = (v) => {
     setView(v);
@@ -837,18 +748,15 @@ function AgentsPanel({ state, refresh, machine, harness, setHarness, unreadFor, 
     </div>
     ${view === "tiles"
       ? html`<${CompactBees} state=${state} machine=${machine} harness=${harness} />`
-      : view === "roster"
-        ? html`<${Roster} state=${state} focusUser=${focusUser} unreadFor=${unreadFor} pings=${pings}
-            refresh=${refresh} machine=${machine} harness=${harness} onClose=${null} heading=${!onClose} />`
-        : html`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} harness=${harness} unreadFor=${unreadFor} focusUser=${focusUser} />`}
+      : html`<${TeamBees} state=${state} refresh=${refresh} machine=${machine} harness=${harness} unreadFor=${unreadFor} focusUser=${focusUser} />`}
   </div>`;
 }
 
-function Overview({ state, refresh, machine, harness, setHarness, unreadFor, pings }) {
+function Overview({ state, refresh, machine, harness, setHarness, unreadFor }) {
   return html`<div>
     <h2>activity</h2>
     <${HiveView} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness}
-      compactBody=${html`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`} />
+      compactBody=${html`<${AgentsPanel} state=${state} refresh=${refresh} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} />`} />
     <${Kanban} state=${state} refresh=${refresh} />
   </div>`;
 }
@@ -1648,7 +1556,6 @@ function App() {
   const [clock, setClock] = useState(new Date().toLocaleTimeString());
   const [route, setRoute] = useState(location.hash);
   const [freshIds, setFreshIds] = useState(new Set());
-  const [pings, setPings] = useState({});
   const seen = useRef({ maxId: 0, first: true, byAgent: {} });
   const [pending, setPending] = useState([]);
   useEffect(() => {
@@ -1687,8 +1594,6 @@ function App() {
       const fresh = s.messages.filter(m => m.id > st.maxId);
       if (!st.first && fresh.length) {
         setFreshIds(new Set(fresh.map(m => m.id)));
-        setPings(Object.fromEntries(fresh.flatMap(m => [[m.sender, 1], [m.recipient, 1]])));
-        setTimeout(() => setPings({}), 1000);
       }
       for (const rec of s.recipients) {
         if (st.first || !(rec.user_id in st.byAgent)) st.byAgent[rec.user_id] = maxId;
@@ -1803,12 +1708,12 @@ function App() {
             ? html`<${ChatsView} state=${state} unreadFor=${unreadFor} />`
             : onTab !== null
               ? html`<${TabView} name=${onTab} tabs=${state.tabs || []} />`
-              : html`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings} />`}
+              : html`<${Overview} state=${state} refresh=${poll} machine=${machine} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} />`}
     </div>
     </div>
     ${!compact && html`<div id="agent-sidebar" class=${`roster-drawer ${rosterOpen ? "is-open" : ""}`} inert=${!rosterOpen} aria-hidden=${!rosterOpen}>
       <aside class="roster">
-        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor} pings=${pings}
+        <${AgentsPanel} state=${state} refresh=${poll} machine=${onOverview ? machine : null} harness=${harness} setHarness=${setHarness} unreadFor=${unreadFor}
           storageKey=${SIDEBAR_VIEW_KEY} focusUser=${focusUser} onClose=${closeRoster} />
       </aside>
     </div>`}

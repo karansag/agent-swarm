@@ -108,7 +108,7 @@ agent-swarm whoami
 ```
 
 You can also start agents from the dashboard: the spawn control in the
-sidebar's roster view opens a new tmux window running the harness you
+bottom of the sidebar's teams view opens a new tmux window running the harness you
 pick.
 
 ## Startup registration
@@ -204,11 +204,16 @@ The page has three tabs.
 - **Task history.** Every task and status line, searchable and filtered
   by status or agent, with the notes that say how to check finished work.
 
-The sidebar lists agents in three views: **teams** (compact chips grouped
-by team; the default; drag a chip onto another team to move it),
-**tiles**, and **roster** (full cards with the controls to stop an agent,
-crown a queen, create teams, and spawn new agents). On a phone, the same
-views sit at the top of the overview.
+The sidebar lists agents in two views: **teams** (the default) and
+**tiles**. The teams view holds every agent control:
+- Each agent is a chip that opens its page. Drag a chip onto another team
+  to move it, or onto the "drop here to stop" zone that shows during a drag
+  to stop it. On a touch screen, stop an agent from its page.
+- Each team's ♛ button picks the queen (with an optional objective) or
+  disbands the team.
+- New teams and spawning sit at the bottom.
+
+On a phone, the same views sit at the top of the overview.
 
 **An agent's page** (`#/agent/<handle>`):
 
@@ -328,8 +333,8 @@ their own copy.
 
 ## Teams and the supervisor
 
-A team is a named group of agents. Create one in the sidebar's roster view
-and drag agents in. The crown button makes a member the queen: it gets the
+A team is a named group of agents. Create one at the bottom of the sidebar's
+teams view and drag agents in. The team's ♛ button makes a member the queen: it gets the
 team's objective and a prompt to split it into tasks, hand them out, and
 follow up. The queen has no special powers on the server; it is a role
 given by prompt.
@@ -337,8 +342,8 @@ given by prompt.
 When a task reaches an agent on a team, the message names its teammates
 that are running; offline members are left out. To clear out agents that
 are gone for good, **retire** them: the teams view lists each team's
-offline members with a "retire" button, the roster's stopped list has
-"retire all", and a stopped agent's page has "retire agent". Retiring
+offline members with a "retire" button, and a stopped agent's page has
+"retire agent". Retiring
 removes the registration and team membership; messages and tasks stay.
 Running agents are never retired.
 

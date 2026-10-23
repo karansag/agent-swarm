@@ -428,13 +428,14 @@ def test_portal_task_honeycomb_contract(client):
 
 def test_portal_team_contract(client):
     portal = portal_source()
-    # Teams are managed from the sidebar (create, drag membership, crown a
-    # queen) and mirrored in the hive canvas as labeled outlines.
-    assert "function TeamBox" in portal
-    assert "function NewTeam" in portal
+    # Teams are managed from the sidebar's teams view (create, drag
+    # membership, pick a queen) and mirrored in the hive canvas as labeled
+    # outlines.
+    assert "function TeamManage" in portal
+    assert "<${NewTeam} refresh=${refresh} />" in portal
     assert "application/x-agent-swarm-agent" in portal
     assert "/team`" in portal
-    assert "queen: r.user_id, objective: raw.trim()" in portal
+    assert "{ queen, objective: objective.trim() || null }" in portal
     assert "teamBoxesRef" in portal
     assert "assign #${dragTaskRef.current} to team ${targetBox.name}" in portal
     assert "move ${dragBeeRef.current} to team ${targetBox.name}" in portal
@@ -449,7 +450,7 @@ def test_portal_team_contract(client):
 def test_portal_dead_pane_overrides_stale_activity(client):
     portal = portal_source()
     assert 'if (!r.pane_alive) return "stopped";' in portal
-    assert "chip-card state-${st.cls}" in portal
+    assert "class=${`status ${st.cls}`}" in portal
     assert ".status.working" in portal
     assert ".status.attention" in portal
 
@@ -478,12 +479,10 @@ def test_portal_pins_owner_thread_and_keeps_peer_threads_stable(client):
     assert ".map(([, msgs]) => msgs);" in portal
 
 
-def test_portal_roster_unread_is_agent_to_owner_only(client):
+def test_portal_unread_is_agent_to_owner_only(client):
     portal = portal_source()
     assert 'm.id > since && m.sender === u && m.recipient === "owner"' in portal
-    # Attention still owns the marker independently of unread message state.
-    assert "(unread || attention)" in portal
-    assert 'attention ? "needs attention" : "new messages"' in portal
+    assert 'class="team-mate-unread"' in portal
 
 
 def test_portal_bees_identify_their_harness_by_color_and_glyph(client):

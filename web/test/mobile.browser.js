@@ -68,7 +68,7 @@ for (const [width, height] of [[320,568],[390,844],[430,932],[768,1024],[820,118
   });
 }
 
-test('touch navigation, filtering, roster stacking, task details and assignment', async () => {
+test('touch navigation, filtering, agent chips, task details and assignment', async () => {
   const { page, state, errors } = await setup(390,844);
   const patches = [];
   await page.route('**/tasks/73', async route => {
@@ -109,13 +109,12 @@ test('touch navigation, filtering, roster stacking, task details and assignment'
     await page.waitForFunction(() => document.querySelector('.hive-task-detail p').textContent.includes('ferret'));
     assert.deepEqual(patches, [{team_id:1}, {assignee:'ferret',team_id:null}]);
     await fit(page);
-    // Phones have no roster below the page: the agents panel at the top holds
-    // it, as its "roster" view with all the management controls.
+    // Phones have no sidebar: the agents panel at the top holds the agents,
+    // and its teams view has the management controls.
     assert.equal(await page.locator('#agent-sidebar').count(), 0);
-    assert.equal(await page.getByRole('button', { name: /Agent roster/ }).count(), 0);
-    await page.locator('.agents-view-switch button', { hasText: 'roster' }).tap();
-    const chip = page.locator('.agents-panel .chip-card').filter({has:page.locator('.nm', {hasText:names[1]})}).first();
-    await chip.tap();
+    assert.deepEqual(await page.locator('.agents-view-switch > button').allTextContents(), ['teams', 'tiles']);
+    await page.locator('.agents-view-switch button', { hasText: 'teams' }).tap();
+    await page.locator('.agents-panel .team-mate', { hasText: names[1] }).first().tap();
     await page.waitForSelector('.focus-back');
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
@@ -482,7 +481,7 @@ test('offline agents show per team and can be retired, there or from their page'
     await team.locator('button.retire').click();
     await page.locator('#agent-sidebar .team-bees-offline', { hasText: 'old-ghost' }).waitFor({ state: 'detached' });
     assert.deepEqual(asked, [['old-ghost']]);
-    assert.match(dialogs[0], /Retire old-ghost\? It leaves the roster and its team\. Messages and tasks are kept\./);
+    assert.match(dialogs[0], /Retire old-ghost\? It leaves the dashboard and its team\. Messages and tasks are kept\./);
     // A stopped agent's own page offers retire instead of stop.
     await page.goto(base + '#/agent/stopped-agent');
     await page.locator('.fhead button.retire', { hasText: 'retire agent' }).click();
@@ -602,10 +601,8 @@ test('phone agents panel: team view groups and collapses, and the view choice st
     assert.equal(await page.locator('.team-bees-group').first().locator('.team-mate').first().isVisible(), false);
     await page.locator('.agents-view-switch button', { hasText: 'tiles' }).click();
     assert.ok(await page.locator('.bee-grid').isVisible());
-    await page.locator('.agents-view-switch button', { hasText: 'roster' }).click();
-    assert.ok(await page.locator('.agents-panel aside.roster').isVisible());
     await page.reload();
-    await page.waitForSelector('.agents-panel aside.roster');
+    await page.waitForSelector('.agents-panel .bee-grid');
     await page.locator('.agents-view-switch button', { hasText: 'teams' }).click();
     // Still collapsed after the reload.
     assert.equal(await page.locator('.team-bees-group').first().evaluate(d => d.open), false);
@@ -613,18 +610,93 @@ test('phone agents panel: team view groups and collapses, and the view choice st
   } finally { await page.close(); }
 });
 
-test('desktop sidebar opens on the team view, with roster a switch away', async () => {
+test('desktop sidebar opens on the team view, which holds new team and spawn', async () => {
   const { page, errors } = await setup(1500, 900, false);
+  // A browser that last chose the removed roster view lands on teams.
+  await page.addInitScript(() => localStorage.setItem('agent-swarm:sidebar-agents-view', 'roster'));
   try {
     await page.goto(base + '#/agent/stoat');
     await page.waitForSelector('#agent-sidebar .team-bees');
     assert.equal(await page.locator('#agent-sidebar .team-mate.here').innerText().then(t => t.trim().split(/\s/)[0]), 'stoat');
-    await page.locator('#agent-sidebar .agents-view-switch button', { hasText: 'roster' }).click();
-    assert.ok(await page.locator('#agent-sidebar .chip-card').first().isVisible());
-    // One heading with Hide, not one from the panel and one from the roster.
+    assert.deepEqual(await page.locator('#agent-sidebar .agents-view-switch button').allTextContents(), ['teams', 'tiles']);
     assert.equal(await page.locator('#agent-sidebar .roster-heading').count(), 1);
-    await page.reload();
-    await page.waitForSelector('#agent-sidebar .chip-card');
+    assert.ok(await page.locator('#agent-sidebar .team-bees form.newteam').isVisible());
+    assert.ok(await page.locator('#agent-sidebar .team-bees form.spawn').isVisible());
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('team view: the crown button picks a queen or disbands the team', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  const patches = [], deletes = [];
+  await page.route('**/teams/1', async route => {
+    if (route.request().method() === 'DELETE') {
+      deletes.push(1);
+      state.teams = state.teams.filter(t => t.id !== 1);
+      return route.fulfill({ json: { ok: true } });
+    }
+    const body = route.request().postDataJSON();
+    patches.push(body);
+    state.teams[0].queen = body.queen;
+    await route.fulfill({ json: { ok: true, team: state.teams[0] } });
+  });
+  const dialogs = [];
+  page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+  try {
+    await page.goto(base + '#/');
+    const team = page.locator('#agent-sidebar .team-bees-group', { has: page.locator('.team-bees-name', { hasText: /^agent-swarm$/ }) });
+    await team.getByRole('button', { name: 'Queen and settings for agent-swarm' }).click();
+    const pick = team.getByRole('combobox', { name: 'Queen of agent-swarm' });
+    assert.equal(await pick.inputValue(), 'stoat');
+    const other = (await pick.locator('option').allTextContents()).find(o => o !== 'no queen' && o !== 'stoat');
+    await pick.selectOption(other);
+    await team.getByRole('textbox', { name: 'Objective for the queen' }).fill('ship it');
+    await team.getByRole('button', { name: 'save' }).click();
+    await team.locator('form.team-manage').waitFor({ state: 'detached' });
+    assert.deepEqual(patches, [{ queen: other, objective: 'ship it' }]);
+    await team.locator(`.team-mate[href="#/agent/${other}"] .crown`).waitFor();
+    // Clicking the crown button does not fold the team.
+    assert.equal(await team.evaluate(d => d.open), true);
+    await team.getByRole('button', { name: 'Queen and settings for agent-swarm' }).click();
+    await team.getByRole('button', { name: 'disband team' }).click();
+    await team.waitFor({ state: 'detached' });
+    assert.deepEqual(deletes, [1]);
+    assert.match(dialogs[0], /Disband team agent-swarm\? Its agents keep running\./);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('team view: dragging a chip onto the stop zone stops that agent', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  const stops = [];
+  await page.route('**/agents/*/stop', async route => {
+    const user = decodeURIComponent(route.request().url().split('/agents/')[1].split('/')[0]);
+    stops.push(user);
+    state.recipients.find(r => r.user_id === user).pane_alive = false;
+    await route.fulfill({ json: { ok: true, already_stopped: false } });
+  });
+  const dialogs = [];
+  page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+  try {
+    await page.goto(base + '#/agent/stoat');
+    await page.waitForSelector('#agent-sidebar .team-bees');
+    // The stop zone only exists during a drag.
+    assert.equal(await page.locator('.team-bees-stop').count(), 0);
+    const box = await page.locator('#agent-sidebar .team-mate[href="#/agent/stoat"]').boundingBox();
+    await page.mouse.move(box.x + 10, box.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 30, box.y + 20, { steps: 5 });
+    const zone = page.locator('#agent-sidebar .team-bees-stop');
+    await zone.waitFor();
+    assert.equal((await zone.textContent()).trim(), 'drop here to stop stoat');
+    await zone.scrollIntoViewIfNeeded();
+    const target = await zone.boundingBox();
+    await page.mouse.move(target.x + 40, target.y + 10, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForFunction(() => location.hash !== '#/agent/stoat');
+    assert.deepEqual(stops, ['stoat']);
+    assert.match(dialogs[0], /^Stop stoat on /);
+    assert.equal(await page.locator('.team-bees-stop').count(), 0);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
@@ -648,8 +720,7 @@ test('harness filter: legend keys and sidebar icons filter agents by harness', a
     assert.equal(await page.locator('.harness-legend button[aria-pressed=true]').textContent().then(t => t.replace(/\s/g, '')), '◇Codex');
     // The filter stays on an agent page, where the legend is gone.
     await page.goto(base + '#/agent/stoat');
-    await page.locator('#agent-sidebar .agents-view-switch button', { hasText: 'roster' }).click();
-    assert.ok(await page.locator('#agent-sidebar .chip-card').count() > 0);
+    assert.deepEqual(await shown(), live('codex'));
     await codex.click();
     assert.equal(await page.locator('#agent-sidebar .roster-heading .harness-filter button[aria-pressed=true]').count(), 0);
     // Icon-only: the filter shares the heading row, so it adds no height.
@@ -661,7 +732,8 @@ test('harness filter: legend keys and sidebar icons filter agents by harness', a
 
 test('team view: drag an agent chip to another team or to no team', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
-  // A second, empty team: it only shows while a chip is being dragged.
+  // A second, empty team: it shows as one folded line, and opens as a target
+  // while a chip is being dragged.
   state.teams.push({ id: 2, name: 'spare', queen: null, members: [] });
   const moves = [];
   await page.route('**/agents/*/team', async route => {
@@ -676,7 +748,7 @@ test('team view: drag an agent chip to another team or to no team', async () => 
     await page.waitForSelector('#agent-sidebar .team-bees');
     const group = name => page.locator('#agent-sidebar .team-bees-group', { has: page.locator('.team-bees-name', { hasText: new RegExp(`^${name}$`) }) });
     const chip = user => page.locator(`#agent-sidebar .team-mate[href="#/agent/${user}"]`);
-    assert.equal(await group('spare').count(), 0);
+    assert.equal(await group('spare').evaluate(d => d.classList.contains('empty')), true);
 
     await chip('stoat').dragTo(group('no team'));
     await page.waitForFunction(() => document.querySelector('#agent-sidebar .team-bees-group.loose a[href="#/agent/stoat"]'));
