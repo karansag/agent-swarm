@@ -803,6 +803,10 @@ button.harness-key[aria-pressed=true] { border-color: var(--honey-dim); color: v
 .team-bees-counts .attn { color: var(--honey); }
 .team-bees-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 8px; }
 .team-bees-group.over { border-color: var(--honey); background: rgba(242,169,59,.12); outline: 1px dashed var(--honey); outline-offset: 2px; }
+.team-bees-offline { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; color: var(--cream-dim); font-size: 11px; }
+.team-bees-offline > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+button.mini.retire { flex: none; }
+details.stopped > button.mini.retire { margin: 6px 0; }
 .team-bees-empty { color: var(--cream-dim); font-size: 11px; padding: 4px 2px; }
 .compact-hive-empty { color: var(--cream-dim); font-size: 12px; }
 .hive-task-assignment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }

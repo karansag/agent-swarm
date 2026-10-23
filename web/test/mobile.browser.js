@@ -462,6 +462,36 @@ test('Ctrl+Shift+[ / ] step through the header views, including extra tabs', asy
   } finally { await page.close(); }
 });
 
+test('offline agents show per team and can be retired, there or from their page', async () => {
+  const { page, state, errors } = await setup(1500, 900, false);
+  const ghost = { user_id: 'old-ghost', node: 'karans-linux', flavor: 'claude', pane_alive: false, team_id: 1, registered_at: state.now - 9000, summaries: [] };
+  state.recipients.push(ghost);
+  const asked = [];
+  await page.route('**/recipients/retire', async r => {
+    const ids = r.request().postDataJSON().user_ids;
+    asked.push(ids);
+    state.recipients = state.recipients.filter(x => !ids.includes(x.user_id));
+    await r.fulfill({ json: { ok: true, retired: ids, kept_live: [], unknown: [] } });
+  });
+  const dialogs = [];
+  page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+  try {
+    await page.goto(base + '#/');
+    const team = page.locator('#agent-sidebar .team-bees-group', { hasText: 'agent-swarm' });
+    await team.locator('.team-bees-offline', { hasText: '1 offline: old-ghost' }).waitFor();
+    await team.locator('button.retire').click();
+    await page.locator('#agent-sidebar .team-bees-offline', { hasText: 'old-ghost' }).waitFor({ state: 'detached' });
+    assert.deepEqual(asked, [['old-ghost']]);
+    assert.match(dialogs[0], /Retire old-ghost\? It leaves the roster and its team\. Messages and tasks are kept\./);
+    // A stopped agent's own page offers retire instead of stop.
+    await page.goto(base + '#/agent/stopped-agent');
+    await page.locator('.fhead button.retire', { hasText: 'retire agent' }).click();
+    await page.waitForFunction(() => location.hash === '#/');
+    assert.deepEqual(asked[1], ['stopped-agent']);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('the first message to an agent clears the composer', async () => {
   const { page, state, errors } = await setup(1500, 900, false);
   await page.route('**/owner/send', async route => {

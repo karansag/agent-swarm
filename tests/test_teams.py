@@ -194,3 +194,38 @@ def test_task_dependency_graph(client):
     # unknown dependency rejected
     r = client.patch(f"/tasks/{r1['id']}", json={"depends_on": [999]})
     assert r.status_code == 400
+
+
+def _crew_with_one_offline(client):
+    a = _register(client, "0:0.0")
+    b = _register(client, "0:1.0")
+    c = _register(client, "0:2.0")  # a bare shell: registered but not running
+    team = _make_team(client, "crew")
+    for user in (a, b, c):
+        client.post(f"/agents/{user}/team", json={"team_id": team["id"]})
+    alive = {r["user_id"]: r["pane_alive"] for r in client.get("/api/state").json()["recipients"]}
+    assert alive == {a: True, b: True, c: False}
+    return a, b, c, team
+
+
+def test_team_line_names_only_running_teammates(client):
+    a, b, c, team = _crew_with_one_offline(client)
+    client.patch(f"/teams/{team['id']}", json={"queen": c, "objective": "x"})
+    calls_before = len(client._calls)
+    client.post("/tasks", json={"title": "solo", "assignee": a})
+    delivered = [text for _, text, *_ in client._calls[calls_before:]]
+    assert f"You are on team 'crew' with {b}." in delivered[0]
+    assert c not in delivered[0]
+
+
+def test_retire_forgets_offline_agents_and_refuses_live_ones(client):
+    a, b, c, team = _crew_with_one_offline(client)
+    client.post("/send", json={"tmux_pane": "0:0.0", "recipient": c, "content": "old note"})
+    r = client.post("/recipients/retire", json={"user_ids": [c, a, "nobody", c]})
+    assert r.json() == {"ok": True, "retired": [c], "kept_live": [a], "unknown": ["nobody"]}
+    state = client.get("/api/state").json()
+    assert sorted(r["user_id"] for r in state["recipients"]) == sorted([a, b])
+    assert sorted(client.get("/teams").json()["teams"][0]["members"]) == sorted([a, b])
+    # Its messages stay in the history.
+    assert any(m["recipient"] == c for m in state["messages"])
+    assert client.post("/recipients/retire", json={"user_ids": []}).status_code == 422

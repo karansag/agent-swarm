@@ -8423,6 +8423,40 @@ function CompactButton({ r }) {
     title=${`Type ${r.compact_command} into ${r.user_id}'s pane to compact its context`}
     onClick=${compact}>${busy ? "compacting…" : "compact"}</button>`;
 }
+async function retireAgents(ids, refresh) {
+	const names = ids.length > 6 ? `${ids.slice(0, 6).join(", ")} and ${ids.length - 6} more` : ids.join(", ");
+	if (!ids.length || !confirm(`Retire ${names}? ${ids.length > 1 ? "They leave" : "It leaves"} the roster and ${ids.length > 1 ? "their teams" : "its team"}. Messages and tasks are kept.`)) return null;
+	try {
+		const response = await fetch("/recipients/retire", {
+			method: "POST",
+			headers: JSONH,
+			body: JSON.stringify({ user_ids: ids })
+		});
+		const body = await response.json().catch(() => null);
+		if (!response.ok || !body?.ok) {
+			alert("Could not retire. Try again.");
+			return null;
+		}
+		if (body.kept_live.length) alert(`Still running, so not retired: ${body.kept_live.join(", ")}`);
+		return body;
+	} catch {
+		alert("Could not retire. Try again.");
+		return null;
+	} finally {
+		refresh();
+	}
+}
+function RetireButton({ ids, refresh, label, onDone = () => {} }) {
+	const [busy, setBusy] = d(false);
+	return m$1`<button type="button" class="mini retire" disabled=${busy || !ids.length} onClick=${async (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setBusy(true);
+		const body = await retireAgents(ids, refresh);
+		setBusy(false);
+		if (body?.retired.length) onDone(body);
+	}}>${busy ? "retiring…" : label}</button>`;
+}
 function StopAgentButton({ r, refresh }) {
 	const [busy, setBusy] = d(false);
 	const [message, setMessage] = d("");
@@ -8444,8 +8478,10 @@ function StopAgentButton({ r, refresh }) {
 		}
 	};
 	return m$1`<span class="agent-stop-control">
-    ${r.pane_alive && m$1`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
-      ${busy ? "stopping…" : "stop agent"}</button>`}
+    ${r.pane_alive ? m$1`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
+          ${busy ? "stopping…" : "stop agent"}</button>` : m$1`<${RetireButton} ids=${[r.user_id]} refresh=${refresh} label="retire agent" onDone=${() => {
+		location.hash = "#/";
+	}} />`}
     ${message && m$1`<span role="status"> ${message}</span>`}
   </span>`;
 }
@@ -8761,6 +8797,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, harness 
     </div>
     ${stopped.length > 0 && m$1`<details class="stopped">
       <summary>stopped · ${stopped.length}</summary>
+      <${RetireButton} ids=${stopped.filter((r) => !r.reserved).map((r) => r.user_id)} refresh=${refresh} label=${`retire all ${stopped.filter((r) => !r.reserved).length} stopped`} />
       ${stopped.map(chip)}
     </details>`}
     </div>`}
@@ -8988,24 +9025,28 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
 		return next;
 	});
 	const live = state.recipients.filter((r) => r.pane_alive && agentShown(r, machine, harness));
+	const offline = state.recipients.filter((r) => !r.pane_alive && !r.reserved && agentShown(r, machine, harness));
 	const teams = state.teams || [];
 	const groups = teams.map((t) => ({
 		key: `t:${t.id}`,
 		name: t.name,
 		queen: t.queen,
 		members: live.filter((r) => r.team_id === t.id).sort((a, b) => (b.user_id === t.queen) - (a.user_id === t.queen) || a.user_id.localeCompare(b.user_id)),
+		gone: offline.filter((r) => r.team_id === t.id).map((r) => r.user_id).sort(),
 		teamId: t.id
 	}));
 	const loners = live.filter((r) => !teams.some((t) => t.id === r.team_id)).sort((a, b) => a.user_id.localeCompare(b.user_id));
+	const lonersGone = offline.filter((r) => !teams.some((t) => t.id === r.team_id)).map((r) => r.user_id).sort();
 	groups.push({
 		key: "none",
 		name: "no team",
 		queen: null,
 		members: loners,
+		gone: lonersGone,
 		teamId: null
 	});
 	groups.sort((a, b) => !a.members.length - !b.members.length);
-	if (!dragging) groups.splice(0, groups.length, ...groups.filter((g) => g.members.length));
+	if (!dragging) groups.splice(0, groups.length, ...groups.filter((g) => g.members.length || g.gone.length));
 	if (!groups.length) return m$1`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}.</p>`;
 	return m$1`<div class="team-bees">${groups.map((g) => {
 		const busy = g.members.filter((r) => agentStatus(r) === "working").length;
@@ -9019,7 +9060,7 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
         open=${!collapsed.has(g.key)} onToggle=${(e) => toggle(g.key, e.currentTarget.open)} ...${drop}>
       <summary><span class="team-bees-name">${g.name}</span>
         <span class="team-bees-counts">${g.members.length}${busy ? m$1` · <span class="working">${busy} working</span>` : ""}${attention ? m$1` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
-      <div class="team-bees-chips">${!g.members.length && m$1`<span class="team-bees-empty">drop here</span>`}${g.members.map((r) => {
+      <div class="team-bees-chips">${!g.members.length && !g.gone.length && m$1`<span class="team-bees-empty">drop here</span>`}${g.members.map((r) => {
 			const st = STATE[agentStatus(r)] || STATE.unknown;
 			return m$1`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
           aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
@@ -9041,6 +9082,8 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
           ${unreadFor(r.user_id) && m$1`<span class="team-mate-unread" title="new reply">●</span>`}
         </a>`;
 		})}</div>
+      ${g.gone.length > 0 && m$1`<div class="team-bees-offline"><span title=${g.gone.join(", ")}>${g.gone.length} offline: ${g.gone.join(", ")}</span>
+        <${RetireButton} ids=${g.gone} refresh=${refresh} label=${g.gone.length > 1 ? `retire all ${g.gone.length}` : "retire"} /></div>`}
     </details>`;
 	})}</div>`;
 }

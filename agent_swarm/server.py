@@ -172,6 +172,12 @@ class ImportReq(BaseModel):
     )
 
 
+class RetireReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_ids: list[str] = Field(min_length=1)
+
+
 class PruneReq(BaseModel):
     include_shells: bool = Field(
         default=False,
@@ -1357,6 +1363,24 @@ def create_app(
                 kept_offline.append(r["user_id"])
         return {"ok": True, "removed": removed, "kept_offline": kept_offline}
 
+    @app.post("/recipients/retire")
+    def retire_recipients(req: RetireReq, _: None = Depends(_require_owner)):
+        """Forget agents that are not running: their registration, team
+        membership, and status lines go; messages and tasks stay. A live
+        agent is never retired, so a stale page cannot remove one."""
+        by_id = {r["user_id"]: r for r in _annotated_recipients()}
+        retired, live, unknown = [], [], []
+        for user_id in dict.fromkeys(req.user_ids):
+            row = by_id.get(user_id)
+            if row is None:
+                unknown.append(user_id)
+            elif row["alive"]:
+                live.append(user_id)
+            elif db.delete_recipient(conn, user_id):
+                retired.append(user_id)
+                _refresh_watch(row["node"])
+        return {"ok": True, "retired": retired, "kept_live": live, "unknown": unknown}
+
     @app.delete("/recipients/{user_id}")
     def unregister(user_id: str, request: Request):
         row = _own_row_or_403(request, user_id)
@@ -1597,17 +1621,19 @@ def create_app(
         )
 
     def _team_line(user_id: str) -> str:
-        """One sentence telling an agent who its teammates are right now."""
+        """One sentence telling an agent who its teammates are right now:
+        only the ones running, since an offline one cannot answer."""
         recipient = db.get_recipient(conn, user_id)
         if recipient is None or not recipient.get("team_id"):
             return ""
         team = db.get_team(conn, recipient["team_id"])
         if team is None:
             return ""
-        others = [m for m in team["members"] if m != user_id]
-        mates = ", ".join(others) if others else "no one else yet"
+        live = {r["user_id"] for r in _annotated_recipients() if r["alive"]}
+        others = [m for m in team["members"] if m != user_id and m in live]
+        mates = ", ".join(others) if others else "no one else running"
         line = f" You are on team '{team['name']}' with {mates}"
-        if team["queen"]:
+        if team["queen"] in live:
             line += f" (queen: {team['queen']})"
         return line + "."
 

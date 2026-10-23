@@ -329,6 +329,14 @@ team's objective and a prompt to split it into tasks, hand them out, and
 follow up. The queen has no special powers on the server; it is a role
 given by prompt.
 
+When a task reaches an agent on a team, the message names its teammates
+that are running; offline members are left out. To clear out agents that
+are gone for good, **retire** them: the teams view lists each team's
+offline members with a "retire" button, the roster's stopped list has
+"retire all", and a stopped agent's page has "retire agent". Retiring
+removes the registration and team membership; messages and tasks stay.
+Running agents are never retired.
+
 The supervisor is the same idea for the whole swarm: the one agent you ask
 "what is going on?", "what happened with #12?", or "file this and give it
 to someone idle".
@@ -579,6 +587,7 @@ token may call it; "owner" means a node token is refused (see
 | GET | `/recipients`, `/whoami` | agent | all registered agents; the caller's own registration |
 | DELETE | `/recipients/{handle}` | agent | unregister (a node only its own machine's agents) |
 | POST | `/recipients/prune` | owner | forget agents whose pane is gone |
+| POST | `/recipients/retire` | owner | forget the named agents that are not running |
 | POST | `/send` | agent | `{recipient, content, context?}` plus the caller's pane or session id; returns `status`: `delivered`, `failed`, or `unknown` |
 | POST | `/status` | agent | set the caller's status line |
 | GET | `/messages` | agent | `?user=<handle>&limit=<n>` |

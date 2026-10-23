@@ -185,6 +185,33 @@ function CompactButton({ r }) {
     onClick=${compact}>${busy ? "compacting…" : "compact"}</button>`;
 }
 
+// Retiring forgets agents that are not running: their registration, team
+// membership, and status lines. Messages and tasks stay. The hub refuses
+// any that are running. Returns the hub's answer, or null if not confirmed.
+async function retireAgents(ids, refresh) {
+  const names = ids.length > 6 ? `${ids.slice(0, 6).join(", ")} and ${ids.length - 6} more` : ids.join(", ");
+  if (!ids.length || !confirm(`Retire ${names}? ${ids.length > 1 ? "They leave" : "It leaves"} the roster and ${ids.length > 1 ? "their teams" : "its team"}. Messages and tasks are kept.`)) return null;
+  try {
+    const response = await fetch("/recipients/retire", { method: "POST", headers: JSONH, body: JSON.stringify({ user_ids: ids }) });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.ok) { alert("Could not retire. Try again."); return null; }
+    if (body.kept_live.length) alert(`Still running, so not retired: ${body.kept_live.join(", ")}`);
+    return body;
+  } catch { alert("Could not retire. Try again."); return null; }
+  finally { refresh(); }
+}
+
+function RetireButton({ ids, refresh, label, onDone = () => {} }) {
+  const [busy, setBusy] = useState(false);
+  return html`<button type="button" class="mini retire" disabled=${busy || !ids.length} onClick=${async e => {
+    e.preventDefault(); e.stopPropagation();
+    setBusy(true);
+    const body = await retireAgents(ids, refresh);
+    setBusy(false);
+    if (body?.retired.length) onDone(body);
+  }}>${busy ? "retiring…" : label}</button>`;
+}
+
 function StopAgentButton({ r, refresh }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -210,8 +237,10 @@ function StopAgentButton({ r, refresh }) {
     }
   };
   return html`<span class="agent-stop-control">
-    ${r.pane_alive && html`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
-      ${busy ? "stopping…" : "stop agent"}</button>`}
+    ${r.pane_alive
+      ? html`<button type="button" class="mini stop-agent" disabled=${busy} onClick=${stop}>
+          ${busy ? "stopping…" : "stop agent"}</button>`
+      : html`<${RetireButton} ids=${[r.user_id]} refresh=${refresh} label="retire agent" onDone=${() => { location.hash = "#/"; }} />`}
     ${message && html`<span role="status"> ${message}</span>`}
   </span>`;
 }
@@ -520,6 +549,7 @@ function Roster({ state, focusUser, unreadFor, pings, refresh, machine, harness 
     </div>
     ${stopped.length > 0 && html`<details class="stopped">
       <summary>stopped · ${stopped.length}</summary>
+      <${RetireButton} ids=${stopped.filter(r => !r.reserved).map(r => r.user_id)} refresh=${refresh} label=${`retire all ${stopped.filter(r => !r.reserved).length} stopped`} />
       ${stopped.map(chip)}
     </details>`}
     </div>`}
@@ -724,18 +754,23 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
     return next;
   });
   const live = state.recipients.filter(r => r.pane_alive && agentShown(r, machine, harness));
+  const offline = state.recipients.filter(r => !r.pane_alive && !r.reserved && agentShown(r, machine, harness));
   const teams = state.teams || [];
   const groups = teams.map(t => ({
     key: `t:${t.id}`, name: t.name, queen: t.queen,
     members: live.filter(r => r.team_id === t.id)
       .sort((a, b) => (b.user_id === t.queen) - (a.user_id === t.queen) || a.user_id.localeCompare(b.user_id)),
+    gone: offline.filter(r => r.team_id === t.id).map(r => r.user_id).sort(),
     teamId: t.id,
   }));
   const loners = live.filter(r => !teams.some(t => t.id === r.team_id)).sort((a, b) => a.user_id.localeCompare(b.user_id));
-  groups.push({ key: "none", name: "no team", queen: null, members: loners, teamId: null });
-  // Groups that only appear during a drag go last, so nothing moves under the pointer.
+  const lonersGone = offline.filter(r => !teams.some(t => t.id === r.team_id)).map(r => r.user_id).sort();
+  groups.push({ key: "none", name: "no team", queen: null, members: loners, gone: lonersGone, teamId: null });
+  // Groups with no one running go last, so nothing moves under the pointer
+  // when empty ones appear for a drag; a team of only offline agents still
+  // shows, so they can be retired.
   groups.sort((a, b) => !a.members.length - !b.members.length);
-  if (!dragging) groups.splice(0, groups.length, ...groups.filter(g => g.members.length));
+  if (!dragging) groups.splice(0, groups.length, ...groups.filter(g => g.members.length || g.gone.length));
   if (!groups.length) return html`<p class="compact-hive-empty">No live ${harness ? `${harnessStyle(harness).label} ` : ""}agents${machine ? ` on ${machine}` : ""}.</p>`;
   return html`<div class="team-bees">${groups.map(g => {
     const busy = g.members.filter(r => agentStatus(r) === "working").length;
@@ -752,7 +787,7 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
         open=${!collapsed.has(g.key)} onToggle=${e => toggle(g.key, e.currentTarget.open)} ...${drop}>
       <summary><span class="team-bees-name">${g.name}</span>
         <span class="team-bees-counts">${g.members.length}${busy ? html` · <span class="working">${busy} working</span>` : ""}${attention ? html` · <span class="attn">${attention} need you</span>` : ""}</span></summary>
-      <div class="team-bees-chips">${!g.members.length && html`<span class="team-bees-empty">drop here</span>`}${g.members.map(r => {
+      <div class="team-bees-chips">${!g.members.length && !g.gone.length && html`<span class="team-bees-empty">drop here</span>`}${g.members.map(r => {
         const st = STATE[agentStatus(r)] || STATE.unknown;
         return html`<a key=${r.user_id} class=${`team-mate ${focusUser === r.user_id ? "here" : ""}`}
           aria-current=${focusUser === r.user_id ? "page" : null} href=${`#/agent/${encodeURIComponent(r.user_id)}`}
@@ -771,6 +806,8 @@ function TeamBees({ state, refresh, machine, harness = null, unreadFor, focusUse
           ${unreadFor(r.user_id) && html`<span class="team-mate-unread" title="new reply">●</span>`}
         </a>`;
       })}</div>
+      ${g.gone.length > 0 && html`<div class="team-bees-offline"><span title=${g.gone.join(", ")}>${g.gone.length} offline: ${g.gone.join(", ")}</span>
+        <${RetireButton} ids=${g.gone} refresh=${refresh} label=${g.gone.length > 1 ? `retire all ${g.gone.length}` : "retire"} /></div>`}
     </details>`;
   })}</div>`;
 }
