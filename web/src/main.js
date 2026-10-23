@@ -30,7 +30,8 @@ import { deliveryOutcome, draftClientId, spawnOutcome, spawnTarget, unansweredOu
 import { machineColor, machineList, machineName } from "./machines.js";
 import { COMPACT_LAYOUT, useMedia } from "./use-media.js";
 import { CompactBees, HiveView } from "./hive.js";
-import { TAB_ROUTE, TabView, stepView, tabHash } from "./tabs.js";
+import { TabView } from "./tabs.js";
+import { TAB_ROUTE, stepView, tabHash } from "./views.js";
 import { HistoryView, HISTORY_ROUTE, historyHash } from "./history.js";
 import { AttachmentLink, AttachmentList, AttachmentPicker, useAttachments } from "./attachments.js";
 import { createBottomFollower } from "./scroll-follow.js";

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stepView, tabHash } from "../src/tabs.js";
+import { stepView, tabHash } from "../src/views.js";
 
 const views = ["#/", "#/chats", tabHash("usage"), tabHash("usage2"), "#/tasks"];
 

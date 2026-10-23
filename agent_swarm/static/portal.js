@@ -2393,8 +2393,6 @@ function HiveView({ state, refresh, machine, harness = null, setHarness = () => 
 }
 //#endregion
 //#region web/src/tabs.js
-var TAB_ROUTE = "#/tab/";
-var tabHash = (name) => `${TAB_ROUTE}${encodeURIComponent(name)}`;
 function forwardShortcuts(frame) {
 	let win;
 	try {
@@ -2427,6 +2425,10 @@ function TabView({ name, tabs }) {
     <iframe key=${name} class="tab-frame" src=${src} title=${name} onLoad=${(e) => forwardShortcuts(e.currentTarget)}></iframe>
   </section>`;
 }
+//#endregion
+//#region web/src/views.js
+var TAB_ROUTE = "#/tab/";
+var tabHash = (name) => `${TAB_ROUTE}${encodeURIComponent(name)}`;
 function stepView(hash, views, by) {
 	return views[(Math.max(0, views.findIndex((v) => v !== "#/" && (hash === v || hash.startsWith(`${v}?`)))) + by + views.length) % views.length];
 }
