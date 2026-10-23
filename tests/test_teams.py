@@ -229,3 +229,20 @@ def test_retire_forgets_offline_agents_and_refuses_live_ones(client):
     # Its messages stay in the history.
     assert any(m["recipient"] == c for m in state["messages"])
     assert client.post("/recipients/retire", json={"user_ids": []}).status_code == 422
+
+
+def test_a_spawned_agent_never_gets_a_retired_agents_name(client, monkeypatch):
+    # Task #288: a retired agent's name, reissued, showed its old messages
+    # and tasks as the new agent's history.
+    from agent_swarm import names
+
+    a, b, c, team = _crew_with_one_offline(client)
+    client.post("/send", json={"tmux_pane": "0:0.0", "recipient": c, "content": "old note"})
+    client.post("/recipients/retire", json={"user_ids": [c]})
+    # The retired name is the only one in the pool, so the new agent gets a
+    # numbered variant of it rather than the name itself.
+    monkeypatch.setattr(names, "POOL", [c])
+    r = client.post("/agents/spawn", json={"flavor": "claude"})
+    assert r.status_code == 200
+    assert r.json()["user_id"] == f"{c}-2"
+    assert not client.get(f"/api/agents/{c}-2/messages?limit=50").json().get("messages")

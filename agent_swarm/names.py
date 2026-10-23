@@ -151,9 +151,30 @@ def pick(taken: set[str], rng: random.Random | None = None) -> str:
     return f"{base}-{n}"
 
 
+# Handles are bare strings in these tables, not keys into recipients, so a
+# retired agent's messages, tasks and status lines still carry its handle.
+_HISTORY = (
+    "SELECT user_id FROM recipients"
+    " UNION SELECT sender FROM messages"
+    " UNION SELECT recipient FROM messages"
+    " UNION SELECT assignee FROM tasks WHERE assignee IS NOT NULL"
+    " UNION SELECT user_id FROM summaries"
+)
+
+
+def used(conn: sqlite3.Connection) -> set[str]:
+    """Every handle this hub has used: registered agents, and retired ones
+    that left messages, tasks or status lines behind."""
+    return {row[0] for row in conn.execute(_HISTORY)}
+
+
 def pick_unused(conn: sqlite3.Connection, rng: random.Random | None = None) -> str:
-    """A pool name no registered agent holds."""
-    return pick({row[0] for row in conn.execute("SELECT user_id FROM recipients")}, rng)
+    """A pool name no agent, past or present, has used.
+
+    A new agent given a retired agent's name would show that agent's
+    history as its own (task #288), so retired names are never reissued.
+    """
+    return pick(used(conn), rng)
 
 
 # Handles the server refuses to hand out: 'owner' is the human operator,

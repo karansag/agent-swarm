@@ -9,6 +9,8 @@ import threading
 import time
 from pathlib import Path
 
+from . import names
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recipients (
     user_id     TEXT PRIMARY KEY,
@@ -1162,7 +1164,9 @@ def _hub_state(conn: sqlite3.Connection) -> dict:
     """This hub as an import plan needs to see it: which handles, stable ids,
     team names, and node names are already in use."""
     return {
-        "handles": {r[0] for r in conn.execute("SELECT user_id FROM recipients")},
+        # Retired agents' handles too, so an imported agent never takes over
+        # a stranger's history.
+        "handles": names.used(conn),
         "panes": [dict(r) for r in conn.execute(
             "SELECT node, tmux_server, tmux_pane FROM recipients WHERE reserved=0"
         )],

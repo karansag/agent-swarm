@@ -9,6 +9,9 @@ from agent_swarm import names
 def _conn():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE recipients (user_id TEXT PRIMARY KEY)")
+    conn.execute("CREATE TABLE messages (sender TEXT, recipient TEXT)")
+    conn.execute("CREATE TABLE tasks (assignee TEXT)")
+    conn.execute("CREATE TABLE summaries (user_id TEXT)")
     return conn
 
 
@@ -60,3 +63,22 @@ def test_pick_unused_falls_back_to_numeric_suffix_when_pool_exhausted():
     _take(conn, name)
     again = names.pick_unused(conn, rng=random.Random(1))
     assert again == f"{base}-3"
+
+
+def test_a_retired_agents_name_is_never_reissued():
+    # A retired agent leaves no recipients row, but its messages, tasks and
+    # status lines still carry its handle. Reissuing the name would hand that
+    # history to a new agent.
+    for leftover in (
+        "INSERT INTO messages VALUES ('{0}', 'owner')",
+        "INSERT INTO messages VALUES ('owner', '{0}')",
+        "INSERT INTO tasks VALUES ('{0}')",
+        "INSERT INTO summaries VALUES ('{0}')",
+    ):
+        conn = _conn()
+        for animal in names.POOL[:-2]:
+            _take(conn, animal)
+        gone, last = names.POOL[-2], names.POOL[-1]
+        conn.execute(leftover.format(gone))
+        assert names.pick_unused(conn) == last
+        assert gone in names.used(conn)
