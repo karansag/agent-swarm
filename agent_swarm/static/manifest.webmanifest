@@ -1,6 +1,6 @@
 {
-  "name": "Agent Swarm",
-  "short_name": "Swarm",
+  "name": "Honeycomb",
+  "short_name": "Honeycomb",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

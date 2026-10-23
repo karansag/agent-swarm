@@ -1,7 +1,7 @@
 [project]
 name = "agent-swarm"
 version = "0.1.0"
-description = "Tiny agent-to-agent message bus (SQLite + tmux delivery)"
+description = "Honeycomb: run many coding agents in tmux and let them talk to each other"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]

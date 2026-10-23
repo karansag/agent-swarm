@@ -275,7 +275,7 @@ pub fn run() {
                 attention: Mutex::default(),
             });
             let window = WebviewWindowBuilder::new(app, "main", start)
-                .title("Agent Swarm")
+                .title("Honeycomb")
                 .inner_size(initial_size.0, initial_size.1)
                 .min_inner_size(420.0, 480.0)
                 .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
@@ -323,7 +323,7 @@ pub fn run() {
                 Some("CmdOrCtrl+,"),
             )?;
             let quit =
-                MenuItem::with_id(app, "quit", "Quit Agent Swarm", true, Some("CmdOrCtrl+Q"))?;
+                MenuItem::with_id(app, "quit", "Quit Honeycomb", true, Some("CmdOrCtrl+Q"))?;
             let enable_notifications = MenuItem::with_id(
                 app,
                 "enable-notifications",
@@ -353,16 +353,16 @@ pub fn run() {
             TrayIconBuilder::with_id("swarm")
                 .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
                 .icon_as_template(true)
-                .tooltip("Agent Swarm")
+                .tooltip("Honeycomb")
                 .menu(&tray_menu)
                 .build(app)?;
 
             let app_menu = Submenu::with_items(
                 app,
-                "Agent Swarm",
+                "Honeycomb",
                 true,
                 &[
-                    &PredefinedMenuItem::about(app, Some("About Agent Swarm"), None)?,
+                    &PredefinedMenuItem::about(app, Some("About Honeycomb"), None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &dashboard,
                     &change_hub,
@@ -409,7 +409,7 @@ pub fn run() {
         })
         .on_menu_event(|app, event| menu_action(app, event.id.as_ref()))
         .build(tauri::generate_context!())
-        .expect("could not start Agent Swarm");
+        .expect("could not start Honeycomb");
 
     app.run(|app, event| {
         if let RunEvent::ExitRequested { .. } = event {
