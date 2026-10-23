@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="What the agent-swarm supervisor is, what was built, and what was left out.">
+<title>Swarm Supervisor Design</title>
+<!-- Rendered companion to supervisor-design.md. Regenerate when the markdown changes. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --ink: #1b2027;
+    --ink-2: #4a5361;
+    --rule: #d8dce3;
+    --hub: #245f52;
+    --hub-soft: #dfeee8;
+    --node: #a6591b;
+    --node-soft: #f6e6d6;
+    --code-bg: #eceef2;
+    --review: #5b4a8a;
+    --review-soft: #ebe6f5;
+    --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #13161b; --surface: #1b1f26; --ink: #e4e8ee; --ink-2: #a2abb8; --rule: #2e3540;
+      --hub: #7fc7ae; --hub-soft: #1e3a33; --node: #e5a15f; --node-soft: #3d2a18;
+      --code-bg: #232833; --review: #b7a6e3; --review-soft: #2a2438;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #13161b; --surface: #1b1f26; --ink: #e4e8ee; --ink-2: #a2abb8; --rule: #2e3540;
+    --hub: #7fc7ae; --hub-soft: #1e3a33; --node: #e5a15f; --node-soft: #3d2a18;
+    --code-bg: #232833; --review: #b7a6e3; --review-soft: #2a2438;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--serif); font-size: 17px; line-height: 1.55; padding-block: 48px 96px; padding-inline: 20px; }
+  main { max-width: 720px; margin: 0 auto; }
+  header { border-bottom: 1px solid var(--rule); padding-bottom: 24px; margin-bottom: 40px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 12px; }
+  h1 { font-family: var(--sans); font-weight: 600; font-size: 38px; line-height: 1.1; margin: 0 0 14px; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { font-size: 19px; color: var(--ink-2); margin: 0; max-width: 62ch; }
+  h2 { font-family: var(--sans); font-weight: 600; font-size: 24px; line-height: 1.2; margin: 56px 0 14px; text-wrap: balance; }
+  h2 .num { font-family: var(--mono); font-size: 13px; color: var(--ink-2); font-weight: 500; letter-spacing: .06em; display: block; margin-bottom: 4px; }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 18px; margin: 30px 0 10px; }
+  p { margin: 0 0 16px; max-width: 68ch; }
+  ul, ol { margin: 0 0 18px; padding-left: 22px; max-width: 68ch; }
+  li { margin-bottom: 8px; }
+  li::marker { color: var(--ink-2); }
+  code, pre { font-family: var(--mono); font-size: .86em; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 4px; overflow-x: auto; margin: 0 0 20px; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  .chosen { border-left: 3px solid var(--hub); padding: 6px 0 6px 16px; margin: 0 0 18px; }
+  .chosen .label { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--hub); display: block; margin-bottom: 4px; }
+  .chosen p { margin: 0; }
+  .review { border-left: 3px solid var(--review); background: var(--review-soft); padding: 10px 14px; margin: 0 0 18px; border-radius: 0 4px 4px 0; font-size: 15.5px; }
+  .review .label { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--review); display: block; margin-bottom: 4px; }
+  .review p { margin: 0; }
+  .alt { color: var(--ink-2); font-size: 16px; }
+  .alt b { font-family: var(--sans); font-weight: 600; color: var(--ink); }
+  figure { margin: 24px 0 28px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-family: var(--sans); font-size: 14px; color: var(--ink-2); margin-top: 8px; }
+  .tablewrap { overflow-x: auto; margin: 0 0 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--sans); font-weight: 600; font-size: 13px; letter-spacing: .03em; color: var(--ink-2); }
+  td:first-child { white-space: nowrap; }
+  .plan { counter-reset: step -1; list-style: none; padding: 0; }
+  .plan li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; margin-bottom: 16px; }
+  .plan li::before { counter-increment: step; content: counter(step); font-family: var(--mono); font-size: 13px; color: var(--hub); border: 1px solid var(--hub); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; margin-top: 2px; }
+  .plan b { font-family: var(--sans); font-weight: 600; }
+  @media (max-width: 480px) { h1 { font-size: 30px; } body { font-size: 16px; } }
+</style>
+<style>body { margin: 0; } img { max-width: 100%; }</style>
+</head>
+<body>
+<main>
+<header>
+  <p class="eyebrow">agent-swarm · design note · task #155</p>
+  <h1>The swarm supervisor</h1>
+  <p class="lede">Status: v1 landed 2026-10-09 (task #155). This note records what a
+supervisor is in agent-swarm, what was built, what was deliberately not
+built, and what to watch for before building more.</p>
+</header>
+<h2>What the owner asked for</h2>
+<p>One agent the owner can talk to about the whole swarm: "what are the
+latest messages and tasks", "what happened with task 12", "file this and
+give it to someone", and the odd admin chore. Ideally persistent, and
+plugged into the message and task streams rather than reading them only
+when asked.</p>
+<h2>What a supervisor is here</h2>
+<p>A supervisor is an ordinary agent in an ordinary tmux pane, holding a
+role the owner gave it. It is the fleet-wide sibling of the team queen:
+a prompt, stored on the hub so the dashboard and the CLI can say who
+holds it, with no server authority of its own.</p>
+<p>That is the main design decision, so the reasons:</p>
+<ul>
+<li><strong>The server never runs a model.</strong> agent-swarm is the delivery layer
+  (README, "How It Fits"). Putting an LLM loop inside the hub would make
+  the bus depend on an API key, a model, and a prompt, and would need a
+  second way to talk to it. Every agent here is already an LLM with a
+  shell; the supervisor needs nothing a normal agent lacks except
+  information and a brief.</li>
+<li><strong>The owner already has a way to talk to any agent.</strong> The dashboard's
+  owner thread, and <code>agent-swarm send --to owner</code> back. The supervisor is
+  reached the same way, so there is no new chat surface to build or
+  learn.</li>
+<li><strong>Any harness can hold the role.</strong> Claude Code today, Codex tomorrow,
+  whichever the owner trusts most with the swarm. Swapping is one command.</li>
+<li><strong>The role must survive the agent.</strong> Harnesses compact or restart. The
+  role is keyed by handle and stored in the hub's <code>meta</code> table, so the
+  same handle in a fresh session is still the supervisor; the owner
+  re-sends the prompt with <code>agent-swarm supervisor &lt;handle&gt;</code> if the
+  agent lost it.</li>
+</ul>
+<h2>What was built</h2>
+<p>Three things, plus prompts and docs.</p>
+<h3>1. The digest: <code>agent-swarm digest</code>, <code>GET /digest</code></h3>
+<p>The piece that makes "ask an agent for the latest messages and tasks"
+cheap. One call returns one block of text written to be read in one go:</p>
+<pre><code>swarm digest · 14:02 · since message #3800
+agents: 14 live (3 working, 9 idle, 1 needs attention, 1 unknown), 6 offline
+  needs attention: tapir — Do you want to run rm -rf build? (4m)
+  working: galago — working on #155: supervisor agent design (12m)
+  idle: ferret, gannet, ...
+tasks: 2 changed, 5 in progress, 3 open and unassigned
+  #154 done · gannet · Drop the roster below the page on phones (8m ago)
+      verify: Open the dashboard narrower than 600px; the roster ...
+  #155 picked_up · galago · On agent swarm I want you to think about ... (12m ago)
+  waiting: #151 Align lockfile ... (2d old)
+messages: 7 new (3 with owner, 4 agent to agent)
+  14:01 gannet → galago [task-155]: Sounds good. A few things that may save ...
+next: agent-swarm digest --after-message 3821
+</code></pre>
+<ul>
+<li>Agents come from the same rows as the dashboard, including the
+  monitor's activity classification (<code>needs_attention</code> with the prompt
+  line as the reason) and each agent's latest status line.</li>
+<li>Tasks: those touched since the cursor, with the verify note for a
+  closed one; a count of in-progress work; and open tasks nobody has,
+  since those are what a delegating supervisor hands out.</li>
+<li>Messages newer than the cursor, oldest first, each clipped to a line,
+  failures and unknown deliveries marked. The supervisor's own threads
+  are counted but not repeated: they already landed in its pane.</li>
+<li>The cursor is a message id (ids only go up), named on the last line,
+  so the next call reads exactly what is new. <code>--minutes N</code> is the coarse
+  window for a first look. Output is capped (40 messages, 25 tasks) and
+  says what it left out, so a busy hour cannot flood the reader.</li>
+</ul>
+<p><code>agent_swarm/digest.py</code> is pure functions over plain dicts; the endpoint
+feeds it the annotated recipients, the task board, and
+<code>db.fetch_messages_after</code>.</p>
+<h3>2. The role: <code>agent-swarm supervisor</code>, <code>PUT/GET/DELETE /supervisor</code></h3>
+<pre><code>agent-swarm supervisor gannet --objective &quot;keep the release on track&quot;
+agent-swarm supervisor            # who holds it
+agent-swarm supervisor --clear    # end it; the agent is told
+</code></pre>
+<p>Appointing stores <code>{user_id, objective, since, cursor}</code> and delivers the
+role prompt (<code>_supervisor_prompt</code> in <code>server.py</code>) in the owner's name,
+context <code>supervisor</code>. The prompt tells the agent how to answer the
+owner (run the digest, read task threads, ask the assignee and relay),
+how to delegate (<code>task-create --assignee</code>, <code>agent-swarm spawn</code> when
+nobody is free), what the hub's nudges mean, and what to ask before
+doing (stop, delete, team changes). Owner only; a node token is refused.
+Unregistering the agent clears the role, as it does a queen.
+<code>/api/state</code> carries <code>supervisor</code> for the dashboard.</p>
+<h3>3. The nudge: the hub tells the supervisor something changed</h3>
+<p>"Plugged into the streams" without flooding it. Every paste into an
+agent's pane costs it a turn and some context, and a busy Claude queues
+the paste as its next input, so pushing every message would be worse
+than useless. Instead, on the monitor loop:</p>
+<ul>
+<li>every <code>AGENT_SWARM_SUPERVISOR_INTERVAL</code> seconds (default 300; 0
+  disables), if the supervisor's pane is live,</li>
+<li>count messages newer than the cursor that the supervisor was not a
+  party to, and tasks updated since the last check,</li>
+<li>if either is non-zero, deliver one line from the reserved sender <code>hub</code>,
+  context <code>digest</code>: "Since your last digest: 3 new message(s), 1 task
+  change(s). Run <code>agent-swarm digest --after-message 3800</code> ...", and</li>
+<li>advance the cursor either way, so a quiet spell is never reported
+  late and an unknown delivery is never resent.</li>
+</ul>
+<p>The nudge is recorded like any message, so the owner sees it on the
+supervisor's page. <code>hub</code> joins <code>owner</code> as a reserved handle.</p>
+<h3>Admin hands: <code>agent-swarm spawn</code>, <code>agent-swarm stop</code></h3>
+<p>Thin CLI wrappers over the existing owner-only endpoints, so the
+supervisor can start a worker when asked to delegate and nobody is idle,
+and stop one the owner asks it to. Teams stay dashboard-only for now.</p>
+<h2>Authority: what the supervisor can and cannot do</h2>
+<p>Nothing in the hub checks for the supervisor role. What a supervisor may
+do is decided by where it runs, like any caller (see "Security Model" in
+the README):</p>
+<ul>
+<li>On the hub machine its CLI calls arrive over loopback, which the hub
+  treats as the owner. So <code>spawn</code>, <code>stop</code>, and the team endpoints work.
+  Task and message calls still carry its own session id, so a task it
+  files notifies the assignee in the supervisor's name, never the
+  owner's.</li>
+<li>On another machine its calls carry a node token, which the hub limits
+  to what an agent does: tasks, messages, status, digest. <code>spawn</code> and
+  <code>stop</code> are refused there.</li>
+</ul>
+<p>That is the existing model, and the v1 supervisor lives inside it. The
+honest statement is: a supervisor on the hub machine has owner powers
+because, by default, every process on the hub machine does. The off
+switch is <code>AGENT_SWARM_TRUST_LOOPBACK=0</code>, after which loopback callers
+need a node token like everyone else and the supervisor is limited to
+what an agent does wherever it runs. If that becomes a
+problem (a supervisor on a node that should be able to spawn, or a hub
+machine with agents that should not), the next step is a <code>role</code> column
+on recipients and endpoints that accept an acting agent with that role,
+checked through <code>_actor</code> like task notifications are. Not built, because
+nothing needs it yet.</p>
+<h2>What was deliberately not built</h2>
+<ul>
+<li><strong>An LLM inside the server.</strong> See above.</li>
+<li><strong>A push of every message.</strong> Context cost and feedback loops (the
+  supervisor's own replies becoming events). The nudge plus pull keeps
+  the supervisor's context spend bounded and under its own control.</li>
+<li><strong>A new event log.</strong> Messages and task rows with timestamps are the
+  log; the digest reads them. The coordination design doc made the same
+  call for the queen.</li>
+<li><strong>Dashboard controls.</strong> Appointing is a CLI command. The dashboard
+  only shows who holds the role (a ✪ next to the name on the roster and
+  the team boxes, from <code>supervisor</code> in <code>/api/state</code>); an appoint button
+  like the queen's crown is a small follow-up in <code>web/src/main.js</code>.</li>
+<li><strong>Multiple supervisors.</strong> One per hub. Teams already have queens for
+  scoped coordination; two fleet-wide supervisors would need to
+  coordinate with each other, which is the problem one level up.</li>
+</ul>
+<h2>Risks and what to watch</h2>
+<ul>
+<li><strong>Context exhaustion.</strong> A supervisor that is asked a lot and nudged
+  every five minutes will compact. The role survives (it is keyed by
+  handle), the prompt does not: re-run <code>agent-swarm supervisor &lt;handle&gt;</code>
+  to re-brief it. If this is frequent, raise the interval, or have the
+  prompt tell the agent to keep a short running note on disk.</li>
+<li><strong>Self-triggered nudges.</strong> The task count cannot tell who updated a
+  task, so a supervisor that files three tasks gets nudged about three
+  task changes. Harmless (one line), but noisy; a <code>changed_by</code> on tasks
+  would fix it.</li>
+<li><strong>Stale cursor after a hub restart.</strong> The cursor is in the database,
+  so it survives. A restored older database would make the first nudge
+  cover more than expected; the digest cap bounds the damage.</li>
+<li><strong>Trusting the digest.</strong> It reads the same rows the dashboard shows,
+  but an agent's status line is self-reported and the activity
+  classifier is heuristic. The prompt tells the supervisor to say
+  "unknown" when the data does.</li>
+</ul>
+<h2>How to try it</h2>
+<pre><code class="language-bash"># 1. pick an idle agent (or spawn one) and appoint it
+agent-swarm spawn --flavor claude          # prints the new handle, e.g. heron
+agent-swarm supervisor heron --objective &quot;watch the task board and tell me what needs me&quot;
+
+# 2. talk to it from the dashboard: open #/agent/heron and ask
+#    &quot;what's going on?&quot; — it runs the digest and answers in the owner thread
+
+# 3. see the digest yourself
+agent-swarm digest --minutes 30
+agent-swarm digest --after-message 3800
+
+# 4. let some traffic happen; within ~5 minutes heron's pane shows
+#    [agent-msg from hub · digest] Since your last digest: ...
+
+# 5. end the role
+agent-swarm supervisor --clear
+</code></pre>
+<p>Tests: <code>tests/test_supervisor.py</code> covers appointing, clearing, the
+digest's content and cursor, attention surfacing, the nudge's throttle
+and exclusions, and the renderer's caps.</p>
+</main>
+</body>
+</html>
