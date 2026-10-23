@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import functools
+import json
 import os
 import re
 import shlex
 import socket
 import subprocess
 import time
-from typing import NamedTuple
+from pathlib import Path
+from typing import Callable, NamedTuple
 
 
 # Panes are addressed by tmux's pane id (%N), which never changes or gets
@@ -345,7 +347,10 @@ def deliver(
 AGENTS_SESSION = "agents"
 
 # Harnesses the dashboard can spawn. Each has a launch binary, the CLI flag
-# that selects a model, and a curated set of known models offered in the UI.
+# that selects a model, and the models offered in the UI. A fixed model list
+# goes stale as models are released, so each list is either aliases the
+# harness resolves to its newest model (claude, pi) or read from the
+# harness's own catalog (codex).
 # "generic" is intentionally not spawnable: launching a bare shell produces a
 # registered pane with no agent in it, which is not a working target.
 #
@@ -359,26 +364,47 @@ class HarnessSpec:
         self,
         binary: str,
         model_flag: str,
-        models: list[str],
+        models: list[str] | Callable[[], list[str]],
         startup_args: str = "",
         launch_args: str = "",
         if_supported: tuple[str, ...] = (),
     ):
         self.binary = binary
         self.model_flag = model_flag
-        self.models = models
+        self._models = models
         self.startup_args = startup_args
         self.launch_args = launch_args
         # Flags passed only when the installed harness accepts them, so a
         # flag added in a newer release can't stop an older one from starting.
         self.if_supported = if_supported
 
+    @property
+    def models(self) -> list[str]:
+        return self._models() if callable(self._models) else self._models
+
+
+def codex_models() -> list[str]:
+    """The models Codex's own /model picker lists, in its order.
+
+    Codex refreshes ~/.codex/models_cache.json from its servers, so new
+    models show up here without a code change. Empty when Codex has never
+    run on this machine; the menu then offers only the default model.
+    """
+    path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "models_cache.json"
+    try:
+        models = json.loads(path.read_text())["models"]
+        listed = [m for m in models if m.get("visibility") == "list" and m.get("slug")]
+        return [m["slug"] for m in sorted(listed, key=lambda m: m.get("priority", 0))]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+
 
 HARNESS_SPAWN: dict[str, HarnessSpec] = {
     "claude": HarnessSpec(
         "claude",
         "--model",
-        ["opus", "sonnet", "haiku"],
+        # Aliases: Claude Code maps each to the newest model of that family.
+        ["opus", "sonnet", "haiku", "fable"],
         # Auto mode lets a classifier approve routine commands, so a spawned
         # agent can work without bypassing permission checks entirely.
         launch_args="--permission-mode auto",
@@ -386,7 +412,7 @@ HARNESS_SPAWN: dict[str, HarnessSpec] = {
     "codex": HarnessSpec(
         "codex",
         "--model",
-        ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+        codex_models,
         startup_args="-c check_for_update_on_startup=false",
         # Codex's workspace-write sandbox blocks the tmux socket, the local
         # agent-swarm API and DNS, so an agent spawned inside it could not

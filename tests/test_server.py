@@ -732,7 +732,7 @@ def test_spawn_pi_launches_pi_binary(client):
     assert r.json()["model"] is None
 
 
-def test_spawn_codex_runs_yolo_and_permission_choice_is_gone(client):
+def test_spawn_codex_runs_yolo_and_permission_choice_is_gone(client, codex_catalog):
     r = client.post("/agents/spawn", json={"flavor": "codex", "model": "gpt-5.6-luna"})
     assert r.status_code == 200
     assert client._spawns[-1] == (
@@ -1285,16 +1285,16 @@ def test_register_without_a_node_records_this_machine(client):
     assert r.json()["node"] == tmux.local_node()
 
 
-def test_spawn_assigns_a_bare_name_on_this_machine(client):
+def test_spawn_assigns_a_bare_name_on_this_machine(client, codex_catalog):
     from agent_swarm import names
 
-    r = client.post("/agents/spawn", json={"flavor": "codex", "model": "gpt-5.6-terra"})
+    r = client.post("/agents/spawn", json={"flavor": "codex", "model": "gpt-6-astra"})
     assert r.status_code == 200
     user = r.json()["user_id"]
     assert user in names.POOL
     row = next(x for x in client.get("/recipients").json()["recipients"] if x["user_id"] == user)
     assert row["node"] == tmux.local_node()
-    assert row["model"] == "gpt-5.6-terra"
+    assert row["model"] == "gpt-6-astra"
 
 
 def test_legacy_suffixed_handles_reserve_their_bare_name_over_http(client, monkeypatch):

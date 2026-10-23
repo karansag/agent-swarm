@@ -256,7 +256,11 @@ if newer, from the topic Claude Code and Codex write into the pane title.
 **Spawning.** Pick a harness and, optionally, a model. The command is
 `claude [--model M] --permission-mode auto`, `codex [--model M] --yolo`, `pi [--model M]`, or
 `hermes --yolo --accept-hooks`. "default model" passes no model
-flag. Codex also gets `-c check_for_update_on_startup=false`, so an update
+flag. Claude offers the aliases `opus`, `sonnet`, `haiku`, and `fable`,
+which Claude Code maps to the newest model of each family. Codex offers the
+models its own `/model` picker lists, read from `~/.codex/models_cache.json`
+(or `$CODEX_HOME`), which Codex keeps up to date; if Codex has never run on
+the hub's machine, only the default is offered. Codex also gets `-c check_for_update_on_startup=false`, so an update
 prompt cannot stall a new pane, and `--no-daemon` when the installed Codex
 supports it, so its commands run in the agent's own pane. Codex needs
 `--yolo` because its sandbox blocks the tmux socket and the local hub.

@@ -16,14 +16,14 @@ def test_each_harness_has_one_launch_and_no_permission_choice():
     assert tmux.spawn_launch_command("hermes") == "hermes --yolo --accept-hooks"
 
 
-def test_known_model_appends_harness_flag():
+def test_known_model_appends_harness_flag(codex_catalog):
     assert (
         tmux.spawn_launch_command("claude", "opus")
         == "claude --model opus --permission-mode auto"
     )
     assert (
-        tmux.spawn_launch_command("codex", "gpt-5.6-terra")
-        == f"{CODEX_STARTUP} --model gpt-5.6-terra --yolo"
+        tmux.spawn_launch_command("codex", "gpt-6-astra")
+        == f"{CODEX_STARTUP} --model gpt-6-astra --yolo"
     )
     # hermes uses -m rather than --model.
     tmux.HARNESS_SPAWN["hermes"].models.append("_probe")
@@ -52,11 +52,27 @@ def test_unspawnable_flavor_returns_none():
     assert tmux.spawn_launch_command("nonsense") is None
 
 
-def test_spawn_options_shape():
+def test_spawn_options_shape(codex_catalog):
     opts = {o["flavor"]: o["models"] for o in tmux.spawn_options()}
     assert set(opts) == {"claude", "codex", "pi", "hermes"}
-    assert opts["claude"] == ["opus", "sonnet", "haiku"]
-    assert opts["codex"] == ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+    assert opts["claude"] == ["opus", "sonnet", "haiku", "fable"]
+    # Codex's own picker list, in its priority order, hidden models left out.
+    assert opts["codex"] == codex_catalog
+
+
+def test_codex_models_without_a_cache_offer_only_the_default():
+    assert tmux.codex_models() == []
+    assert tmux.spawn_launch_command("codex", "gpt-6-astra") == f"{CODEX_STARTUP} --yolo"
+
+
+def test_codex_models_survive_a_malformed_cache(codex_catalog, tmp_path):
+    import os
+    from pathlib import Path
+
+    cache = Path(os.environ["CODEX_HOME"]) / "models_cache.json"
+    for text in ("not json", "[]", '{"models": 3}', '{"models": [1]}'):
+        cache.write_text(text)
+        assert tmux.codex_models() == []
 
 
 def test_local_node_prefers_the_node_override(monkeypatch):
