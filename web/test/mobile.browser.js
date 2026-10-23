@@ -298,7 +298,7 @@ test('a conversation expands to fill the window and back (button, shortcut, Esc)
     await page.getByRole('button', { name: 'Smaller text' }).click();
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.thread.focused').count(), 0);
-    await page.keyboard.press('Control+Shift+Enter');
+    await page.keyboard.press('Control+Shift+L');
     assert.equal(await page.locator('.thread.focused').count(), 1);
     // Typing "f" into the composer is text, not the shortcut.
     const box = page.locator('.thread.focused textarea').first();
@@ -1003,6 +1003,28 @@ for (const platform of ['MacIntel', 'Linux x86_64']) {
   });
 }
 
+test('an agent page focuses the reply box on desktop, not on touch screens', async () => {
+  const desk = await setup(1500, 900, false);
+  try {
+    await desk.page.goto(base + '#/agent/stoat');
+    const box = desk.page.locator('.thread textarea').first();
+    await assert.doesNotReject(() => box.evaluate(e => new Promise((ok, no) => {
+      const t0 = Date.now();
+      (function wait() { document.activeElement === e ? ok() : Date.now() - t0 > 3000 ? no(new Error('not focused')) : setTimeout(wait, 50); })();
+    })));
+    await desk.page.keyboard.type('hi');
+    assert.equal(await box.inputValue(), 'hi');
+    assert.deepEqual(desk.errors, []);
+  } finally { await desk.page.close(); }
+  const phone = await setup(390, 844);
+  try {
+    await phone.page.goto(base + '#/agent/stoat');
+    await phone.page.locator('.thread textarea').first().waitFor();
+    await phone.page.waitForTimeout(300);
+    assert.equal(await phone.page.evaluate(() => document.activeElement?.tagName), 'BODY');
+  } finally { await phone.page.close(); }
+});
+
 for (const platform of ['MacIntel', 'Linux x86_64']) {
   test(`focus modifier shortcut preserves drafts and leaves Vimium f alone: ${platform}`, async () => {
     const {page, errors} = await setup(1500,900,false);
@@ -1011,7 +1033,7 @@ for (const platform of ['MacIntel', 'Linux x86_64']) {
       await page.goto(base+'#/agent/stoat');
       const box = page.locator('.thread textarea').first();
       await box.fill('unsent draft');
-      const chord = platform === 'MacIntel' ? 'Meta+Shift+Enter' : 'Control+Shift+Enter';
+      const chord = platform === 'MacIntel' ? 'Meta+Shift+L' : 'Control+Shift+L';
       await box.press(chord);
       assert.equal(await page.locator('.thread.focused').count(),1);
       await box.press(chord);

@@ -9230,7 +9230,7 @@ var RESEND_DELAYS_MS = [
 	3e3,
 	6e3
 ];
-function MessageComposer({ recipient, refresh }) {
+function MessageComposer({ recipient, refresh, autoFocus = false }) {
 	const [text, setText] = d("");
 	const [context, setContext] = d("");
 	const [images, setImages] = d([]);
@@ -9251,6 +9251,11 @@ function MessageComposer({ recipient, refresh }) {
 			setStatus("");
 		} catch {}
 	}, [draftKey]);
+	h(() => {
+		const el = composerRef.current;
+		const busy = document.activeElement?.closest?.("input, textarea, select, [contenteditable]");
+		if (autoFocus && el && (!busy || busy === el) && !matchMedia("(pointer: coarse)").matches) el.focus({ preventScroll: true });
+	}, [autoFocus, recipient]);
 	h(() => {
 		const el = composerRef.current;
 		if (!el) return;
@@ -9461,7 +9466,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 	const [expanded, setExpanded] = d(!!recipient);
 	const [focused, setFocused] = d(() => !!(recipient && switchCarry?.focus));
 	const focusMac = /Mac|iPhone|iPad/.test(navigator.platform);
-	const focusShortcut = focusMac ? "⌘⇧Enter" : "Ctrl+Shift+Enter";
+	const focusShortcut = focusMac ? "⌘⇧L" : "Ctrl+Shift+L";
 	const [focusFont, setFocusFont] = d(() => {
 		try {
 			return Number(localStorage.getItem(FOCUS_FONT_KEY)) || FOCUS_FONT.start;
@@ -9524,7 +9529,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
 				return;
 			}
 			const modifier = focusMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-			if (page && (recipient || focused) && (!document.querySelector(".thread.focused") || focused) && e.key === "Enter" && e.shiftKey && modifier && !e.altKey) {
+			if (page && (recipient || focused) && (!document.querySelector(".thread.focused") || focused) && e.code === "KeyL" && e.shiftKey && modifier && !e.altKey) {
 				e.preventDefault();
 				e.stopImmediatePropagation();
 				if (!e.repeat) toggleFocus();
@@ -9620,7 +9625,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
       onPointerUp=${resizeEnd} onPointerCancel=${resizeEnd} onKeyDown=${resizeKey}>
       <span>drag to resize history</span>
     </button>
-    ${recipient && m$1`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
+    ${recipient && m$1`<${MessageComposer} recipient=${recipient} refresh=${refresh} autoFocus=${!!page} />`}
     </div>
   </div>`;
 }
@@ -9848,14 +9853,14 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
     ${history.more && m$1`<button type="button" class="mini" disabled=${history.busy} onClick=${history.loadOlder}>
       ${history.busy ? "Loading older messages…" : "Load older messages"}</button>`}
     ${threads.length === 0 ? m$1`<div class="thread">${history.loaded && m$1`<div class="empty">Nothing yet. Start a conversation with ${user} below.</div>`}
-          <${MessageComposer} recipient=${user} refresh=${refresh} /></div>` : threads.map((msgs) => {
+          <${MessageComposer} recipient=${user} refresh=${refresh} autoFocus /></div>` : threads.map((msgs) => {
 		const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
 		return m$1`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user} agents=${registered}
             freshIds=${freshIds} now=${state.now} refresh=${refresh} />`;
 	})}
     ${threads.length > 0 && !hasOwnerThread && m$1`<div class="thread" style="margin-top:14px">
       <div class="bar">${disp("owner")} <span class="swap">⇄</span> ${user}</div>
-      <${MessageComposer} recipient=${user} refresh=${refresh} />
+      <${MessageComposer} recipient=${user} refresh=${refresh} autoFocus />
     </div>`}
     <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && m$1`<span class="count">· ${myTasks.length}</span>`}
       ${myTasks.length > 0 && m$1`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>

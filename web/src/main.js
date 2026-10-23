@@ -966,7 +966,7 @@ function newClientId() {
 // the message by its client id, so a re-send never delivers it twice.
 const RESEND_DELAYS_MS = [1000, 3000, 6000];
 
-function MessageComposer({ recipient, refresh }) {
+function MessageComposer({ recipient, refresh, autoFocus = false }) {
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
   const [images, setImages] = useState([]);
@@ -988,6 +988,16 @@ function MessageComposer({ recipient, refresh }) {
       setStatus("");
     } catch { /* an invalid saved draft should not block messaging */ }
   }, [draftKey]);
+  // On an agent's page the reply box takes focus, so typing starts the reply
+  // without clicking it first. Not on touch screens, where focus opens the
+  // keyboard, and not away from a field the owner is already typing in.
+  useEffect(() => {
+    const el = composerRef.current;
+    const busy = document.activeElement?.closest?.("input, textarea, select, [contenteditable]");
+    if (autoFocus && el && (!busy || busy === el) && !matchMedia("(pointer: coarse)").matches) {
+      el.focus({ preventScroll: true });
+    }
+  }, [autoFocus, recipient]);
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
@@ -1160,11 +1170,11 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
   const peer = other && agents?.has(other) ? other : null;
   const [expanded, setExpanded] = useState(!!recipient);
   // Focus mode: the thread fills the window for reading. The owner's thread
-  // also answers to Cmd/Ctrl+Shift+Enter, including from the reply box; Esc leaves.
+  // also answers to Cmd/Ctrl+Shift+L, including from the reply box; Esc leaves.
   // A teammate switch made in focus mode lands in focus mode.
   const [focused, setFocused] = useState(() => !!(recipient && switchCarry?.focus));
   const focusMac = /Mac|iPhone|iPad/.test(navigator.platform);
-  const focusShortcut = focusMac ? "⌘⇧Enter" : "Ctrl+Shift+Enter";
+  const focusShortcut = focusMac ? "⌘⇧L" : "Ctrl+Shift+L";
   const [focusFont, setFocusFont] = useState(() => {
     try { return Number(localStorage.getItem(FOCUS_FONT_KEY)) || FOCUS_FONT.start; } catch { return FOCUS_FONT.start; }
   });
@@ -1220,7 +1230,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
       }
       const modifier = focusMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
       if (page && (recipient || focused) && (!document.querySelector(".thread.focused") || focused)
-          && e.key === "Enter" && e.shiftKey && modifier && !e.altKey) {
+          && e.code === "KeyL" && e.shiftKey && modifier && !e.altKey) {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (!e.repeat) toggleFocus();
@@ -1314,7 +1324,7 @@ function Thread({ a, b, msgs, freshIds, now, refresh, page = null, agents = null
       onPointerUp=${resizeEnd} onPointerCancel=${resizeEnd} onKeyDown=${resizeKey}>
       <span>drag to resize history</span>
     </button>
-    ${recipient && html`<${MessageComposer} recipient=${recipient} refresh=${refresh} />`}
+    ${recipient && html`<${MessageComposer} recipient=${recipient} refresh=${refresh} autoFocus=${!!page} />`}
     </div>
   </div>`;
 }
@@ -1565,7 +1575,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
       ${history.busy ? "Loading older messages…" : "Load older messages"}</button>`}
     ${threads.length === 0
       ? html`<div class="thread">${history.loaded && html`<div class="empty">Nothing yet. Start a conversation with ${user} below.</div>`}
-          <${MessageComposer} recipient=${user} refresh=${refresh} /></div>`
+          <${MessageComposer} recipient=${user} refresh=${refresh} autoFocus /></div>`
       : threads.map(msgs => {
           const [a, b] = pairKey(msgs[0].sender, msgs[0].recipient).split(" ");
           return html`<${Thread} key=${pairKey(a, b)} a=${a} b=${b} msgs=${msgs} page=${user} agents=${registered}
@@ -1573,7 +1583,7 @@ function FocusView({ user, state, refresh, freshIds, unreadFor }) {
         })}
     ${threads.length > 0 && !hasOwnerThread && html`<div class="thread" style="margin-top:14px">
       <div class="bar">${disp("owner")} <span class="swap">⇄</span> ${user}</div>
-      <${MessageComposer} recipient=${user} refresh=${refresh} />
+      <${MessageComposer} recipient=${user} refresh=${refresh} autoFocus />
     </div>`}
     <h2 style="margin-top:26px">tasks ${myTasks.length > 0 && html`<span class="count">· ${myTasks.length}</span>`}
       ${myTasks.length > 0 && html`<a class="h2-link" href=${historyHash({ agent: user })}>search ${user}'s history →</a>`}</h2>

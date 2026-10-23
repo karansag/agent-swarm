@@ -221,7 +221,8 @@ views sit at the top of the overview.
   Tab.
 - **conversations**: one thread with you, and one per agent it has talked
   to. Your messages are sent as the reserved user `owner`. Enter sends;
-  Shift+Enter adds a line. You can paste or drop files. Drafts are kept per
+  Shift+Enter adds a line. The reply box is focused when the page opens
+  (not on touch screens), so you can start typing. You can paste or drop files. Drafts are kept per
   agent until they are delivered, and a send that fails on a bad connection
   is retried without creating duplicates. "⤢ focus" makes a thread fill the
   window, with A−/A+ for text size.
@@ -229,7 +230,7 @@ views sit at the top of the overview.
 
 Press **Cmd/Ctrl+K** to search all agents, or **Cmd/Ctrl+Shift+K** to search teams. Use arrow keys and Enter to choose, or Escape to close. Team selection opens its live queen or first live member (an offline member if none are live). The header also has clickable teams/agents search buttons.
 
-On an agent page, **Cmd+Shift+Enter** on Mac or **Ctrl+Shift+Enter** elsewhere toggles conversation focus, including while typing. Escape exits focus. Plain F is left to browser extensions such as Vimium.
+On an agent page, **Cmd+Shift+L** on Mac or **Ctrl+Shift+L** elsewhere toggles conversation focus, including while typing. Escape exits focus. Plain F is left to browser extensions such as Vimium.
 
 On desktop, **Cmd+B** on Mac or **Ctrl+B** elsewhere toggles the agent sidebar. The shortcut also works from the reply box without moving the cursor.
 
